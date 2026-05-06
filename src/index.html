@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Meeting Transcriber</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #1e1e1e; color: #d4d4d4; }
+        #container { max-width: 900px; margin: 0 auto; }
+        h1 { color: #61afef; border-bottom: 2px solid #3a3a3a; padding-bottom: 10px; }
+        #controls { margin-bottom: 20px; padding: 15px; background-color: #252526; border-radius: 8px; display: flex; gap: 10px; align-items: center;}
+        button { padding: 10px 20px; cursor: pointer; border: none; border-radius: 5px; transition: background-color 0.3s; }
+        #startBtn { background-color: #98c379; color: black; font-weight: bold; }
+        #stopBtn { background-color: #e06c75; color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Transcripts display */
+        #transcriptContainer { margin-top: 30px; padding: 15px; background-color: #2d2d30; border-radius: 8px; height: 60vh; overflow-y: auto; border: 1px solid #444; }
+        .transcript-block { margin-bottom: 10px; line-height: 1.5; }
+        .speaker-name { font-weight: bold; color: #c678dd; margin-right: 10px; }
+        .speaking-text { color: #ffffff; display: inline; }
+
+        /* Status indicator */
+        #statusIndicator { margin-top: 20px; padding: 10px; background-color: #3b4251; border-radius: 5px; font-style: italic; color: #a9b7c6; }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <h1>Live Meeting Transcriber</h1>
+        <p>Status: <span id="statusIndicator">Awaiting initialization...</span></p>
+
+        <div id="controls">
+            <button id="startBtn" onclick="toggleStreaming(true)">Start Transcription</button>
+            <button id="stopBtn" onclick="toggleStreaming(false)" disabled>Stop Transcription</button>
+            <!-- Optional: Add a button to select input device/source -->
+        </div>
+
+        <h2>Live Transcript</h2>
+        <div id="transcriptContainer">
+            <!-- Transcribed text will appear here -->
+            <p style="text-align: center; color: #a9b7c6;">Press Start to begin capturing and transcribing audio.</p>
+        </div>
+    </div>
+
+    <script>
+        let isStreaming = false;
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const transcriptContainer = document.getElementById('transcriptContainer');
+
+        // Function to update the UI based on streaming state
+        function setStreamingState(streaming) {
+            isStreaming = streaming;
+            startBtn.disabled = streaming;
+            stopBtn.disabled = !streaming;
+        }
+
+        // Toggles the streaming/transcribing process
+        function toggleStreaming(start) {
+            if (start) {
+                // Send a message to Electron main process to start audio capture
+                window.electronAPI.startTranscription();
+                setStreamingState(true);
+                statusIndicator.textContent = "🟢 Capturing and Transcribing Audio...";
+                transcriptContainer.innerHTML = ''; // Clear previous transcript
+            } else {
+                // Send a message to Electron main process to stop audio capture
+                window.electronAPI.stopTranscription();
+                setStreamingState(false);
+                statusIndicator.textContent = "🔴 Stopped.";
+            }
+        }
+
+        // Listen for new transcript data from the main process
+        window.electronAPI.onTranscriptUpdate((event, data) => {
+            if (typeof data !== 'object' || !data.text) return;
+
+            const speakerClass = data.speaker ? `style="color: ${data.speakerColor || '#c678dd'};"` : '';
+            const html = `<div class="transcript-block">
+                <span class="speaker-name" ${speakerClass}>${data.speaker || 'Unknown'}:</span>
+                <span class="speaking-text">${data.text}</span>
+            </div>`;
+
+            // Append new content and scroll to bottom
+            transcriptContainer.innerHTML += html;
+            transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+        });
+    </script>
+</body>
+</html>

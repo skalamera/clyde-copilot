@@ -1,0 +1,23 @@
+{
+  "name": "casper",
+  "version": "1.0.0",
+  "description": "Electron app for real-time meeting transcription.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.16.0",
+    "dotenv": "^17.4.2",
+    "electron": "^41.5.0",
+    "node-record-lpcm16": "^1.0.1"
+  },
+  "devDependencies": {
+    "electron-builder": "^12.0.0"
+  }
+}
