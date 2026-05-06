@@ -1,78 +1,70 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const record = require('node-record-lpcm16');
 const axios = require('axios');
+const { createAudioCapture } = require('./src/audioCapture');
+const { createTranscriptionProcessor } = require('./src/transcriptionClient');
 require('dotenv').config();
 
 let mainWindow;
-let recording;
-let isStreaming = false;
-let transcriptStreamer = null; // Global state for the LM Studio connection/client
+let audioCapture;
+let transcriptionProcessor;
 
 /**
- * Initializes the audio recording system.
+ * Creates the audio recording controller without starting SoX.
  */
 function initializeAudioCapture() {
-    console.log("Initializing multi-source audio capture...");
-    try {
-        // Set up node-record-lpcm16 to capture mixed audio (assuming proper WASAPI routing)
-        recording = record.record({ sampleRate: 44100, sampleSizeInBits: 16 });
-        recording.on('rawdata', (chunk) => {
-            if (!isStreaming) return; // Only process if actively streaming
-            processAudioChunk(chunk);
-        });
-        recording.on('error', (err) => {
-            // Log the specific error to help debugging environment dependencies like SoX
-            console.error("Critical Audio recording failure detected. Check if necessary system binaries (like SoX) are installed and in PATH.", err);
-        });
-        console.log("Audio capture initialized successfully.");
-
-    } catch (e) {
-        console.warn("Failed to initialize audio recording. Check system prerequisites (Virtual Audio Cable, etc.):", e.message);
-        recording = null;
+    if (audioCapture) {
+        return audioCapture;
     }
+
+    audioCapture = createAudioCapture({
+        env: process.env,
+        logger: console,
+        processAudioChunk,
+        onStatus: sendAudioStatus
+    });
+
+    return audioCapture;
 }
 
-/**
- * Sends the captured audio chunk data stream to the LLM API endpoint.
- * @param {Buffer} chunk - The raw audio data buffer.
- */
+function sendAudioStatus(status) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    mainWindow.webContents.send('audio-status', status);
+}
+
+function sendTranscriptUpdate(transcript) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    mainWindow.webContents.send('transcript-update', transcript);
+}
+
+function getTranscriptionProcessor() {
+    if (transcriptionProcessor) {
+        return transcriptionProcessor;
+    }
+
+    transcriptionProcessor = createTranscriptionProcessor({
+        apiUrl: process.env.LM_STUDIO_API_URL || '',
+        model: process.env.TRANSCRIPTION_MODEL,
+        minRms: Number(process.env.CASPER_MIN_RMS || 100),
+        diagnostics: process.env.CASPER_AUDIO_DEBUG === '1',
+        axiosClient: axios,
+        logger: console,
+        sendStatus: sendAudioStatus,
+        sendTranscript: sendTranscriptUpdate
+    });
+
+    return transcriptionProcessor;
+}
+
 async function processAudioChunk(chunk) {
-    if (isStreaming === false) return;
-
-    // 1. Send Chunk for Transcription (This logic replaces the simulation in the old code)
-    try {
-        const apiUrl = process.env.LM_STUDIO_API_URL || 'http://localhost:5000/stream'; // Default or env var
-        console.log("Streaming audio chunk to LM Studio:", chunk);
-
-        // In a real implementation, you would stream the raw bytes (chunk) to an endpoint 
-        // designed for continuous speech-to-text with diarization capability.
-        const formData = new FormData();
-        formData.append('audio_data', chunk, 'chunk.wav'); // Simplified representation
-
-        const response = await axios.post(apiUrl, formData, {
-            headers: { 
-                'Content-Type': 'multipart/form-data'
-            },
-            // This is highly complex and usually requires a streaming HTTP client. 
-            // We simulate success here to move forward with architecture setup.
-        });
-
-        // --- SIMULATED LLM RESPONSE HANDLING START ---
-        // Assuming the response contains structured JSON for real-time display
-        const simulatedResponse = {
-            text: `The speaker ${Math.random() < 0.5 ? "A" : "B"} said this segment based on the audio data.`,
-            speaker: Math.random() < 0.5 ? "Participant A" : "You",
-            speakerColor: '#d8bfd8'
-        };
-        mainWindow.webContents.send('transcript-update', simulatedResponse);
-        // --- SIMULATED LLM RESPONSE HANDLING END ---
-
-    } catch (error) {
-        console.error("Error communicating with LM Studio or processing audio:", error.message);
-    }
+    await getTranscriptionProcessor().processAudioChunk(chunk);
 }
-
 
 function createWindow () {
   mainWindow = new BrowserWindow({
@@ -87,29 +79,48 @@ function createWindow () {
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
 
+  mainWindow.webContents.on('did-finish-load', () => {
+      sendAudioStatus({ state: 'idle', message: 'Ready. Press Start to begin.' });
+  });
+
   // Setup IPC communication for start/stop transcription
   ipcMain.on('start-audio-capture', () => {
-      isStreaming = true;
+      const result = initializeAudioCapture().start();
+
+      if (!result.ok) {
+          sendAudioStatus({ state: 'error', message: result.message });
+      }
   });
 
   ipcMain.on('stop-audio-capture', () => {
-      isStreaming = false;
+      if (audioCapture) {
+          audioCapture.stop();
+      } else {
+          sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
+      }
   });
 
   mainWindow.on('closed', () => {
-    recording = null; // Release resources
+    if (audioCapture) {
+        audioCapture.stop();
+        audioCapture = null;
+    }
+    transcriptionProcessor = null;
     mainWindow = null;
   });
 }
 
 app.whenReady().then(() => {
-    initializeAudioCapture(); 
     createWindow();
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    recording = null; // Ensure cleanup on exit
+    if (audioCapture) {
+        audioCapture.stop();
+        audioCapture = null;
+    }
+    transcriptionProcessor = null;
     app.quit();
   }
 });

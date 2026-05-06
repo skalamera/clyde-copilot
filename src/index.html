@@ -62,28 +62,48 @@
                 // Send a message to Electron main process to start audio capture
                 window.electronAPI.startTranscription();
                 setStreamingState(true);
-                statusIndicator.textContent = "🟢 Capturing and Transcribing Audio...";
+                statusIndicator.textContent = "Starting audio capture...";
                 transcriptContainer.innerHTML = ''; // Clear previous transcript
             } else {
                 // Send a message to Electron main process to stop audio capture
                 window.electronAPI.stopTranscription();
                 setStreamingState(false);
-                statusIndicator.textContent = "🔴 Stopped.";
+                statusIndicator.textContent = "Stopped.";
             }
         }
+
+        window.electronAPI.onAudioStatus((event, status) => {
+            if (!status || !status.message) return;
+
+            statusIndicator.textContent = status.message;
+
+            if (status.state === 'error' || status.state === 'idle') {
+                setStreamingState(false);
+            }
+
+            if (status.state === 'capturing') {
+                setStreamingState(true);
+            }
+        });
 
         // Listen for new transcript data from the main process
         window.electronAPI.onTranscriptUpdate((event, data) => {
             if (typeof data !== 'object' || !data.text) return;
 
-            const speakerClass = data.speaker ? `style="color: ${data.speakerColor || '#c678dd'};"` : '';
-            const html = `<div class="transcript-block">
-                <span class="speaker-name" ${speakerClass}>${data.speaker || 'Unknown'}:</span>
-                <span class="speaking-text">${data.text}</span>
-            </div>`;
+            const block = document.createElement('div');
+            const speaker = document.createElement('span');
+            const text = document.createElement('span');
 
-            // Append new content and scroll to bottom
-            transcriptContainer.innerHTML += html;
+            block.className = 'transcript-block';
+            speaker.className = 'speaker-name';
+            speaker.textContent = `${data.speaker || 'Unknown'}:`;
+            speaker.style.color = data.speakerColor || '#c678dd';
+            text.className = 'speaking-text';
+            text.textContent = data.text;
+
+            block.appendChild(speaker);
+            block.appendChild(text);
+            transcriptContainer.appendChild(block);
             transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
         });
     </script>

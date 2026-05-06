@@ -6,5 +6,6 @@ const { ipcRenderer, contextBridge } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     startTranscription: () => ipcRenderer.send('start-audio-capture'),
     stopTranscription: () => ipcRenderer.send('stop-audio-capture'),
-    onTranscriptUpdate: (callback) => ipcRenderer.on('transcript-update', callback)
+    onTranscriptUpdate: (callback) => ipcRenderer.on('transcript-update', callback),
+    onAudioStatus: (callback) => ipcRenderer.on('audio-status', callback)
 });
