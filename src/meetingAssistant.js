@@ -1,3 +1,5 @@
+const { detectResumeQuestion, searchResumeVectors } = require('./pineconeClient');
+
 const DEFAULT_INTERVAL_MS = 30000;
 const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_TIMEOUT_MS = 60000;
@@ -66,6 +68,21 @@ function createMeetingAssistant(options = {}) {
     inFlight = true;
 
     try {
+      let ragContext = '';
+      try {
+        const extractedQuestion = await detectResumeQuestion(digest);
+        if (extractedQuestion) {
+           logger.log('Detected resume question:', extractedQuestion);
+           const vectors = await searchResumeVectors(extractedQuestion);
+           if (vectors && vectors.length > 0) {
+             ragContext = "Relevant facts from the user's resume and past projects:\n" + 
+               vectors.map(v => `- ${v.text}`).join('\n');
+           }
+        }
+      } catch (err) {
+        logger.error('RAG intent/retrieval error:', err);
+      }
+
       const response = await axiosClient.post(apiUrl, {
         model,
         temperature: 0.2,
@@ -84,11 +101,12 @@ function createMeetingAssistant(options = {}) {
               'Only answer questions asked by other people.',
               'If another person asked a question, write the exact question and a concise answer the user can say.',
               'If context is missing, write the exact clarification the user can ask.',
+              ragContext ? `\nUse the following facts to answer questions about the user's experience:\n${ragContext}\n` : '',
               'Include only items that are useful right now.',
               'Return compact JSON only. Do not include markdown fences.',
               'Schema: {"answers":[{"question":"...","answer":"..."}],"questions":[{"text":"..."}],"suggestions":[{"text":"..."}],"actions":[{"text":"..."}],"risks":[{"text":"..."}]}.',
               'Use at most 4 total cards. Keep every value under 140 characters. Empty arrays are allowed. Do not mention that you are an AI.'
-            ].join(' ')
+            ].filter(Boolean).join(' ')
           },
           {
             role: 'user',
@@ -147,19 +165,22 @@ function extractAssistantText(data) {
 
   const choice = data.choices && data.choices[0];
 
+  let content = '';
+
   if (choice && choice.message && choice.message.content) {
-    return String(choice.message.content).trim();
+    content = String(choice.message.content).trim();
+  } else if (choice && choice.text) {
+    content = String(choice.text).trim();
+  } else if (data.output_text) {
+    content = String(data.output_text).trim();
   }
 
-  if (choice && choice.text) {
-    return String(choice.text).trim();
+  // Remove any `<think>...</think>` blocks from the output
+  if (content) {
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   }
 
-  if (data.output_text) {
-    return String(data.output_text).trim();
-  }
-
-  return '';
+  return content;
 }
 
 function isUserSpeaker(speaker) {
