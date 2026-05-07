@@ -21,7 +21,7 @@ if (-not $Image) {
 Write-Host "Starting Whisper server on http://localhost:$Port"
 Write-Host "Runtime: $Runtime"
 Write-Host "Image: $Image"
-Write-Host 'Keep this terminal open while Casper is running.'
+Write-Host 'Keep this terminal open while Clyde is running.'
 
 $gpuArgs = if ($Runtime -eq 'cuda') { @('--gpus', 'all') } else { @() }
 

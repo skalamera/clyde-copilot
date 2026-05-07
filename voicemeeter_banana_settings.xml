@@ -49,8 +49,8 @@
 	<LabelBus1>Headphones</LabelBus1>
 	<LabelBus2></LabelBus2>
 	<LabelBus3></LabelBus3>
-	<LabelVirtualBus1>You to Casper</LabelVirtualBus1>
-	<LabelVirtualBus2>System to Casper</LabelVirtualBus2>
+	<LabelVirtualBus1>You to Clyde</LabelVirtualBus1>
+	<LabelVirtualBus2>System to Clyde</LabelVirtualBus2>
 <VoiceMeeterBUSEQ>
 	<Bus index='1' channel='1' cell='1' EQon='1' EQtype='0' dblevel='0.00' freq='50.00' Q='3.00' />
 	<Bus index='1' channel='1' cell='2' EQon='1' EQtype='0' dblevel='0.00' freq='200.00' Q='3.00' />

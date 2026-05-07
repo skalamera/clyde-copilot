@@ -19,7 +19,8 @@ async function searchResumeVectors(queryText, topK = 3) {
   const pineconeHost = process.env.PINECONE_HOST;
 
   if (!pineconeApiKey || !pineconeHost) {
-    throw new Error('PINECONE_API_KEY or PINECONE_HOST is missing');
+    console.warn("PINECONE_API_KEY or PINECONE_HOST is missing, skipping RAG retrieval");
+    return [];
   }
 
   const pc = new Pinecone({ apiKey: pineconeApiKey });

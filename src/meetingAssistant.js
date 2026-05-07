@@ -3,7 +3,7 @@ const { detectResumeQuestion, searchResumeVectors } = require('./pineconeClient'
 const DEFAULT_INTERVAL_MS = 30000;
 const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_TIMEOUT_MS = 60000;
-const DEFAULT_MAX_TOKENS = 220;
+const DEFAULT_MAX_TOKENS = 800;
 
 function createMeetingAssistant(options = {}) {
   const apiUrl = (options.apiUrl || '').trim();
@@ -21,6 +21,13 @@ function createMeetingAssistant(options = {}) {
   let lastRunAt = 0;
   let inFlight = false;
   let lastDigest = '';
+  let currentContext = {};
+
+  function setContext(context) {
+    if (context) {
+      currentContext = context;
+    }
+  }
 
   async function addTranscript(turn) {
     if (!turn || !turn.text) {
@@ -87,6 +94,33 @@ function createMeetingAssistant(options = {}) {
         model,
         temperature: 0.2,
         max_tokens: maxTokens,
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'assistant_cards',
+            schema: {
+              type: 'object',
+              properties: {
+                answers: { 
+                  type: 'array', 
+                  items: { 
+                    type: 'object', 
+                    properties: { 
+                      question: { type: 'string' }, 
+                      bullets: { type: 'array', items: { type: 'string' } } 
+                    }, 
+                    required: ['question', 'bullets'] 
+                  } 
+                },
+                questions: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
+                suggestions: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
+                actions: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
+                risks: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }
+              },
+              additionalProperties: false
+            }
+          }
+        },
         reasoning: {
           effort: 'none'
         },
@@ -94,18 +128,20 @@ function createMeetingAssistant(options = {}) {
           {
             role: 'system',
             content: [
-              'You are Casper, a live meeting copilot.',
-              'Speaker labels matter: "You" is the user wearing Casper. Do not treat "You" as another meeting attendee.',
-              'Use "System Audio" and any non-You speakers as the other people in the meeting.',
-              'Base answers, suggested things to say, and follow-up questions on what other people said.',
-              'Only answer questions asked by other people.',
-              'If another person asked a question, write the exact question and a concise answer the user can say.',
-              'If context is missing, write the exact clarification the user can ask.',
-              ragContext ? `\nUse the following facts to answer questions about the user's experience:\n${ragContext}\n` : '',
-              'Include only items that are useful right now.',
-              'Return compact JSON only. Do not include markdown fences.',
-              'Schema: {"answers":[{"question":"...","answer":"..."}],"questions":[{"text":"..."}],"suggestions":[{"text":"..."}],"actions":[{"text":"..."}],"risks":[{"text":"..."}]}.',
-              'Use at most 4 total cards. Keep every value under 140 characters. Empty arrays are allowed. Do not mention that you are an AI.'
+              'You are Clyde, a live job interview copilot.',
+              'The user wearing Clyde ("You") is the job candidate.',
+              'The "System Audio" and any other speakers are the interviewers.',
+              'Base your answers, hints/tips, and suggested next lines on what the interviewer is asking and the flow of the conversation.',
+              'ONLY answer explicit questions that the interviewer has just asked in the most recent transcript lines.',
+              'NEVER generate answers to questions that have not been asked yet, or questions from past interviews.',
+              'Provide detailed, highlight-focused answers using bullet points that the candidate can say.',
+              'Never suggest questions for the interviewer to ask. Only suggest what the candidate ("You") should say or ask.',
+              currentContext.jobDescription ? `\nJob Description:\n${currentContext.jobDescription}\n` : '',
+              currentContext.resume ? `\nCandidate Resume/Background:\n${currentContext.resume}\n` : '',
+              ragContext ? `\nRelevant RAG Context:\n${ragContext}\n` : '',
+              'Include only items that are useful right now. Do not include markdown fences.',
+              'Schema: {"answers":[{"question":"...","bullets":["..."]}],"questions":[{"text":"..."}],"suggestions":[{"text":"..."}],"actions":[{"text":"..."}],"risks":[{"text":"..."}]}.',
+              'Use at most 3 total cards. Keep every value concise. Empty arrays are allowed. Do not mention that you are an AI.'
             ].filter(Boolean).join(' ')
           },
           {
@@ -126,12 +162,8 @@ function createMeetingAssistant(options = {}) {
         });
         sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
       } else if (text) {
-        sendUpdate({
-          title: 'Live help',
-          text,
-          cards: createFallbackCards(text)
-        });
-        sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
+        logger.log('Ignored non-JSON assistant response:', text);
+        sendStatus({ state: 'warning', message: 'LM Studio returned text but no valid JSON suggestions.' });
       } else {
         sendStatus({
           state: 'warning',
@@ -154,6 +186,7 @@ function createMeetingAssistant(options = {}) {
   return {
     addTranscript,
     maybeRun,
+    setContext,
     getTranscriptTurns: () => [...transcriptTurns]
   };
 }
@@ -198,14 +231,17 @@ function parseAssistantCards(text) {
 
   for (const item of toArray(parsed.answers)) {
     const question = cleanText(item.question);
-    const answer = cleanText(item.answer);
+    const bullets = Array.isArray(item.bullets) ? item.bullets.map(cleanText).filter(Boolean) : [];
 
-    if (question || answer) {
+    if (question || bullets.length > 0) {
+      // Create a stable ID hash for this answer to prevent re-showing dismissed cards
+      const id = Buffer.from(question).toString('base64');
       cards.push({
         type: 'answer',
         title: 'Answer',
         question,
-        body: answer
+        bullets,
+        id
       });
     }
   }
@@ -265,19 +301,6 @@ function parseAssistantCards(text) {
   return cards.slice(0, 4);
 }
 
-function createFallbackCards(text) {
-  return cleanText(text)
-    .split(/\n+/)
-    .map((line) => cleanText(line.replace(/^[-*]\s*/, '')))
-    .filter(Boolean)
-    .slice(0, 8)
-    .map((body) => ({
-      type: 'note',
-      title: 'Live help',
-      body
-    }));
-}
-
 function parseJsonObject(text) {
   const value = String(text || '').trim();
 
@@ -333,7 +356,6 @@ function describeAssistantError(error) {
 
 module.exports = {
   createMeetingAssistant,
-  createFallbackCards,
   describeAssistantError,
   extractAssistantText,
   isUserSpeaker,

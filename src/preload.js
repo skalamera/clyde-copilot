@@ -4,7 +4,7 @@ const { ipcRenderer, contextBridge } = require('electron');
 
 // Expose necessary methods to the renderer process (the web page)
 contextBridge.exposeInMainWorld('electronAPI', {
-    startTranscription: () => ipcRenderer.send('start-audio-capture'),
+    startTranscription: (context) => ipcRenderer.send('start-audio-capture', context),
     stopTranscription: () => ipcRenderer.send('stop-audio-capture'),
     startAudioLevelTest: () => ipcRenderer.send('start-audio-level-test'),
     stopAudioLevelTest: () => ipcRenderer.send('stop-audio-level-test'),

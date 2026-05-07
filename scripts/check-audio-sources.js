@@ -3,7 +3,7 @@ require('dotenv').config();
 const { createAudioCapture } = require('../src/audioCapture');
 const { calculatePcmRms } = require('../src/transcriptionClient');
 
-const sourceText = process.env.CASPER_AUDIO_SOURCES || `Default|${process.env.CASPER_AUDIO_DEVICE || 'default'}|#d8bfd8`;
+const sourceText = process.env.CLYDE_AUDIO_SOURCES || `Default|${process.env.CLYDE_AUDIO_DEVICE || 'default'}|#d8bfd8`;
 const sources = sourceText
   .split(';')
   .map((item) => {
@@ -59,4 +59,4 @@ function stop() {
 }
 
 process.on('SIGINT', stop);
-setTimeout(stop, Number(process.env.CASPER_AUDIO_CHECK_MS || 15000));
+setTimeout(stop, Number(process.env.CLYDE_AUDIO_CHECK_MS || 15000));

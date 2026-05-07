@@ -24,8 +24,8 @@ function createAudioCapture(options = {}) {
     ...(options.recordOptions || {})
   };
 
-  if (env.CASPER_AUDIO_DEVICE && !recordOptions.device) {
-    recordOptions.device = env.CASPER_AUDIO_DEVICE;
+  if (env.CLYDE_AUDIO_DEVICE && !recordOptions.device) {
+    recordOptions.device = env.CLYDE_AUDIO_DEVICE;
   }
 
   if (platform === 'win32' && !recordOptions.device) {

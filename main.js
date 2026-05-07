@@ -25,7 +25,7 @@ const healthState = {
 
 function configureElectronStorage() {
     const appData = app.getPath('appData');
-    const userData = path.join(appData, 'Casper');
+    const userData = path.join(appData, 'Clyde');
     const sessionData = path.join(userData, 'Session');
 
     fs.mkdirSync(sessionData, { recursive: true });
@@ -55,13 +55,13 @@ function initializeAudioCaptures() {
 }
 
 function getAudioSources() {
-    const configured = process.env.CASPER_AUDIO_SOURCES;
+    const configured = process.env.CLYDE_AUDIO_SOURCES;
 
     if (!configured) {
         return [{
             id: 'default',
             label: 'Transcription API',
-            device: process.env.CASPER_AUDIO_DEVICE,
+            device: process.env.CLYDE_AUDIO_DEVICE,
             color: '#d8bfd8'
         }];
     }
@@ -262,7 +262,7 @@ function getMeetingAssistant() {
         model: process.env.LM_STUDIO_CHAT_MODEL || '',
         intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
         maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 10),
-        maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 220),
+        maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
         timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
         axiosClient: axios,
         logger: console,
@@ -285,10 +285,10 @@ function getTranscriptionProcessor(source) {
     const processor = createTranscriptionProcessor({
         apiUrl: process.env.LM_STUDIO_API_URL || '',
         model: process.env.TRANSCRIPTION_MODEL,
-        minRms: Number(process.env.CASPER_MIN_RMS || 100),
-        hallucinationRms: Number(process.env.CASPER_HALLUCINATION_RMS || 350),
+        minRms: Number(process.env.CLYDE_MIN_RMS || 100),
+        hallucinationRms: Number(process.env.CLYDE_HALLUCINATION_RMS || 350),
         timeout: Number(process.env.TRANSCRIPTION_TIMEOUT_MS || 120000),
-        diagnostics: process.env.CASPER_AUDIO_DEBUG === '1',
+        diagnostics: process.env.CLYDE_AUDIO_DEBUG === '1',
         speaker: source.label,
         speakerColor: source.color,
         axiosClient: axios,
@@ -419,11 +419,12 @@ function createWindow () {
   mainWindow.webContents.on('did-finish-load', () => {
       sendAudioStatus({ state: 'idle', message: 'Ready. Press Start to begin.' });
       checkServiceHealth();
-      healthCheckTimer = setInterval(checkServiceHealth, Number(process.env.CASPER_HEALTH_INTERVAL_MS || 10000));
+      healthCheckTimer = setInterval(checkServiceHealth, Number(process.env.CLYDE_HEALTH_INTERVAL_MS || 10000));
   });
 
   // Setup IPC communication for start/stop transcription
-  ipcMain.on('start-audio-capture', () => {
+  ipcMain.on('start-audio-capture', (event, context) => {
+      getMeetingAssistant().setContext(context || {});
       const results = initializeAudioCaptures().map((capture) => capture.start());
       const failed = results.find((result) => !result.ok);
 

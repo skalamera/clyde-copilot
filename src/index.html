@@ -220,6 +220,46 @@
             box-shadow: none;
         }
 
+        #contextPanel {
+            padding: 20px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .input-group label {
+            font-weight: 600;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+        }
+
+        .input-group textarea {
+            width: 100%;
+            height: 100px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--foreground);
+            padding: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            resize: vertical;
+        }
+        
+        .input-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--primary-glow);
+        }
+
         .transcript-header {
             display: flex;
             justify-content: space-between;
@@ -422,6 +462,19 @@
             margin-top: 8px;
         }
 
+        .assistant-bullets {
+            margin-top: 8px;
+            margin-left: 20px;
+            color: #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .assistant-bullets li {
+            list-style-type: disc;
+        }
+
         .assistant-body strong,
         .assistant-detail strong {
             color: #f8fafc;
@@ -463,7 +516,7 @@
 
     <div id="container">
         <div class="header-section">
-            <h1><img src="../Casper.svg" alt="Casper Logo" class="logo"> casper</h1>
+            <h1><img src="../Clyde.svg" alt="Clyde Logo" class="logo"> clyde</h1>
             <p>Status: <span id="statusIndicator">Awaiting initialization...</span></p>
             <div id="healthGrid">
                 <div class="health-item unknown" data-health-key="audio">
@@ -500,6 +553,17 @@
             <button id="testInputBtn" onclick="toggleAudioLevelTest()">
                 Test Inputs
             </button>
+        </div>
+
+        <div id="contextPanel" class="glass-panel">
+            <div class="input-group">
+                <label for="jobDescription">Job Description</label>
+                <textarea id="jobDescription" placeholder="Paste the job description here to help Clyde tailor its suggestions..."></textarea>
+            </div>
+            <div class="input-group">
+                <label for="resume">My Resume</label>
+                <textarea id="resume" placeholder="Paste your resume or background info here..."></textarea>
+            </div>
         </div>
 
         <div id="audioDiagnostics" class="glass-panel">
@@ -545,6 +609,7 @@
         const audioTestStatus = document.getElementById('audioTestStatus');
         let audioLevelTesting = false;
         let assistantCardSerial = 0;
+        const dismissedCards = new Set();
 
         function setStreamingState(streaming) {
             isStreaming = streaming;
@@ -554,7 +619,10 @@
 
         function toggleStreaming(start) {
             if (start) {
-                window.electronAPI.startTranscription();
+                const jobDescription = document.getElementById('jobDescription').value;
+                const resume = document.getElementById('resume').value;
+                
+                window.electronAPI.startTranscription({ jobDescription, resume });
                 setStreamingState(true);
                 statusIndicator.textContent = "Starting audio capture...";
                 transcriptContainer.innerHTML = '';
@@ -602,7 +670,7 @@
             if (audioLevelTesting) {
                 testInputBtn.textContent = 'Stop Input Test';
                 audioMeters.innerHTML = '';
-                audioTestStatus.textContent = 'Listening to Casper audio sources.';
+                audioTestStatus.textContent = 'Listening to Clyde audio sources.';
                 window.electronAPI.startAudioLevelTest();
             } else {
                 testInputBtn.textContent = 'Test Inputs';
@@ -743,11 +811,14 @@
                 ? data.cards
                 : [{ type: 'note', title: data.title || 'Live help', body: data.text || '' }];
 
-            if (!cards.some((card) => card.body || card.question)) return;
+            // Filter out cards that the user has previously dismissed
+            const filteredCards = cards.filter(card => !card.id || !dismissedCards.has(card.id));
+
+            if (!filteredCards.some((card) => card.body || card.question || (card.bullets && card.bullets.length))) return;
 
             assistantContainer.innerHTML = '';
 
-            for (const group of groupAssistantCards(cards)) {
+            for (const group of groupAssistantCards(filteredCards)) {
                 const section = document.createElement('div');
                 section.className = 'assistant-section-title';
                 section.textContent = group.title;
@@ -796,7 +867,10 @@
             dismiss.type = 'button';
             dismiss.textContent = 'x';
             dismiss.title = 'Dismiss';
-            dismiss.onclick = () => card.remove();
+            dismiss.onclick = () => {
+                if (cardData.id) dismissedCards.add(cardData.id);
+                card.remove();
+            };
 
             header.appendChild(title);
             header.appendChild(dismiss);
@@ -807,6 +881,17 @@
                 question.className = 'assistant-question';
                 appendRichText(question, cardData.question);
                 card.appendChild(question);
+            }
+
+            if (cardData.bullets && cardData.bullets.length > 0) {
+                const bulletList = document.createElement('ul');
+                bulletList.className = 'assistant-bullets';
+                for (const bulletText of cardData.bullets) {
+                    const li = document.createElement('li');
+                    appendRichText(li, bulletText);
+                    bulletList.appendChild(li);
+                }
+                card.appendChild(bulletList);
             }
 
             if (cardData.body) {
