@@ -6,15 +6,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Righteous&display=swap" rel="stylesheet">
     <style>
         :root {
-            --background: #111827; /* Dark slate */
+            --background: rgba(41, 41, 39, 0.85); /* Dark slate */
             --foreground: #f8fafc;
-            --primary: #0ea5e9; /* Light blue */
-            --primary-glow: rgba(14, 165, 233, 0.4);
-            --secondary: #1e293b;
-            --accent: #a855f7; /* Purple */
-            --accent-glow: rgba(168, 85, 247, 0.4);
+            --primary: #ef7021; /* Light blue */
+            --primary-glow: rgba(239, 112, 33, 0.4);
+            --secondary: #1f9937;
+            --accent: #5e17eb; /* Purple */
+            --accent-glow: rgba(94, 23, 235, 0.4);
             --border: rgba(51, 65, 85, 0.5);
-            --card: rgba(15, 23, 42, 0.6);
+            --card: rgba(41, 41, 39, 0.6);
             --danger: #ef4444;
             --success: #22c55e;
             --warning: #eab308;
@@ -50,7 +50,7 @@
 
         /* Glassmorphism utilities */
         .glass-panel {
-            background: linear-gradient(145deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.4) 100%);
+            background: linear-gradient(145deg, rgba(41, 41, 39, 0.7) 0%, rgba(20, 20, 20, 0.4) 100%);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.05);
@@ -102,7 +102,7 @@
             padding: 12px;
             border-radius: 10px;
             border: 1px solid var(--border);
-            background: rgba(15, 23, 42, 0.5);
+            background: rgba(41, 41, 39, 0.5);
             min-height: 92px;
         }
 
@@ -181,7 +181,7 @@
         }
 
         #startBtn:hover:not(:disabled) {
-            background-color: #0284c7;
+            background-color: #d85d14;
             box-shadow: 0 0 15px var(--primary-glow);
             transform: translateY(-1px);
         }
@@ -208,9 +208,9 @@
 
         #testOutputBtn:hover:not(:disabled),
         #testInputBtn:hover:not(:disabled) {
-            background-color: rgba(14, 165, 233, 0.12);
+            background-color: rgba(239, 112, 33, 0.12);
             color: #e0f2fe;
-            border-color: rgba(14, 165, 233, 0.35);
+            border-color: rgba(239, 112, 33, 0.35);
         }
 
         button:disabled { 
@@ -244,7 +244,7 @@
         .input-group textarea {
             width: 100%;
             height: 100px;
-            background: rgba(15, 23, 42, 0.5);
+            background: rgba(41, 41, 39, 0.5);
             border: 1px solid var(--border);
             border-radius: 8px;
             color: var(--foreground);
@@ -310,7 +310,7 @@
         .meter-track {
             height: 16px;
             border-radius: 999px;
-            background: rgba(15, 23, 42, 0.78);
+            background: rgba(41, 41, 39, 0.78);
             border: 1px solid rgba(148, 163, 184, 0.18);
             overflow: hidden;
         }
@@ -345,7 +345,7 @@
         }
 
         #assistantContainer {
-            background: linear-gradient(145deg, rgba(20, 83, 45, 0.24) 0%, rgba(15, 23, 42, 0.5) 100%);
+            background: linear-gradient(145deg, rgba(20, 83, 45, 0.24) 0%, rgba(41, 41, 39, 0.5) 100%);
         }
 
         .transcript-block { 
@@ -377,7 +377,7 @@
         .assistant-card {
             line-height: 1.55;
             color: #e2e8f0;
-            background: rgba(15, 23, 42, 0.72);
+            background: rgba(41, 41, 39, 0.72);
             border: 1px solid rgba(148, 163, 184, 0.2);
             border-radius: 8px;
             padding: 14px;
@@ -483,7 +483,7 @@
         .assistant-body code,
         .assistant-detail code {
             color: #bae6fd;
-            background: rgba(14, 165, 233, 0.12);
+            background: rgba(239, 112, 33, 0.12);
             padding: 1px 5px;
             border-radius: 5px;
         }
@@ -500,7 +500,7 @@
             width: 8px;
         }
         ::-webkit-scrollbar-track {
-            background: rgba(15, 23, 42, 0.2);
+            background: rgba(41, 41, 39, 0.2);
             border-radius: 8px;
         }
         ::-webkit-scrollbar-thumb {
@@ -510,9 +510,112 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--primary);
         }
+    
+        /* Modal Styles */
+        #settingsModal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        #settingsModal.show {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-content {
+            background: var(--background);
+            border: 1px solid var(--border);
+            padding: 30px;
+            border-radius: 12px;
+            width: 80%;
+            max-width: 800px;
+            position: relative;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-close:hover {
+            color: var(--foreground);
+        }
+
+        /* Top Bar */
+        #topBar {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 40px;
+            -webkit-app-region: drag;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+        
+        .topbar-btn {
+            -webkit-app-region: no-drag;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border);
+            color: #e2e8f0;
+            padding: 5px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        
+        .topbar-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        #closeAppBtn {
+            margin-left: 10px;
+            background: transparent;
+            color: #94a3b8;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            -webkit-app-region: no-drag;
+        }
+
+        #closeAppBtn:hover {
+            color: var(--danger);
+        }
+
     </style>
 </head>
 <body>
+
+    
+    <div id="topBar">
+        <button class="topbar-btn" onclick="document.getElementById('settingsModal').classList.add('show')">Context / Resume</button>
+        <button id="closeAppBtn" onclick="window.close()">&times;</button>
+    </div>
 
     <div id="container">
         <div class="header-section">
@@ -555,7 +658,11 @@
             </button>
         </div>
 
-        <div id="contextPanel" class="glass-panel">
+        
+    <div id="settingsModal">
+        <div class="modal-content glass-panel">
+            <button class="modal-close" onclick="document.getElementById('settingsModal').classList.remove('show')">&times;</button>
+            <h2 style="margin-top:0;">Context Settings</h2>
             <div class="input-group">
                 <label for="jobDescription">Job Description</label>
                 <textarea id="jobDescription" placeholder="Paste the job description here to help Clyde tailor its suggestions..."></textarea>
@@ -564,7 +671,10 @@
                 <label for="resume">My Resume</label>
                 <textarea id="resume" placeholder="Paste your resume or background info here..."></textarea>
             </div>
+            <button class="topbar-btn" style="align-self: flex-end; padding: 10px 20px;" onclick="document.getElementById('settingsModal').classList.remove('show')">Save & Close</button>
         </div>
+    </div>
+
 
         <div id="audioDiagnostics" class="glass-panel">
             <div class="transcript-header">

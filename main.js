@@ -407,6 +407,8 @@ function createWindow () {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    transparent: true,
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'preload.js'),
       nodeIntegration: false,
