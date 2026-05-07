@@ -5,7 +5,8 @@ const {
   buildWavFile,
   calculatePcmRms,
   createTranscriptionProcessor,
-  describeHttpError
+  describeHttpError,
+  isLikelyQuietHallucination
 } = require('../src/transcriptionClient');
 
 test('simulates transcript updates when no transcription API URL is configured', async () => {
@@ -168,4 +169,10 @@ test('calculates PCM RMS for signed 16-bit samples', () => {
   pcm.writeInt16LE(-300, 2);
 
   assert.equal(calculatePcmRms(pcm), 300);
+});
+
+test('detects common quiet Whisper hallucinations', () => {
+  assert.equal(isLikelyQuietHallucination('Thank you.', 20, 350), true);
+  assert.equal(isLikelyQuietHallucination('Can you hear me?', 20, 350), false);
+  assert.equal(isLikelyQuietHallucination('Thank you.', 500, 350), false);
 });

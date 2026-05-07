@@ -6,6 +6,11 @@ const { ipcRenderer, contextBridge } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     startTranscription: () => ipcRenderer.send('start-audio-capture'),
     stopTranscription: () => ipcRenderer.send('stop-audio-capture'),
+    startAudioLevelTest: () => ipcRenderer.send('start-audio-level-test'),
+    stopAudioLevelTest: () => ipcRenderer.send('stop-audio-level-test'),
     onTranscriptUpdate: (callback) => ipcRenderer.on('transcript-update', callback),
+    onAssistantUpdate: (callback) => ipcRenderer.on('assistant-update', callback),
+    onHealthUpdate: (callback) => ipcRenderer.on('health-update', callback),
+    onAudioLevelUpdate: (callback) => ipcRenderer.on('audio-level-update', callback),
     onAudioStatus: (callback) => ipcRenderer.on('audio-status', callback)
 });
