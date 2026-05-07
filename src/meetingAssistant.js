@@ -1,7 +1,7 @@
-const DEFAULT_INTERVAL_MS = 8000;
-const DEFAULT_MAX_TURNS = 24;
+const DEFAULT_INTERVAL_MS = 30000;
+const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_TIMEOUT_MS = 60000;
-const DEFAULT_MAX_TOKENS = 900;
+const DEFAULT_MAX_TOKENS = 220;
 
 function createMeetingAssistant(options = {}) {
   const apiUrl = (options.apiUrl || '').trim();
@@ -30,6 +30,10 @@ function createMeetingAssistant(options = {}) {
       text: String(turn.text).trim()
     });
     transcriptTurns = transcriptTurns.slice(-maxTurns);
+
+    if (isUserSpeaker(turn.speaker)) {
+      return { ok: true, skipped: 'user-speaker' };
+    }
 
     return maybeRun();
   }
@@ -65,7 +69,6 @@ function createMeetingAssistant(options = {}) {
       const response = await axiosClient.post(apiUrl, {
         model,
         temperature: 0.2,
-        response_format: { type: 'json_object' },
         max_tokens: maxTokens,
         reasoning: {
           effort: 'none'
@@ -78,18 +81,18 @@ function createMeetingAssistant(options = {}) {
               'Speaker labels matter: "You" is the user wearing Casper. Do not treat "You" as another meeting attendee.',
               'Use "System Audio" and any non-You speakers as the other people in the meeting.',
               'Base answers, suggested things to say, and follow-up questions on what other people said.',
-              'Only answer questions asked by other people, unless the user directly asked Casper for help.',
+              'Only answer questions asked by other people.',
               'If another person asked a question, write the exact question and a concise answer the user can say.',
               'If context is missing, write the exact clarification the user can ask.',
               'Include only items that are useful right now.',
-              'Return valid JSON only. Do not include markdown fences.',
-              'Use this schema: {"answers":[{"question":"...","answer":"..."}],"questions":[{"text":"...","why":"..."}],"suggestions":[{"text":"...","why":"..."}],"actions":[{"text":"..."}],"risks":[{"text":"..."}]}.',
-              'Keep each field short. Empty arrays are allowed. Do not mention that you are an AI.'
+              'Return compact JSON only. Do not include markdown fences.',
+              'Schema: {"answers":[{"question":"...","answer":"..."}],"questions":[{"text":"..."}],"suggestions":[{"text":"..."}],"actions":[{"text":"..."}],"risks":[{"text":"..."}]}.',
+              'Use at most 4 total cards. Keep every value under 140 characters. Empty arrays are allowed. Do not mention that you are an AI.'
             ].join(' ')
           },
           {
             role: 'user',
-            content: `Latest transcript:\n${digest}\n\nCreate cards that help me respond to the other people in the meeting.`
+            content: `Transcript:\n${digest}\n\nCreate cards that help me respond to the other people.`
           }
         ]
       }, { timeout });
@@ -157,6 +160,10 @@ function extractAssistantText(data) {
   }
 
   return '';
+}
+
+function isUserSpeaker(speaker) {
+  return String(speaker || '').trim().toLowerCase() === 'you';
 }
 
 function parseAssistantCards(text) {
@@ -234,7 +241,7 @@ function parseAssistantCards(text) {
     }
   }
 
-  return cards.slice(0, 12);
+  return cards.slice(0, 4);
 }
 
 function createFallbackCards(text) {
@@ -308,5 +315,6 @@ module.exports = {
   createFallbackCards,
   describeAssistantError,
   extractAssistantText,
+  isUserSpeaker,
   parseAssistantCards
 };

@@ -5,6 +5,7 @@ const {
   createMeetingAssistant,
   describeAssistantError,
   extractAssistantText,
+  isUserSpeaker,
   parseAssistantCards
 } = require('../src/meetingAssistant');
 
@@ -64,9 +65,9 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://localhost:1234/v1/chat/completions');
   assert.equal(calls[0].body.model, 'gemma-4-e4b');
-  assert.equal(calls[0].body.max_tokens, 900);
+  assert.equal(calls[0].body.max_tokens, 220);
   assert.deepEqual(calls[0].body.reasoning, { effort: 'none' });
-  assert.deepEqual(calls[0].body.response_format, { type: 'json_object' });
+  assert.equal(calls[0].body.response_format, undefined);
   assert.match(calls[0].body.messages[0].content, /"You" is the user wearing Casper/);
   assert.match(calls[0].body.messages[0].content, /Use "System Audio"/);
   assert.match(calls[0].body.messages[1].content, /System Audio: What is Aladdin/);
@@ -74,6 +75,25 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
   assert.equal(updates[0].cards[0].type, 'answer');
   assert.equal(updates[0].cards[0].question, 'What is Aladdin?');
   assert.equal(updates[0].cards[0].body, 'Aladdin is a risk platform.');
+});
+
+test('does not call LM Studio when only the user speaks', async () => {
+  let calls = 0;
+  const assistant = createMeetingAssistant({
+    apiUrl: 'http://localhost:1234/v1/chat/completions',
+    model: 'gemma-4-e4b',
+    intervalMs: 0,
+    axiosClient: {
+      post: async () => {
+        calls += 1;
+      }
+    }
+  });
+
+  const result = await assistant.addTranscript({ speaker: 'You', text: 'What is 2 plus 2?' });
+
+  assert.equal(result.skipped, 'user-speaker');
+  assert.equal(calls, 0);
 });
 
 test('warns when LM Studio returns no visible assistant content', async () => {
@@ -98,7 +118,7 @@ test('warns when LM Studio returns no visible assistant content', async () => {
     sendStatus: (status) => statuses.push(status)
   });
 
-  const result = await assistant.addTranscript({ speaker: 'You', text: 'Can you hear me?' });
+  const result = await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you hear me?' });
 
   assert.equal(result.text, '');
   assert.equal(statuses[0].state, 'warning');
@@ -123,10 +143,15 @@ test('parses structured assistant cards', () => {
     risks: [{ text: 'Nominal GDP was mentioned without a source.' }]
   }));
 
-  assert.deepEqual(cards.map((card) => card.type), ['answer', 'question', 'suggestion', 'action', 'risk']);
+  assert.deepEqual(cards.map((card) => card.type), ['answer', 'question', 'suggestion', 'action']);
   assert.equal(cards[0].title, 'Answer');
   assert.equal(cards[1].body, 'Can you define liquidity?');
   assert.equal(cards[2].title, 'Say next');
+});
+
+test('detects the user speaker label', () => {
+  assert.equal(isUserSpeaker('You'), true);
+  assert.equal(isUserSpeaker('System Audio'), false);
 });
 
 test('formats assistant network errors', () => {

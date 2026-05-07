@@ -260,8 +260,9 @@ function getMeetingAssistant() {
     meetingAssistant = createMeetingAssistant({
         apiUrl: process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions',
         model: process.env.LM_STUDIO_CHAT_MODEL || '',
-        intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 8000),
-        maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 900),
+        intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
+        maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 10),
+        maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 220),
         timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
         axiosClient: axios,
         logger: console,
