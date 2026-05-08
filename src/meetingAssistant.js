@@ -34,10 +34,20 @@ function createMeetingAssistant(options = {}) {
       return { ok: true, skipped: 'empty' };
     }
 
-    transcriptTurns.push({
-      speaker: turn.speaker || 'Unknown',
-      text: String(turn.text).trim()
-    });
+    const speaker = turn.speaker || 'Unknown';
+    const text = String(turn.text).trim();
+
+    // Smart merge: if the last turn was the same speaker, merge the text instead of creating a new line
+    if (transcriptTurns.length > 0 && transcriptTurns[transcriptTurns.length - 1].speaker === speaker) {
+      transcriptTurns[transcriptTurns.length - 1].text += ' ' + text;
+    } else {
+      transcriptTurns.push({
+        speaker: speaker,
+        text: text
+      });
+    }
+
+    // Still respect max turns, but note that turns are now full blocks of speech
     transcriptTurns = transcriptTurns.slice(-maxTurns);
 
     if (isUserSpeaker(turn.speaker)) {
@@ -47,7 +57,7 @@ function createMeetingAssistant(options = {}) {
     return maybeRun();
   }
 
-  async function maybeRun(force = false) {
+  async function maybeRun(force = false, isSuggestionRequest = false) {
     if (!apiUrl || !model) {
       return { ok: true, skipped: 'not-configured' };
     }
@@ -66,28 +76,91 @@ function createMeetingAssistant(options = {}) {
       .map((turn) => `${turn.speaker}: ${turn.text}`)
       .join('\n');
 
-    if (!digest || digest === lastDigest) {
+    // Only check for unchanged if it's NOT a forced suggestion request
+    if (!isSuggestionRequest && (!digest || digest === lastDigest)) {
       return { ok: true, skipped: 'unchanged' };
     }
 
-    lastRunAt = now;
-    lastDigest = digest;
     inFlight = true;
 
     try {
       let ragContext = '';
+      let targetQuestion = '';
       try {
         const extractedQuestion = await detectResumeQuestion(digest);
         if (extractedQuestion) {
-           logger.log('Detected resume question:', extractedQuestion);
+           logger.log(`[RAG] Detected interview-related question in transcript: "${extractedQuestion}"`);
+           targetQuestion = extractedQuestion;
+           // Ensure Pinecone keys are loaded from process.env if they exist
+           if (process.env.PINECONE_API_KEY && !process.env.PINECONE_HOST) {
+               // Load fallback from env if not explicitly passed
+           }
            const vectors = await searchResumeVectors(extractedQuestion);
            if (vectors && vectors.length > 0) {
+             logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
              ragContext = "Relevant facts from the user's resume and past projects:\n" + 
                vectors.map(v => `- ${v.text}`).join('\n');
            }
+        } else {
+           logger.log(`[RAG] No interview-related question detected in current transcript window.`);
+           inFlight = false;
+           // Wait another tick, do not update lastRunAt or lastDigest to allow 
+           // the transcript to accumulate more context for the next run
+           return { ok: true, skipped: 'no-question' };
         }
       } catch (err) {
-        logger.error('RAG intent/retrieval error:', err);
+        logger.error('[RAG] Intent/retrieval error:', err);
+      }
+
+      // If we got this far, a question was found, so we update the timers to lock out subsequent calls
+      lastRunAt = now;
+      lastDigest = digest;
+
+      // Default: only ask for answers
+      let jsonSchemaProperties = {
+        answers: { 
+          type: 'array', 
+          items: { 
+            type: 'object', 
+            properties: { 
+              question: { type: 'string' }, 
+              bullets: { type: 'array', items: { type: 'string' } } 
+            }, 
+            required: ['question', 'bullets'] 
+          } 
+        }
+      };
+
+      let systemPromptInstructions = [
+        `CRITICAL DIRECTIVE: The interviewer just asked THIS specific question: "${targetQuestion}"`,
+        'You MUST answer this exact question and ignore all other questions in the transcript.',
+        'DO NOT give the candidate advice or instructions on how to structure their answer.',
+        'Write the actual answers for the candidate to read out loud. Use first-person language ("I led...", "I built...", "At my previous role...", "I would handle this by...").',
+        'If the question asks about past experience, projects, or background, you MUST extract the specific projects, company names, metrics, and details EXCLUSIVELY from the provided RAG context.',
+        'If the question is a general behavioral or situational question (e.g. strengths, weaknesses, 30-60-90 day plan) that is not in the RAG context, use standard interview best practices to formulate a strong, professional response.',
+        'Never suggest questions for the interviewer to ask. Only suggest what the candidate ("You") should say.',
+        'Schema: {"answers":[{"question":"...","bullets":["..."]}]}.'
+      ];
+
+      // If user clicked the "What to say next" button, switch schema to suggestions only
+      if (isSuggestionRequest) {
+        jsonSchemaProperties = {
+          suggestions: { 
+            type: 'array', 
+            items: { 
+              type: 'object', 
+              properties: { text: { type: 'string' } }, 
+              required: ['text'] 
+            } 
+          }
+        };
+        systemPromptInstructions = [
+          'The candidate has explicitly asked for a suggestion on what to say or ask next.',
+          'DO NOT give the candidate advice.',
+          'Provide a concise, first-person script ("I would like to add...", "Can you tell me more about...") for what the candidate ("You") should say to drive the conversation forward.',
+          'If mentioning past work, extract the experience details EXCLUSIVELY from the provided RAG context.',
+          'Schema: {"suggestions":[{"text":"..."}]}.'
+        ];
       }
 
       const response = await axiosClient.post(apiUrl, {
@@ -100,23 +173,7 @@ function createMeetingAssistant(options = {}) {
             name: 'assistant_cards',
             schema: {
               type: 'object',
-              properties: {
-                answers: { 
-                  type: 'array', 
-                  items: { 
-                    type: 'object', 
-                    properties: { 
-                      question: { type: 'string' }, 
-                      bullets: { type: 'array', items: { type: 'string' } } 
-                    }, 
-                    required: ['question', 'bullets'] 
-                  } 
-                },
-                questions: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
-                suggestions: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
-                actions: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
-                risks: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }
-              },
+              properties: jsonSchemaProperties,
               additionalProperties: false
             }
           }
@@ -132,15 +189,10 @@ function createMeetingAssistant(options = {}) {
               'The user wearing Clyde ("You") is the job candidate.',
               'The "System Audio" and any other speakers are the interviewers.',
               'Base your answers, hints/tips, and suggested next lines on what the interviewer is asking and the flow of the conversation.',
-              'ONLY answer explicit questions that the interviewer has just asked in the most recent transcript lines.',
-              'NEVER generate answers to questions that have not been asked yet, or questions from past interviews.',
-              'Provide detailed, highlight-focused answers using bullet points that the candidate can say.',
-              'Never suggest questions for the interviewer to ask. Only suggest what the candidate ("You") should say or ask.',
+              ...systemPromptInstructions,
               currentContext.jobDescription ? `\nJob Description:\n${currentContext.jobDescription}\n` : '',
-              currentContext.resume ? `\nCandidate Resume/Background:\n${currentContext.resume}\n` : '',
               ragContext ? `\nRelevant RAG Context:\n${ragContext}\n` : '',
               'Include only items that are useful right now. Do not include markdown fences.',
-              'Schema: {"answers":[{"question":"...","bullets":["..."]}],"questions":[{"text":"..."}],"suggestions":[{"text":"..."}],"actions":[{"text":"..."}],"risks":[{"text":"..."}]}.',
               'Use at most 3 total cards. Keep every value concise. Empty arrays are allowed. Do not mention that you are an AI.'
             ].filter(Boolean).join(' ')
           },
@@ -160,10 +212,19 @@ function createMeetingAssistant(options = {}) {
           text,
           cards
         });
+        
+        // CLEAR the transcript buffer of the current digest so we don't accidentally re-answer these old questions!
+        // Because of smart merging, we can't just check text strings. We just empty the array.
+        transcriptTurns = [];
+        lastDigest = '';
+        
         sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
       } else if (text) {
-        logger.log('Ignored non-JSON assistant response:', text);
-        sendStatus({ state: 'warning', message: 'LM Studio returned text but no valid JSON suggestions.' });
+        logger.log('Ignored non-JSON assistant response or empty array:', text);
+        // Fast retry: The model failed to answer the question, so we reset the timers to let it try again on the next audio chunk
+        lastRunAt = 0;
+        lastDigest = '';
+        sendStatus({ state: 'warning', message: 'Model returned empty answers. Will auto-retry...' });
       } else {
         sendStatus({
           state: 'warning',
@@ -183,9 +244,14 @@ function createMeetingAssistant(options = {}) {
     }
   }
 
+  function requestSuggestion() {
+    return maybeRun(true, true);
+  }
+
   return {
     addTranscript,
     maybeRun,
+    requestSuggestion,
     setContext,
     getTranscriptTurns: () => [...transcriptTurns]
   };

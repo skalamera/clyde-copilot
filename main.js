@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('node:fs');
 const path = require('path');
 const axios = require('axios');
+const pdf = require('pdf-parse');
 const { createAudioCapture } = require('./src/audioCapture');
 const { createMeetingAssistant } = require('./src/meetingAssistant');
 const { calculatePcmRms, createTranscriptionProcessor } = require('./src/transcriptionClient');
@@ -261,7 +262,7 @@ function getMeetingAssistant() {
         apiUrl: process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions',
         model: process.env.LM_STUDIO_CHAT_MODEL || '',
         intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
-        maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 10),
+        maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
         maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
         timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
         axiosClient: axios,
@@ -459,6 +460,24 @@ function createWindow () {
 
   ipcMain.on('stop-audio-level-test', () => {
       stopAudioLevelTest();
+  });
+
+  ipcMain.on('request-suggestion', () => {
+      getMeetingAssistant().requestSuggestion();
+  });
+
+  ipcMain.handle('save-context', (event, context) => {
+      const contextPath = path.join(app.getPath('userData'), 'context.json');
+      fs.writeFileSync(contextPath, JSON.stringify(context, null, 2));
+      return true;
+  });
+
+  ipcMain.handle('load-context', (event) => {
+      const contextPath = path.join(app.getPath('userData'), 'context.json');
+      if (fs.existsSync(contextPath)) {
+          return JSON.parse(fs.readFileSync(contextPath, 'utf8'));
+      }
+      return { jobDescription: '' };
   });
 
   mainWindow.on('closed', () => {

@@ -279,6 +279,23 @@
             grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
             gap: 18px;
             align-items: stretch;
+            transition: grid-template-columns 0.3s ease;
+        }
+
+        .work-grid.transcript-collapsed {
+            grid-template-columns: 0fr minmax(320px, 1fr);
+        }
+
+        .work-grid.transcript-collapsed #transcriptPanel {
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        #transcriptPanel {
+            transition: opacity 0.3s ease;
+            opacity: 1;
         }
 
         #audioDiagnostics {
@@ -667,10 +684,6 @@
                 <label for="jobDescription">Job Description</label>
                 <textarea id="jobDescription" placeholder="Paste the job description here to help Clyde tailor its suggestions..."></textarea>
             </div>
-            <div class="input-group">
-                <label for="resume">My Resume</label>
-                <textarea id="resume" placeholder="Paste your resume or background info here..."></textarea>
-            </div>
             <button class="topbar-btn" style="align-self: flex-end; padding: 10px 20px;" onclick="document.getElementById('settingsModal').classList.remove('show')">Save & Close</button>
         </div>
     </div>
@@ -684,10 +697,11 @@
             <div id="audioMeters"></div>
         </div>
 
-        <div class="work-grid">
-            <div class="panel-stack">
+        <div class="work-grid" id="workGrid">
+            <div class="panel-stack" id="transcriptPanel">
                 <div class="transcript-header">
                     <h2>Live Transcript</h2>
+                    <button class="topbar-btn" onclick="toggleTranscript()" style="padding: 2px 8px; font-size: 0.75rem;">Collapse</button>
                 </div>
                 <div id="transcriptContainer" class="glass-panel">
                     <p class="empty-state">Press Start to begin capturing and transcribing audio.</p>
@@ -696,7 +710,11 @@
 
             <div class="panel-stack">
                 <div class="transcript-header">
-                    <h2>Live Assistant</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button id="expandTranscriptBtn" class="topbar-btn" style="display: none; padding: 2px 8px; font-size: 0.75rem; background: rgba(239, 112, 33, 0.2); border-color: rgba(239, 112, 33, 0.4);" onclick="toggleTranscript()">Show Transcript</button>
+                        <h2>Live Assistant</h2>
+                    </div>
+                    <button id="suggestNextBtn" onclick="requestSuggestion()" disabled style="padding: 4px 10px; font-size: 0.75rem; background-color: rgba(255,255,255,0.04); border: 1px solid var(--border); color: #cbd5e1; border-radius: 4px; box-shadow: none;">What to say next?</button>
                 </div>
                 <div id="assistantContainer" class="glass-panel">
                     <p class="empty-state">LM Studio suggestions will appear here.</p>
@@ -709,6 +727,7 @@
         let isStreaming = false;
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const suggestNextBtn = document.getElementById('suggestNextBtn');
         const testInputBtn = document.getElementById('testInputBtn');
         const statusIndicator = document.getElementById('statusIndicator');
         const transcriptContainer = document.getElementById('transcriptContainer');
@@ -720,28 +739,85 @@
         let audioLevelTesting = false;
         let assistantCardSerial = 0;
         const dismissedCards = new Set();
+        let saveTimeout;
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const context = await window.electronAPI.loadContext();
+                if (context) {
+                    document.getElementById('jobDescription').value = context.jobDescription || '';
+                }
+            } catch (err) {
+                console.error("Failed to load context:", err);
+            }
+        });
+
+        function saveCurrentContext() {
+            const jobDescription = document.getElementById('jobDescription').value;
+            window.electronAPI.saveContext({ jobDescription }).catch(err => {
+                console.error("Failed to save context:", err);
+            });
+        }
+
+        document.getElementById('jobDescription').addEventListener('input', () => {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(saveCurrentContext, 1000);
+        });
+
+        let isTranscriptCollapsed = false;
+
+        function toggleTranscript() {
+            const workGrid = document.getElementById('workGrid');
+            const expandBtn = document.getElementById('expandTranscriptBtn');
+            
+            isTranscriptCollapsed = !isTranscriptCollapsed;
+            
+            if (isTranscriptCollapsed) {
+                workGrid.classList.add('transcript-collapsed');
+                expandBtn.style.display = 'block';
+            } else {
+                workGrid.classList.remove('transcript-collapsed');
+                expandBtn.style.display = 'none';
+            }
+        }
 
         function setStreamingState(streaming) {
             isStreaming = streaming;
             startBtn.disabled = streaming;
             stopBtn.disabled = !streaming;
+            if (suggestNextBtn) suggestNextBtn.disabled = !streaming;
         }
 
         function toggleStreaming(start) {
             if (start) {
                 const jobDescription = document.getElementById('jobDescription').value;
-                const resume = document.getElementById('resume').value;
                 
-                window.electronAPI.startTranscription({ jobDescription, resume });
+                window.electronAPI.startTranscription({ jobDescription });
                 setStreamingState(true);
                 statusIndicator.textContent = "Starting audio capture...";
                 transcriptContainer.innerHTML = '';
-                assistantContainer.innerHTML = '<p class="empty-state">Listening for questions and next steps.</p>';
+                assistantContainer.innerHTML = '<p class="empty-state">Listening for questions...</p>';
             } else {
                 window.electronAPI.stopTranscription();
                 setStreamingState(false);
                 statusIndicator.textContent = "Stopped.";
             }
+        }
+
+        function requestSuggestion() {
+            if (!isStreaming) return;
+            
+            // Give some immediate feedback that it is loading
+            suggestNextBtn.textContent = 'Thinking...';
+            suggestNextBtn.disabled = true;
+            
+            window.electronAPI.requestSuggestion();
+            
+            // Re-enable button after 3 seconds assuming the model responded or failed
+            setTimeout(() => {
+                suggestNextBtn.textContent = 'What to say next?';
+                suggestNextBtn.disabled = false;
+            }, 3000);
         }
 
         function testOutputAudio() {

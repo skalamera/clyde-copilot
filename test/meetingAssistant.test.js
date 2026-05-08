@@ -27,6 +27,16 @@ test('skips LM Studio calls until configured', async () => {
   assert.equal(calls, 0);
 });
 
+test('merges consecutive transcript turns from the same speaker', async () => {
+  const assistant = createMeetingAssistant();
+  await assistant.addTranscript({ speaker: 'System Audio', text: 'What is' });
+  await assistant.addTranscript({ speaker: 'System Audio', text: 'Aladdin?' });
+  
+  const turns = assistant.getTranscriptTurns();
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].text, 'What is Aladdin?');
+});
+
 test('posts rolling transcript to LM Studio chat completions', async () => {
   const calls = [];
   const updates = [];
@@ -60,18 +70,29 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
     sendUpdate: (update) => updates.push(update)
   });
 
-  await assistant.addTranscript({ speaker: 'System Audio', text: 'What is Aladdin?' });
+  await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you give an example of a process you have put in place to help scale the team better?' });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://localhost:1234/v1/chat/completions');
   assert.equal(calls[0].body.model, 'gemma-4-e4b');
   assert.equal(calls[0].body.max_tokens, 800);
   assert.deepEqual(calls[0].body.reasoning, { effort: 'none' });
-  assert.equal(calls[0].body.response_format.type, 'json_schema');
-  assert.equal(calls[0].body.response_format.json_schema.name, 'assistant_cards');
+  assert.deepEqual(calls[0].body.response_format.json_schema.schema.properties, {
+    answers: { 
+      type: 'array', 
+      items: { 
+        type: 'object', 
+        properties: { 
+          question: { type: 'string' }, 
+          bullets: { type: 'array', items: { type: 'string' } } 
+        }, 
+        required: ['question', 'bullets'] 
+      } 
+    }
+  });
   assert.match(calls[0].body.messages[0].content, /The user wearing Clyde \("You"\) is the job candidate/);
   assert.match(calls[0].body.messages[0].content, /The "System Audio" and any other speakers are the interviewers/);
-  assert.match(calls[0].body.messages[1].content, /System Audio: What is Aladdin/);
+  assert.match(calls[0].body.messages[1].content, /System Audio: Can you give an example of a process you have put in place to help scale the team better/);
   assert.equal(calls[0].config.timeout, 60000);
   assert.equal(updates[0].cards[0].type, 'answer');
   assert.equal(updates[0].cards[0].question, 'What is Aladdin?');
@@ -119,7 +140,7 @@ test('warns when LM Studio returns no visible assistant content', async () => {
     sendStatus: (status) => statuses.push(status)
   });
 
-  const result = await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you hear me?' });
+  const result = await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you give an example of a process you have put in place to help scale the team better?' });
 
   assert.equal(result.text, '');
   assert.equal(statuses[0].state, 'warning');
@@ -138,16 +159,12 @@ test('extracts assistant text from chat completion responses', () => {
 test('parses structured assistant cards', () => {
   const cards = parseAssistantCards(JSON.stringify({
     answers: [{ question: 'What changed?', bullets: ['Liquidity increased.'] }],
-    questions: [{ text: 'Can you define liquidity?', why: 'The term is central.' }],
-    suggestions: [{ text: 'I would ask how this affects timing.', why: 'It moves the discussion forward.' }],
-    actions: [{ text: 'Note the 4.5% money growth figure.' }],
-    risks: [{ text: 'Nominal GDP was mentioned without a source.' }]
+    suggestions: [{ text: 'I would ask how this affects timing.', why: 'It moves the discussion forward.' }]
   }));
 
-  assert.deepEqual(cards.map((card) => card.type), ['answer', 'question', 'suggestion', 'action']);
+  assert.deepEqual(cards.map((card) => card.type), ['answer', 'suggestion']);
   assert.equal(cards[0].title, 'Answer');
-  assert.equal(cards[1].body, 'Can you define liquidity?');
-  assert.equal(cards[2].title, 'Say next');
+  assert.equal(cards[1].title, 'Say next');
 });
 
 test('detects the user speaker label', () => {
