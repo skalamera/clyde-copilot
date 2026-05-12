@@ -741,6 +741,7 @@ function createWindow () {
 
   ipcMain.handle('delete-company', (event, company) => {
       interviewManager.deleteCompany(company);
+      sessionManager.deleteEntity('interview', company);
       return true;
   });
 
@@ -788,8 +789,173 @@ function createWindow () {
   });
 
   ipcMain.handle('save-session', (event, record) => {
-      return sessionManager.saveSession(record || {});
+      const sessionId = sessionManager.saveSession(record || {});
+      
+      // If it's an interview session that needs grading, trigger background grading
+      if (record && record.mode === 'interview' && record.grading && record.grading.status === 'pending') {
+         processSessionGradingInBackground(sessionId, record, loadSettings()).catch(console.error);
+      }
+      
+      return sessionId;
   });
+
+  async function processSessionGradingInBackground(sessionId, record, settings) {
+      sendAudioStatus({ state: 'processing', message: `Grading interview for ${record.entity.name}...` });
+
+      try {
+          const provider = settings.llmProvider || 'local';
+          const apiKey = settings.llmApiKey || '';
+          const model = settings.llmModel || '';
+          const localUrl = settings.localLlmUrl;
+
+          const transcriptText = record.transcript.map(t => `${t.speaker}: ${t.text}`).join('\n');
+          const roleStr = record.entity.role ? `\nRole/Job Title: ${record.entity.role}` : '';
+          const jd = interviewManager.getCompanyJobDescription(record.entity.name) || interviewManager.getCompanyJobDescription(record.entity.id);
+          const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+          
+          const prompt = `You are an expert technical recruiter and hiring manager. Evaluate the candidate ("You") based on the interview transcript.
+          Company: ${record.entity.name}${roleStr}${jdStr}
+          
+          Give a highly precise grade (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, D-, F) based on clarity, technical accuracy, conciseness, and professionalism. Be strict and exact.
+          
+          Transcript:
+          ${transcriptText}`;
+
+          const resultText = await generateChat({
+              provider,
+              apiKey,
+              model,
+              temperature: 0.2,
+              maxTokens: 800,
+              axiosClient: axios,
+              localUrl,
+              jsonSchema: {
+                  name: 'grading',
+                  schema: {
+                      type: 'object',
+                      properties: {
+                          grade: { type: 'string', enum: ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'] },
+                          reasoning: { type: 'string' },
+                          examples: { type: 'array', items: { type: 'string' } }
+                      },
+                      required: ['grade', 'reasoning', 'examples'],
+                      additionalProperties: false
+                  }
+              },
+              messages: [{ role: 'user', content: prompt }]
+          });
+
+          let gradeData = { grade: 'C', reasoning: 'Failed to generate proper evaluation.', examples: [] };
+          try {
+              let cleanedText = resultText.trim();
+              if (cleanedText.startsWith('\`\`\`json')) {
+                  cleanedText = cleanedText.replace(/^\`\`\`json/g, '').replace(/\`\`\`$/g, '').trim();
+              } else if (cleanedText.startsWith('\`\`\`')) {
+                  cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
+              }
+              gradeData = JSON.parse(cleanedText);
+          } catch (e) {
+              console.error("Failed to parse grading score JSON:", resultText);
+          }
+
+          // Update record and save it
+          record.grading = {
+              status: 'complete',
+              grade: gradeData.grade,
+              reasoning: gradeData.reasoning,
+              examples: gradeData.examples
+          };
+          sessionManager.saveSession(record);
+
+          // Now recompute confidence score
+          await processSessionConfidenceInBackground(record.entity, settings);
+
+      } catch (error) {
+          console.error("Grading processing error:", error);
+          record.grading = { status: 'failed' };
+          sessionManager.saveSession(record);
+          sendAudioStatus({ state: 'error', message: `Grading failed for ${record.entity.name}` });
+      }
+  }
+
+  async function processSessionConfidenceInBackground(entity, settings) {
+      sendAudioStatus({ state: 'processing', message: `Computing confidence score for ${entity.name}...` });
+      
+      try {
+          // Get all interview sessions for this entity to analyze
+          const allSessions = sessionManager.getSessions({ mode: 'interview', entityId: entity.id });
+          if (allSessions.length === 0) {
+              sendAudioStatus({ state: 'success', message: `Evaluation complete for ${entity.name}!` });
+              return;
+          }
+
+          const provider = settings.llmProvider || 'local';
+          const apiKey = settings.llmApiKey || '';
+          const model = settings.llmModel || '';
+          const localUrl = settings.localLlmUrl;
+
+          const combinedTranscripts = allSessions.map((inv, idx) => `\n--- Interview ${idx + 1} (${inv.title}) ---\n` + inv.transcript.map(t => `${t.speaker}: ${t.text}`).join('\n')).join('\n');
+
+          const roleStr = entity.role ? `\nRole/Job Title: ${entity.role}` : '';
+          const jd = interviewManager.getCompanyJobDescription(entity.name) || interviewManager.getCompanyJobDescription(entity.id);
+          const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+
+          const confPrompt = `You are a strict, objective hiring manager evaluating a candidate across all their interviews for a company.
+          Company: ${entity.name}${roleStr}${jdStr}
+          
+          Review the transcripts of all their interviews so far.
+          Determine the likelihood of them receiving an offer or moving to the next round, as a percentage from 0 to 100.
+          CRITICAL: Be extremely precise and granular with your percentage. Do NOT default to round numbers or multiples of 5 (e.g. avoid exactly 80, 85, 90). Instead, give highly specific numbers based on a detailed analysis of their performance (e.g., 82, 87, 91, 74). Be highly realistic and critical.
+          Determine if their trend is "up", "down", or "neutral" compared to previous rounds (if only one round, default to neutral).
+          
+          Transcripts:
+          ${combinedTranscripts}`;
+
+          const confText = await generateChat({
+              provider,
+              apiKey,
+              model,
+              temperature: 0.2,
+              maxTokens: 300,
+              axiosClient: axios,
+              localUrl,
+              jsonSchema: {
+                  name: 'confidence',
+                  schema: {
+                      type: 'object',
+                      properties: {
+                          confidence_score: { type: 'integer' },
+                          trend: { type: 'string', enum: ['up', 'down', 'neutral'] }
+                      },
+                      required: ['confidence_score', 'trend'],
+                      additionalProperties: false
+                  }
+              },
+              messages: [{ role: 'user', content: confPrompt }]
+          });
+
+          let confData = { confidence_score: 0, trend: 'neutral' };
+          try {
+              let cleanedText = confText.trim();
+              if (cleanedText.startsWith('\`\`\`json')) {
+                  cleanedText = cleanedText.replace(/^\`\`\`json/g, '').replace(/\`\`\`$/g, '').trim();
+              } else if (cleanedText.startsWith('\`\`\`')) {
+                  cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
+              }
+              confData = JSON.parse(cleanedText);
+          } catch (e) {
+              console.error("Failed to parse confidence score JSON:", confText);
+          }
+
+          // Save the confidence to the entity's meta.json
+          sessionManager.updateEntityConfidence(entity.id, confData.confidence_score, confData.trend);
+          sendAudioStatus({ state: 'success', message: `Evaluation complete for ${entity.name}!` });
+
+      } catch (err) {
+          console.error("Confidence recompute failed", err);
+          sendAudioStatus({ state: 'error', message: `Confidence evaluation failed for ${entity.name}` });
+      }
+  }
 
   ipcMain.handle('delete-session', (event, payload) => {
       return sessionManager.deleteSession(payload || {});

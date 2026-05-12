@@ -53,6 +53,18 @@ function createSessionManager({ appPath }) {
     return true;
   }
 
+  function deleteEntity(mode, entityId) {
+    const normalizedMode = normalizeMode(mode);
+    const normalizedEntityId = sanitizeId(entityId);
+    if (!normalizedEntityId) return false;
+
+    const entityDir = path.join(sessionsDir, normalizedMode, normalizedEntityId);
+    if (fs.existsSync(entityDir)) {
+      fs.rmSync(entityDir, { recursive: true, force: true });
+    }
+    return true;
+  }
+
   function getSessionEntities(mode = 'interview') {
     const normalizedMode = normalizeMode(mode);
     const nativeEntities = readNativeEntities(normalizedMode);
@@ -66,16 +78,31 @@ function createSessionManager({ appPath }) {
     return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  function writeEntityMeta(mode, entityId, entity) {
-    const entityDir = path.join(sessionsDir, normalizeMode(mode), entityId);
-    fs.mkdirSync(entityDir, { recursive: true });
-    fs.writeFileSync(path.join(entityDir, 'meta.json'), JSON.stringify({
-      id: entityId,
-      name: entity.name || entityId,
-      role: entity.role || '',
-      kind: entity.kind || normalizeMode(mode)
-    }, null, 2), 'utf8');
-  }
+    function writeEntityMeta(mode, entityId, entity) {
+      const entityDir = path.join(sessionsDir, normalizeMode(mode), entityId);
+      fs.mkdirSync(entityDir, { recursive: true });
+      fs.writeFileSync(path.join(entityDir, 'meta.json'), JSON.stringify({
+        id: entityId,
+        name: entity.name || entityId,
+        role: entity.role || '',
+        kind: entity.kind || normalizeMode(mode),
+        confidence_score: entity.confidence_score !== undefined ? entity.confidence_score : 0,
+        trend: entity.trend || 'neutral'
+      }, null, 2), 'utf8');
+    }
+
+    function updateEntityConfidence(entityId, score, trend) {
+      const entityDir = path.join(sessionsDir, 'interview', entityId);
+      const metaPath = path.join(entityDir, 'meta.json');
+      if (fs.existsSync(metaPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          meta.confidence_score = score;
+          meta.trend = trend;
+          fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+        } catch(e) {}
+      }
+    }
 
   function readNativeSessions({ mode, entityId }) {
     const modeDir = path.join(sessionsDir, mode);
@@ -107,44 +134,48 @@ function createSessionManager({ appPath }) {
     return sessions;
   }
 
-  function readNativeEntities(mode) {
-    const modeDir = path.join(sessionsDir, mode);
-    if (!fs.existsSync(modeDir)) {
-      return [];
+    function readNativeEntities(mode) {
+      const modeDir = path.join(sessionsDir, mode);
+      if (!fs.existsSync(modeDir)) {
+        return [];
+      }
+
+      return fs.readdirSync(modeDir, { withFileTypes: true })
+        .filter((item) => item.isDirectory())
+        .map((item) => {
+          const entityId = item.name;
+          const meta = readJsonFile(path.join(modeDir, entityId, 'meta.json')) || {};
+          return {
+            id: meta.id || entityId,
+            name: meta.name || entityId,
+            role: meta.role || '',
+            kind: meta.kind || mode,
+            confidence: meta.confidence_score || 0,
+            trend: meta.trend || 'neutral'
+          };
+        });
     }
 
-    return fs.readdirSync(modeDir, { withFileTypes: true })
-      .filter((item) => item.isDirectory())
-      .map((item) => {
-        const entityId = item.name;
-        const meta = readJsonFile(path.join(modeDir, entityId, 'meta.json')) || {};
-        return {
-          id: meta.id || entityId,
-          name: meta.name || entityId,
-          role: meta.role || '',
-          kind: meta.kind || mode
-        };
-      });
-  }
+    function readLegacyInterviewEntities() {
+      const interviewsDir = path.join(appPath, 'Interviews');
+      if (!fs.existsSync(interviewsDir)) {
+        return [];
+      }
 
-  function readLegacyInterviewEntities() {
-    const interviewsDir = path.join(appPath, 'Interviews');
-    if (!fs.existsSync(interviewsDir)) {
-      return [];
+      return fs.readdirSync(interviewsDir, { withFileTypes: true })
+        .filter((item) => item.isDirectory())
+        .map((item) => {
+          const meta = readJsonFile(path.join(interviewsDir, item.name, 'meta.json')) || {};
+          return {
+            id: item.name,
+            name: meta.name || item.name,
+            role: meta.role || '',
+            kind: 'interview',
+            confidence: meta.confidence_score || 0,
+            trend: meta.trend || 'neutral'
+          };
+        });
     }
-
-    return fs.readdirSync(interviewsDir, { withFileTypes: true })
-      .filter((item) => item.isDirectory())
-      .map((item) => {
-        const meta = readJsonFile(path.join(interviewsDir, item.name, 'meta.json')) || {};
-        return {
-          id: item.name,
-          name: meta.name || item.name,
-          role: meta.role || '',
-          kind: 'interview'
-        };
-      });
-  }
 
   function readLegacyInterviewSessions(entityId) {
     const interviewsDir = path.join(appPath, 'Interviews');
@@ -218,12 +249,14 @@ function createSessionManager({ appPath }) {
       .map((item) => path.join(modeDir, item.name, `${id}.json`));
   }
 
-  return {
-    deleteSession,
-    getSessionEntities,
-    getSessions,
-    saveSession
-  };
+    return {
+      deleteSession,
+      deleteEntity,
+      getSessionEntities,
+      getSessions,
+      saveSession,
+      updateEntityConfidence
+    };
 }
 
 function normalizeSessionRecord(record = {}) {
