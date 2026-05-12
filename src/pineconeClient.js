@@ -87,7 +87,18 @@ Return ONLY a JSON object with this structure:
   "question": string | null
 }`;
 
-    const result = await model.generateContent(prompt);
+    let result;
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        result = await model.generateContent(prompt);
+        break;
+      } catch (e) {
+        retries--;
+        if (retries === 0) throw e;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
     const text = result.response.text();
     
     const match = text.match(/\{[\s\S]*\}/);

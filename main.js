@@ -1,26 +1,43 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('node:path');
 const fs = require('node:fs');
-const path = require('path');
 const axios = require('axios');
-const pdf = require('pdf-parse');
-const { createAudioCapture } = require('./src/audioCapture');
-const { createMeetingAssistant } = require('./src/meetingAssistant');
-const { calculatePcmRms, createTranscriptionProcessor } = require('./src/transcriptionClient');
-require('dotenv').config();
+const log = require('electron-log');
+const { autoUpdater } = require('electron-updater');
 
-configureElectronStorage();
+// Configure electron-log
+log.transports.file.level = 'info';
+console.log = log.info;
+console.error = log.error;
+console.warn = log.warn;
+
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+const { createAudioCapture } = require('./src/audioCapture');
+const { calculatePcmRms, createTranscriptionProcessor } = require('./src/transcriptionClient');
+const { createMeetingAssistant } = require('./src/meetingAssistant');
+const { createInterviewManager } = require('./src/interviewManager');
+const { createSessionManager } = require('./src/sessionManager');
+const { generateChat } = require('./src/llmClient');
 
 let mainWindow;
 let audioCaptures;
+let audioLevelCaptures;
 let transcriptionProcessors;
 let meetingAssistant;
-let audioLevelCaptures;
+let interviewManager;
+let sessionManager;
 let audioLevelTimer;
+let liveAudioLevelTimer;
+let liveAudioLevels;
 let healthCheckTimer;
+
+let fullSessionTranscript = [];
+
 const healthState = {
     audio: { state: 'unknown', label: 'Audio', detail: 'Not checked yet.' },
-    whisper: { state: 'unknown', label: 'Whisper', detail: 'Not checked yet.' },
-    lmStudio: { state: 'unknown', label: 'LM Studio', detail: 'Not checked yet.' },
+    whisper: { state: 'unknown', label: 'Transcription', detail: 'Not checked yet.' },
+    lmStudio: { state: 'unknown', label: 'Assistant LLM', detail: 'Not checked yet.' },
     capture: { state: 'idle', label: 'Capture', detail: 'Stopped.' }
 };
 
@@ -32,6 +49,109 @@ function configureElectronStorage() {
     fs.mkdirSync(sessionData, { recursive: true });
     app.setPath('userData', userData);
     app.setPath('sessionData', sessionData);
+}
+
+function loadSettings() {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+    
+    let settings = {
+        llmProvider: store.get('llmProvider', 'local'),
+        llmModel: store.get('llmModel', ''),
+        llmApiKey: store.get('llmApiKey', ''),
+        localLlmUrl: store.get('localLlmUrl', 'http://localhost:1234/v1/chat/completions'),
+        transcriptionProvider: store.get('transcriptionProvider', 'local'),
+        transcriptionApiKey: store.get('transcriptionApiKey', ''),
+        localTranscriptionUrl: store.get('localTranscriptionUrl', 'http://localhost:8000/v1/audio/transcriptions'),
+        jobDescription: store.get('jobDescription', ''),
+        resumeText: store.get('resumeText', ''),
+        currentCompany: store.get('currentCompany', ''),
+        currentRole: store.get('currentRole', ''),
+        geminiApiKey: store.get('geminiApiKey', ''),
+        pineconeApiKey: store.get('pineconeApiKey', ''),
+        pineconeHost: store.get('pineconeHost', ''),
+        ragEnabled: store.get('ragEnabled', false),
+        appMode: store.get('appMode', 'interview'),
+        meetingTitle: store.get('meetingTitle', ''),
+        meetingAttendees: store.get('meetingAttendees', []),
+        meetingMemory: store.get('meetingMemory', ''),
+        screenShareHidden: store.get('screenShareHidden', true)
+    };
+
+    // Fallbacks from env if settings aren't populated
+    if (!settings.localLlmUrl) settings.localLlmUrl = process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions';
+    if (!settings.localTranscriptionUrl) settings.localTranscriptionUrl = process.env.LM_STUDIO_API_URL || 'http://localhost:8000/v1/audio/transcriptions';
+    if (!settings.llmModel && settings.llmProvider === 'local') settings.llmModel = process.env.LM_STUDIO_CHAT_MODEL || '';
+    if (!settings.geminiApiKey) settings.geminiApiKey = process.env.GEMINI_API_KEY || '';
+    if (!settings.pineconeApiKey) settings.pineconeApiKey = process.env.PINECONE_API_KEY || '';
+    if (!settings.pineconeHost) settings.pineconeHost = process.env.PINECONE_HOST || '';
+    
+    // Inject back into process.env so existing modules (like pineconeClient.js) can read them
+    if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
+    if (settings.pineconeApiKey) process.env.PINECONE_API_KEY = settings.pineconeApiKey;
+    if (settings.pineconeHost) process.env.PINECONE_HOST = settings.pineconeHost;
+
+    return settings;
+}
+
+function saveSettings(newSettings) {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+    
+    store.set(newSettings);
+    
+    // Update process.env immediately
+    if (newSettings.geminiApiKey) process.env.GEMINI_API_KEY = newSettings.geminiApiKey;
+    
+    if (newSettings.ragEnabled && newSettings.pineconeApiKey) {
+        process.env.PINECONE_API_KEY = newSettings.pineconeApiKey;
+    } else {
+        delete process.env.PINECONE_API_KEY;
+    }
+    
+    if (newSettings.ragEnabled && newSettings.pineconeHost) {
+        process.env.PINECONE_HOST = newSettings.pineconeHost;
+    } else {
+        delete process.env.PINECONE_HOST;
+    }
+
+    // Re-initialize clients with new settings
+    if (meetingAssistant) {
+        meetingAssistant = createMeetingAssistant({
+            settings: newSettings,
+            intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
+            maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
+            maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
+            timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
+            axiosClient: axios,
+            logger: console,
+            sendStatus: sendAudioStatus,
+            sendUpdate: sendAssistantUpdate
+        });
+        const activeJd = (interviewManager && newSettings.currentCompany) ? interviewManager.getCompanyJobDescription(newSettings.currentCompany) : '';
+        meetingAssistant.setContext({ 
+            mode: newSettings.appMode || 'interview',
+            jobDescription: activeJd,
+            resumeText: newSettings.resumeText || '',
+            company: newSettings.currentCompany || '',
+            role: newSettings.currentRole || '',
+            meetingTitle: newSettings.meetingTitle || '',
+            attendees: Array.isArray(newSettings.meetingAttendees) ? newSettings.meetingAttendees : [],
+            memory: newSettings.meetingMemory || ''
+        });
+    }
+
+    if (interviewManager) {
+        interviewManager = createInterviewManager({
+            appPath: app.getPath('userData'),
+            axiosClient: axios,
+            settings: newSettings,
+            onStatus: sendAudioStatus
+        });
+    }
+
+    // Force health recheck
+    checkServiceHealth(newSettings);
 }
 
 /**
@@ -135,10 +255,10 @@ function sendHealthUpdate() {
     mainWindow.webContents.send('health-update', healthState);
 }
 
-async function checkServiceHealth() {
+async function checkServiceHealth(settings = loadSettings()) {
     await Promise.all([
-        checkWhisperHealth(),
-        checkLmStudioHealth()
+        checkWhisperHealth(settings),
+        checkLmStudioHealth(settings)
     ]);
 
     checkAudioHealth();
@@ -156,11 +276,16 @@ function checkAudioHealth() {
     });
 }
 
-async function checkWhisperHealth() {
-    const transcriptionUrl = process.env.LM_STUDIO_API_URL || '';
+async function checkWhisperHealth(settings) {
+    if (settings.transcriptionProvider === 'openai') {
+        updateHealth('whisper', { state: 'ready', detail: 'Using OpenAI Cloud Transcription API.' });
+        return;
+    }
+
+    const transcriptionUrl = settings.localTranscriptionUrl;
 
     if (!transcriptionUrl) {
-        updateHealth('whisper', { state: 'error', detail: 'LM_STUDIO_API_URL is not set.' });
+        updateHealth('whisper', { state: 'error', detail: 'Local transcription URL is not set.' });
         return;
     }
 
@@ -176,19 +301,24 @@ async function checkWhisperHealth() {
     } catch (error) {
         updateHealth('whisper', {
             state: 'error',
-            detail: `Cannot reach Whisper at ${transcriptionUrl}: ${formatServiceError(error)}`
+            detail: `Cannot reach local whisper at ${transcriptionUrl}: ${formatServiceError(error)}`
         });
     }
 }
 
-async function checkLmStudioHealth() {
-    const chatUrl = process.env.LM_STUDIO_CHAT_URL || '';
-    const model = process.env.LM_STUDIO_CHAT_MODEL || '';
+async function checkLmStudioHealth(settings) {
+    if (settings.llmProvider !== 'local') {
+        updateHealth('lmStudio', { state: 'ready', detail: `Using Cloud LLM: ${settings.llmProvider} (${settings.llmModel})` });
+        return;
+    }
+
+    const chatUrl = settings.localLlmUrl;
+    const model = settings.llmModel;
 
     if (!chatUrl || !model) {
         updateHealth('lmStudio', {
             state: 'warning',
-            detail: 'LM Studio assistant is not configured.'
+            detail: 'Local Assistant LLM is not configured properly.'
         });
         return;
     }
@@ -211,7 +341,7 @@ async function checkLmStudioHealth() {
     } catch (error) {
         updateHealth('lmStudio', {
             state: 'error',
-            detail: `Cannot reach LM Studio at ${chatUrl}: ${formatServiceError(error)}`
+            detail: `Cannot reach local LLM at ${chatUrl}: ${formatServiceError(error)}`
         });
     }
 }
@@ -231,6 +361,21 @@ function formatServiceError(error) {
 function sendTranscriptUpdate(transcript) {
     if (!mainWindow || mainWindow.isDestroyed()) {
         return;
+    }
+
+    // Append to the full session transcript for saving later
+    if (transcript && transcript.text) {
+        const speaker = transcript.speaker || 'Unknown';
+        const text = String(transcript.text).trim();
+        
+        if (fullSessionTranscript.length > 0 && fullSessionTranscript[fullSessionTranscript.length - 1].speaker === speaker) {
+            fullSessionTranscript[fullSessionTranscript.length - 1].text += ' ' + text;
+        } else {
+            fullSessionTranscript.push({
+                speaker: speaker,
+                text: text
+            });
+        }
     }
 
     mainWindow.webContents.send('transcript-update', transcript);
@@ -258,9 +403,10 @@ function getMeetingAssistant() {
         return meetingAssistant;
     }
 
+    const settings = loadSettings();
+
     meetingAssistant = createMeetingAssistant({
-        apiUrl: process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions',
-        model: process.env.LM_STUDIO_CHAT_MODEL || '',
+        settings,
         intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
         maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
         maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
@@ -269,6 +415,18 @@ function getMeetingAssistant() {
         logger: console,
         sendStatus: sendAudioStatus,
         sendUpdate: sendAssistantUpdate
+    });
+    
+    const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
+    meetingAssistant.setContext({ 
+        mode: settings.appMode || 'interview',
+        jobDescription: activeJd,
+        resumeText: settings.resumeText || '',
+        company: settings.currentCompany || '',
+        role: settings.currentRole || '',
+        meetingTitle: settings.meetingTitle || '',
+        attendees: Array.isArray(settings.meetingAttendees) ? settings.meetingAttendees : [],
+        memory: settings.meetingMemory || ''
     });
 
     return meetingAssistant;
@@ -283,9 +441,10 @@ function getTranscriptionProcessor(source) {
         return transcriptionProcessors.get(source.id);
     }
 
+    const settings = loadSettings();
+
     const processor = createTranscriptionProcessor({
-        apiUrl: process.env.LM_STUDIO_API_URL || '',
-        model: process.env.TRANSCRIPTION_MODEL,
+        settings,
         minRms: Number(process.env.CLYDE_MIN_RMS || 100),
         hallucinationRms: Number(process.env.CLYDE_HALLUCINATION_RMS || 350),
         timeout: Number(process.env.TRANSCRIPTION_TIMEOUT_MS || 120000),
@@ -303,6 +462,7 @@ function getTranscriptionProcessor(source) {
 }
 
 async function processAudioChunk(source, chunk) {
+    updateLiveAudioLevel(source, chunk);
     await getTranscriptionProcessor(source).processAudioChunk(chunk);
 }
 
@@ -316,6 +476,69 @@ function stopAudioCaptures() {
 
     transcriptionProcessors = null;
     meetingAssistant = null;
+    stopLiveAudioLevels();
+}
+
+function startLiveAudioLevels() {
+    const sources = getAudioSources();
+    liveAudioLevels = new Map(sources.map((source) => [source.id, {
+        label: source.label,
+        color: source.color,
+        rms: 0,
+        level: 0,
+        chunks: 0,
+        speaking: false
+    }]));
+
+    if (liveAudioLevelTimer) {
+        clearInterval(liveAudioLevelTimer);
+    }
+
+    liveAudioLevelTimer = setInterval(() => {
+        sendAudioLevelUpdate({
+            type: 'live-levels',
+            sources: Array.from(liveAudioLevels.entries()).map(([id, value]) => ({
+                id,
+                ...value
+            }))
+        });
+    }, 120);
+
+    sendAudioLevelUpdate({
+        type: 'live-started',
+        sources: Array.from(liveAudioLevels.entries()).map(([id, value]) => ({
+            id,
+            ...value
+        }))
+    });
+}
+
+function stopLiveAudioLevels() {
+    if (liveAudioLevelTimer) {
+        clearInterval(liveAudioLevelTimer);
+        liveAudioLevelTimer = null;
+    }
+
+    liveAudioLevels = null;
+    sendAudioLevelUpdate({ type: 'live-stopped' });
+}
+
+function updateLiveAudioLevel(source, chunk) {
+    if (!liveAudioLevels || !source || !chunk) {
+        return;
+    }
+
+    const current = liveAudioLevels.get(source.id);
+
+    if (!current) {
+        return;
+    }
+
+    const rms = calculatePcmRms(chunk);
+    current.rms = rms;
+    current.level = rmsToMeterLevel(rms);
+    current.chunks += 1;
+    current.speaking = rms >= Number(process.env.CLYDE_VOICE_ACTIVE_RMS || 450);
 }
 
 function startAudioLevelTest() {
@@ -417,21 +640,38 @@ function createWindow () {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  const rendererIndex = path.join(__dirname, 'src', 'renderer-dist', 'index.html');
+  const legacyRendererIndex = path.join(__dirname, 'src', 'index.html');
+  mainWindow.loadFile(fs.existsSync(rendererIndex) ? rendererIndex : legacyRendererIndex);
 
   mainWindow.webContents.on('did-finish-load', () => {
       sendAudioStatus({ state: 'idle', message: 'Ready. Press Start to begin.' });
-      checkServiceHealth();
-      healthCheckTimer = setInterval(checkServiceHealth, Number(process.env.CLYDE_HEALTH_INTERVAL_MS || 10000));
+      checkServiceHealth(loadSettings());
+      healthCheckTimer = setInterval(() => checkServiceHealth(loadSettings()), Number(process.env.CLYDE_HEALTH_INTERVAL_MS || 10000));
+  });
+
+  const settings = loadSettings();
+  interviewManager = createInterviewManager({
+      appPath: app.getPath('userData'),
+      axiosClient: axios,
+      settings,
+      onStatus: sendAudioStatus
+  });
+
+  sessionManager = createSessionManager({
+      appPath: app.getPath('userData')
   });
 
   // Setup IPC communication for start/stop transcription
-  ipcMain.on('start-audio-capture', (event, context) => {
-      getMeetingAssistant().setContext(context || {});
+  ipcMain.on('start-audio-capture', (event) => {
+      fullSessionTranscript = []; // Reset full session transcript on new start
+      getMeetingAssistant(); // ensure initialized
+      startLiveAudioLevels();
       const results = initializeAudioCaptures().map((capture) => capture.start());
       const failed = results.find((result) => !result.ok);
 
       if (failed) {
+          stopLiveAudioLevels();
           sendAudioStatus({ state: 'error', message: failed.message });
       } else {
           const sourceNames = getAudioSources().map((source) => source.label).join(' and ');
@@ -450,7 +690,19 @@ function createWindow () {
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
           updateHealth('capture', { state: 'idle', detail: 'Stopped.' });
       } else {
+          stopLiveAudioLevels();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
+      }
+  });
+
+  ipcMain.on('reset-session', () => {
+      fullSessionTranscript = [];
+      if (meetingAssistant) {
+          meetingAssistant.resetTranscript();
+      }
+      sendAudioStatus({ state: 'idle', message: 'Session reset.' });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('session-reset');
       }
   });
 
@@ -466,18 +718,179 @@ function createWindow () {
       getMeetingAssistant().requestSuggestion();
   });
 
-  ipcMain.handle('save-context', (event, context) => {
-      const contextPath = path.join(app.getPath('userData'), 'context.json');
-      fs.writeFileSync(contextPath, JSON.stringify(context, null, 2));
+  ipcMain.handle('save-settings', (event, settings) => {
+      saveSettings(settings);
       return true;
   });
 
-  ipcMain.handle('load-context', (event) => {
-      const contextPath = path.join(app.getPath('userData'), 'context.json');
-      if (fs.existsSync(contextPath)) {
-          return JSON.parse(fs.readFileSync(contextPath, 'utf8'));
+  ipcMain.handle('load-settings', (event) => {
+      return loadSettings();
+  });
+
+  ipcMain.handle('get-companies', (event) => {
+      return interviewManager.getCompanies();
+  });
+
+  ipcMain.handle('get-roles', (event) => {
+      return interviewManager.getRoles();
+  });
+
+  ipcMain.handle('get-interviews', (event, company) => {
+      return interviewManager.getInterviews(company);
+  });
+
+  ipcMain.handle('delete-company', (event, company) => {
+      interviewManager.deleteCompany(company);
+      return true;
+  });
+
+  ipcMain.handle('rename-company', (event, oldName, newName) => {
+      interviewManager.renameCompany(oldName, newName);
+      return true;
+  });
+
+  ipcMain.handle('set-company-role', (event, companyName, role) => {
+      interviewManager.setCompanyRole(companyName, role);
+      return true;
+  });
+
+  ipcMain.handle('get-company-jd', (event, companyName) => {
+      return interviewManager.getCompanyJobDescription(companyName);
+  });
+
+  ipcMain.handle('set-company-jd', (event, companyName, jdText) => {
+      interviewManager.setCompanyJobDescription(companyName, jdText);
+      return true;
+  });
+
+  ipcMain.handle('delete-interview', (event, company, id) => {
+      interviewManager.deleteInterview(company, id);
+      return true;
+  });
+
+  ipcMain.handle('save-interview', (event, metadata) => {
+      if (!fullSessionTranscript || fullSessionTranscript.length === 0) {
+          throw new Error("No transcript data recorded.");
       }
-      return { jobDescription: '' };
+      return interviewManager.saveInterview({ ...metadata, transcript: fullSessionTranscript });
+  });
+
+  ipcMain.handle('save-manual-interview', (event, metadata) => {
+      return interviewManager.saveInterview(metadata);
+  });
+
+  ipcMain.handle('get-sessions', (event, filters) => {
+      return sessionManager.getSessions(filters || {});
+  });
+
+  ipcMain.handle('get-session-entities', (event, mode) => {
+      return sessionManager.getSessionEntities(mode || 'interview');
+  });
+
+  ipcMain.handle('save-session', (event, record) => {
+      return sessionManager.saveSession(record || {});
+  });
+
+  ipcMain.handle('delete-session', (event, payload) => {
+      return sessionManager.deleteSession(payload || {});
+  });
+
+  ipcMain.handle('set-active-session-context', (event, context) => {
+      const settings = loadSettings();
+      const nextSettings = {
+          ...settings,
+          appMode: context && context.mode ? context.mode : settings.appMode,
+          currentCompany: context && context.company !== undefined ? context.company : settings.currentCompany,
+          currentRole: context && context.role !== undefined ? context.role : settings.currentRole,
+          meetingTitle: context && context.meetingTitle !== undefined ? context.meetingTitle : settings.meetingTitle,
+          meetingAttendees: context && Array.isArray(context.attendees) ? context.attendees : settings.meetingAttendees,
+          meetingMemory: context && context.memory !== undefined ? context.memory : settings.meetingMemory,
+          screenShareHidden: context && context.screenShareHidden !== undefined ? Boolean(context.screenShareHidden) : settings.screenShareHidden
+      };
+
+      saveSettings(nextSettings);
+      if (meetingAssistant) {
+          meetingAssistant.setContext({
+              mode: nextSettings.appMode,
+              jobDescription: nextSettings.jobDescription || '',
+              resumeText: nextSettings.resumeText || '',
+              company: nextSettings.currentCompany || '',
+              role: nextSettings.currentRole || '',
+              meetingTitle: nextSettings.meetingTitle || '',
+              attendees: nextSettings.meetingAttendees || [],
+              memory: nextSettings.meetingMemory || ''
+          });
+      }
+
+      return nextSettings;
+  });
+
+  ipcMain.handle('validate-services', async (event, settingsPatch) => {
+      const settings = {
+          ...loadSettings(),
+          ...(settingsPatch || {})
+      };
+      await checkServiceHealth(settings);
+      return JSON.parse(JSON.stringify(healthState));
+  });
+
+  ipcMain.handle('extract-job-context', async (event, jobDescription) => {
+      const settings = loadSettings();
+      const provider = settings.llmProvider || 'local';
+      const apiKey = settings.llmApiKey || '';
+      const model = settings.llmModel || '';
+      const localUrl = settings.localLlmUrl;
+
+      const prompt = `You are an expert HR assistant. Your goal is to analyze the provided raw Job Description and perform two tasks:
+1. Extract the primary Company Name and the Job Title/Role. If you cannot find one of them, leave it as an empty string.
+2. Reorganize and structure the raw Job Description into a clean, consistent Markdown format with the following sections:
+   - **Role Overview**: A brief summary of the position.
+   - **Key Responsibilities**: A bulleted list of the main duties.
+   - **Required Qualifications**: A bulleted list of the absolute must-have skills/experience.
+   - **Preferred Qualifications**: A bulleted list of nice-to-have skills/experience (if any).
+
+Raw Job Description:
+${jobDescription}`;
+
+      try {
+          const response = await generateChat({
+              provider,
+              apiKey,
+              model,
+              temperature: 0.1,
+              maxTokens: 1500, // Increased to allow formatting the full description
+              axiosClient: axios,
+              localUrl,
+              jsonSchema: {
+                  name: 'job_context',
+                  schema: {
+                      type: 'object',
+                      properties: {
+                          company: { type: 'string' },
+                          role: { type: 'string' },
+                          structured_description: { type: 'string', description: 'The fully reorganized and cleaned Markdown job description.' }
+                      },
+                      required: ['company', 'role', 'structured_description'],
+                      additionalProperties: false
+                  }
+              },
+              messages: [{ role: 'user', content: prompt }]
+          });
+
+          let parsed = { company: '', role: '', structured_description: jobDescription };
+          try {
+              let cleanedText = response.trim();
+              if (cleanedText.startsWith('```json')) cleanedText = cleanedText.replace(/^```json/g, '').replace(/```$/g, '').trim();
+              else if (cleanedText.startsWith('```')) cleanedText = cleanedText.replace(/^```/g, '').replace(/```$/g, '').trim();
+              parsed = JSON.parse(cleanedText);
+          } catch(e) {
+              console.error("Failed to parse extracted context:", response);
+          }
+          return parsed;
+      } catch (err) {
+          console.error("Extraction error:", err);
+          return { company: '', role: '', structured_description: jobDescription };
+      }
   });
 
   mainWindow.on('closed', () => {
@@ -486,18 +899,26 @@ function createWindow () {
         healthCheckTimer = null;
     }
     stopAudioLevelTest();
+    stopLiveAudioLevels();
     stopAudioCaptures();
     mainWindow = null;
   });
 }
 
 app.whenReady().then(() => {
+    configureElectronStorage();
     createWindow();
+    
+    // Auto Updater logic
+    autoUpdater.logger = log;
+    autoUpdater.logger.transports.file.level = 'info';
+    autoUpdater.checkForUpdatesAndNotify();
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     stopAudioLevelTest();
+    stopLiveAudioLevels();
     stopAudioCaptures();
     app.quit();
   }

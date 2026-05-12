@@ -10,21 +10,15 @@ const {
 } = require('../src/meetingAssistant');
 
 test('skips LM Studio calls until configured', async () => {
-  let calls = 0;
   const assistant = createMeetingAssistant({
-    apiUrl: '',
-    model: '',
-    axiosClient: {
-      post: async () => {
-        calls += 1;
-      }
-    }
+    settings: { llmProvider: 'local', llmModel: '' }
   });
 
-  const result = await assistant.addTranscript({ speaker: 'System Audio', text: 'What is Aladdin?' });
+  const firstTurn = await assistant.addTranscript({ speaker: 'Test', text: 'Hello' });
+  const secondTurn = await assistant.maybeRun(true, true);
 
-  assert.equal(result.skipped, 'not-configured');
-  assert.equal(calls, 0);
+  assert.strictEqual(firstTurn.skipped, 'not-configured');
+  assert.strictEqual(secondTurn.skipped, 'not-configured');
 });
 
 test('merges consecutive transcript turns from the same speaker', async () => {
@@ -38,46 +32,39 @@ test('merges consecutive transcript turns from the same speaker', async () => {
 });
 
 test('posts rolling transcript to LM Studio chat completions', async () => {
-  const calls = [];
   const updates = [];
+  const requests = [];
+
   const assistant = createMeetingAssistant({
-    apiUrl: 'http://localhost:1234/v1/chat/completions',
-    model: 'gemma-4-e4b',
-    intervalMs: 0,
+    settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+    },
     axiosClient: {
-      post: async (url, body, config) => {
-        calls.push({ url, body, config });
+      post: async (url, data) => {
+        requests.push({ url, data });
+
         return {
           data: {
             choices: [{
-              message: {
-                content: JSON.stringify({
-                  answers: [{
-                    question: 'What is Aladdin?',
-                    bullets: ['Aladdin is a risk platform.', 'Used by institutions.']
-                  }],
-                  questions: [],
-                  suggestions: [],
-                  actions: [],
-                  risks: []
-                })
-              }
+              message: { content: '{"answers": [{"question":"Why?", "bullets": ["A"]}]}' }
             }]
           }
         };
       }
     },
+    intervalMs: 1,
     sendUpdate: (update) => updates.push(update)
   });
 
   await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you give an example of a process you have put in place to help scale the team better?' });
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'http://localhost:1234/v1/chat/completions');
-  assert.equal(calls[0].body.model, 'gemma-4-e4b');
-  assert.equal(calls[0].body.max_tokens, 800);
-  assert.deepEqual(calls[0].body.reasoning, { effort: 'none' });
-  assert.deepEqual(calls[0].body.response_format.json_schema.schema.properties, {
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'http://localhost:1234/v1/chat/completions');
+  assert.equal(requests[0].data.model, 'gemma-4-e4b');
+  assert.equal(requests[0].data.max_tokens, 800);
+  assert.deepEqual(requests[0].data.response_format.json_schema.schema.properties, {
     answers: { 
       type: 'array', 
       items: { 
@@ -90,53 +77,64 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
       } 
     }
   });
-  assert.match(calls[0].body.messages[0].content, /The user wearing Clyde \("You"\) is the job candidate/);
-  assert.match(calls[0].body.messages[0].content, /The "System Audio" and any other speakers are the interviewers/);
-  assert.match(calls[0].body.messages[1].content, /System Audio: Can you give an example of a process you have put in place to help scale the team better/);
-  assert.equal(calls[0].config.timeout, 60000);
+  assert.match(requests[0].data.messages[0].content, /The user wearing Clyde \("You"\) is the job candidate/);
+  assert.match(requests[0].data.messages[0].content, /The "System Audio" and any other speakers are the interviewers/);
+  assert.match(requests[0].data.messages[1].content, /System Audio: Can you give an example of a process you have put in place to help scale the team better/);
   assert.equal(updates[0].cards[0].type, 'answer');
-  assert.equal(updates[0].cards[0].question, 'What is Aladdin?');
-  assert.deepEqual(updates[0].cards[0].bullets, ['Aladdin is a risk platform.', 'Used by institutions.']);
+  assert.equal(updates[0].cards[0].question, 'Why?');
+  assert.deepEqual(updates[0].cards[0].bullets, ['A']);
 });
 
 test('does not call LM Studio when only the user speaks', async () => {
-  let calls = 0;
+  const requests = [];
+
   const assistant = createMeetingAssistant({
-    apiUrl: 'http://localhost:1234/v1/chat/completions',
-    model: 'gemma-4-e4b',
-    intervalMs: 0,
+    settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+    },
     axiosClient: {
-      post: async () => {
-        calls += 1;
+      post: async (url, data) => {
+        requests.push({ url, data });
+
+        return {
+          data: {
+            choices: [{
+              message: { content: 'test output' }
+            }]
+          }
+        };
       }
-    }
+    },
+    intervalMs: 1
   });
 
   const result = await assistant.addTranscript({ speaker: 'You', text: 'What is 2 plus 2?' });
 
   assert.equal(result.skipped, 'user-speaker');
-  assert.equal(calls, 0);
+  assert.equal(requests.length, 0);
 });
 
 test('warns when LM Studio returns no visible assistant content', async () => {
   const statuses = [];
+
   const assistant = createMeetingAssistant({
-    apiUrl: 'http://localhost:1234/v1/chat/completions',
-    model: 'gemma-4-e4b',
-    intervalMs: 0,
+    settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+    },
     axiosClient: {
       post: async () => ({
         data: {
           choices: [{
-            message: {
-              content: '',
-              reasoning_content: 'Thinking Process: hidden text'
-            },
-            finish_reason: 'length'
+            message: { content: '<think>silently pondering</think>' }
           }]
         }
       })
     },
+    intervalMs: 1,
     sendStatus: (status) => statuses.push(status)
   });
 

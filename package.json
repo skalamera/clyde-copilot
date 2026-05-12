@@ -4,11 +4,17 @@
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "npm run renderer:build && electron .",
+    "renderer:build": "vite build",
+    "renderer:dev": "vite --host 127.0.0.1",
+    "prepack": "npm run renderer:build",
     "whisper": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1",
     "whisper:cpu": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1 -Runtime cpu",
     "audio:check": "node ./scripts/check-audio-sources.js",
-    "test": "node --test"
+    "test": "node --test",
+    "pack": "electron-builder --dir",
+    "predist": "npm run renderer:build",
+    "dist": "electron-builder"
   },
   "keywords": [],
   "author": "",
@@ -19,11 +25,42 @@
     "@pinecone-database/pinecone": "^7.2.0",
     "axios": "^1.16.0",
     "dotenv": "^17.4.2",
-    "electron": "^41.5.0",
+    "electron-log": "^5.4.3",
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.3",
+    "ffmpeg-static": "^5.3.0",
+    "native-audio-node": "^0.3.5",
     "node-record-lpcm16": "^1.0.1",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
-    "electron-builder": "^12.0.0"
+    "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "vite": "^8.0.12"
+  },
+  "build": {
+    "appId": "com.clyde.app",
+    "productName": "Clyde",
+    "directories": {
+      "output": "dist"
+    },
+    "asar": true,
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "extraResources": [
+      "scripts/**/*",
+      "voicemeeter_banana_settings.xml"
+    ],
+    "publish": [
+      "github"
+    ]
   }
 }

@@ -13,7 +13,10 @@ test('simulates transcript updates when no transcription API URL is configured',
   const transcripts = [];
   let postCalls = 0;
   const processor = createTranscriptionProcessor({
-    apiUrl: '',
+    settings: {
+        transcriptionProvider: 'local',
+        localTranscriptionUrl: ''
+    },
     minSegmentBytes: 1,
     minRms: 0,
     minIntervalMs: 0,
@@ -39,8 +42,11 @@ test('posts audio to the configured transcription API URL', async () => {
   const appendedFields = [];
   let postedAudio;
   const processor = createTranscriptionProcessor({
-    apiUrl: 'http://localhost:8000/v1/audio/transcriptions',
-    model: 'tiny',
+    settings: {
+        transcriptionProvider: 'local',
+        localTranscriptionUrl: 'http://localhost:8000/v1/audio/transcriptions',
+        llmModel: 'tiny'
+    },
     minSegmentBytes: 1,
     minRms: 0,
     minIntervalMs: 0,
@@ -100,18 +106,20 @@ test('formats Axios network and HTTP errors with useful details', () => {
 test('drops chunks while a request is already in flight', async () => {
   let resolvePost;
   let postCalls = 0;
+  const inFlightPost = new Promise((resolve) => resolvePost = resolve);
   const processor = createTranscriptionProcessor({
-    apiUrl: 'http://localhost:5000/stream',
+    settings: {
+        transcriptionProvider: 'local',
+        localTranscriptionUrl: 'http://localhost:8000/v1/audio/transcriptions',
+        llmModel: 'tiny'
+    },
     minSegmentBytes: 1,
     minRms: 0,
     minIntervalMs: 0,
     axiosClient: {
-      post: async () => {
+      post: () => {
         postCalls += 1;
-        await new Promise((resolve) => {
-          resolvePost = resolve;
-        });
-        return { data: { text: 'done' } };
+        return inFlightPost;
       }
     },
     sendTranscript: () => {},
@@ -120,7 +128,7 @@ test('drops chunks while a request is already in flight', async () => {
 
   const first = processor.processAudioChunk(Buffer.from('one'));
   await processor.processAudioChunk(Buffer.from('two'));
-  resolvePost();
+  resolvePost({ data: { text: 'done' } });
   await first;
 
   assert.equal(postCalls, 1);
@@ -144,10 +152,15 @@ test('builds a valid WAV wrapper around PCM audio', () => {
 
 test('skips quiet PCM segments before calling the transcription API', async () => {
   let postCalls = 0;
+  const skips = [];
   const processor = createTranscriptionProcessor({
-    apiUrl: 'http://localhost:8000/v1/audio/transcriptions',
-    minSegmentBytes: 4,
-    minRms: 100,
+    settings: {
+        transcriptionProvider: 'local',
+        localTranscriptionUrl: 'http://localhost:8000/v1/audio/transcriptions',
+        llmModel: 'tiny'
+    },
+    minSegmentBytes: 1,
+    minRms: 50,
     minIntervalMs: 0,
     axiosClient: {
       post: async () => {

@@ -15,14 +15,23 @@ const COMMON_QUIET_HALLUCINATIONS = new Set([
 ]);
 
 function createTranscriptionProcessor(options = {}) {
-  const apiUrl = (options.apiUrl || '').trim();
+  const settings = options.settings || {};
+  const provider = settings.transcriptionProvider || 'local';
+  const apiKey = settings.transcriptionApiKey || '';
+  let apiUrl = settings.localTranscriptionUrl;
+  let model = settings.transcriptionModel || process.env.TRANSCRIPTION_MODEL || 'Systran/faster-distil-whisper-large-v3';
+
+  if (provider === 'openai') {
+      apiUrl = 'https://api.openai.com/v1/audio/transcriptions';
+      model = 'whisper-1';
+  }
+
   const axiosClient = options.axiosClient;
   const logger = options.logger || console;
   const sendTranscript = options.sendTranscript || (() => {});
   const sendStatus = options.sendStatus || (() => {});
   const minIntervalMs = options.minIntervalMs ?? DEFAULT_INTERVAL_MS;
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
-  const model = options.model || 'Systran/faster-distil-whisper-large-v3';
   const sampleRate = options.sampleRate || DEFAULT_SAMPLE_RATE;
   const channels = options.channels || DEFAULT_CHANNELS;
   const bitsPerSample = options.bitsPerSample || DEFAULT_BITS_PER_SAMPLE;
@@ -110,7 +119,12 @@ function createTranscriptionProcessor(options = {}) {
       formData.append('file', audioBlob, 'chunk.wav');
       formData.append('model', model);
 
-      const response = await axiosClient.post(apiUrl, formData, { timeout });
+      const headers = {};
+      if (provider === 'openai') {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
+      const response = await axiosClient.post(apiUrl, formData, { headers, timeout });
       const transcript = normalizeTranscript(response && response.data, wavAudio, {
         speaker,
         speakerColor
