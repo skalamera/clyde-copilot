@@ -10,6 +10,8 @@ test('preload exposes mode-aware session APIs', () => {
     'getSessions',
     'saveSession',
     'deleteSession',
+    'deleteSessionEntity',
+    'updateSessionEntity',
     'setActiveSessionContext',
     'validateServices'
   ]) {

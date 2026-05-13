@@ -23,6 +23,9 @@ function createSessionManager({ appPath }) {
 
   function saveSession(record = {}) {
     const session = normalizeSessionRecord(record);
+    record.id = session.id;
+    record.date = session.date;
+
     const entityId = sanitizeId(session.entity.id || session.entity.name || 'general');
     const entityDir = path.join(sessionsDir, session.mode, entityId);
     fs.mkdirSync(entityDir, { recursive: true });
@@ -50,6 +53,13 @@ function createSessionManager({ appPath }) {
       }
     }
 
+    if (normalizedMode === 'interview' && normalizedEntityId) {
+      const remaining = getSessions({ mode: normalizedMode, entityId: normalizedEntityId });
+      if (remaining.length === 0) {
+        clearEntityConfidence(normalizedMode, normalizedEntityId);
+      }
+    }
+
     return true;
   }
 
@@ -62,7 +72,62 @@ function createSessionManager({ appPath }) {
     if (fs.existsSync(entityDir)) {
       fs.rmSync(entityDir, { recursive: true, force: true });
     }
+
+    if (normalizedMode === 'interview') {
+      const legacyDir = path.join(appPath, 'Interviews', normalizedEntityId);
+      if (fs.existsSync(legacyDir)) {
+        fs.rmSync(legacyDir, { recursive: true, force: true });
+      }
+    }
+
     return true;
+  }
+
+  function updateEntity(mode, entityId, patch = {}) {
+    const normalizedMode = normalizeMode(mode);
+    const normalizedEntityId = sanitizeId(entityId);
+    if (!normalizedEntityId) {
+      throw new Error('entityId is required.');
+    }
+
+    const existing = readJsonFile(path.join(sessionsDir, normalizedMode, normalizedEntityId, 'meta.json')) || {};
+    const nextEntity = {
+      id: normalizedEntityId,
+      name: clean(patch.name || existing.name || entityId),
+      role: clean(patch.role !== undefined ? patch.role : existing.role),
+      kind: clean(existing.kind || normalizedMode),
+      confidence_score: existing.confidence_score !== undefined ? existing.confidence_score : 0,
+      trend: existing.trend || 'neutral'
+    };
+
+    writeEntityMeta(normalizedMode, normalizedEntityId, nextEntity);
+
+    for (const file of findEntitySessionFiles(normalizedMode, normalizedEntityId)) {
+      const record = readJsonFile(file);
+      if (!record) {
+        continue;
+      }
+
+      const nextRecord = normalizeSessionRecord({
+        ...record,
+        entity: {
+          ...(record.entity || {}),
+          id: normalizedEntityId,
+          name: nextEntity.name,
+          role: nextEntity.role
+        }
+      });
+      fs.writeFileSync(file, JSON.stringify(nextRecord, null, 2), 'utf8');
+    }
+
+    return {
+      id: normalizedEntityId,
+      name: nextEntity.name,
+      role: nextEntity.role,
+      kind: nextEntity.kind,
+      confidence: nextEntity.confidence_score,
+      trend: nextEntity.trend
+    };
   }
 
   function getSessionEntities(mode = 'interview') {
@@ -249,12 +314,39 @@ function createSessionManager({ appPath }) {
       .map((item) => path.join(modeDir, item.name, `${id}.json`));
   }
 
+  function findEntitySessionFiles(mode, entityId) {
+    const entityDir = path.join(sessionsDir, mode, entityId);
+    if (!fs.existsSync(entityDir)) {
+      return [];
+    }
+
+    return fs.readdirSync(entityDir)
+      .filter((file) => file.endsWith('.json') && file !== 'meta.json')
+      .map((file) => path.join(entityDir, file));
+  }
+
+  function clearEntityConfidence(mode, entityId) {
+    const entityDir = path.join(sessionsDir, mode, entityId);
+    const metaPath = path.join(entityDir, 'meta.json');
+    if (!fs.existsSync(metaPath)) {
+      return;
+    }
+
+    try {
+      const meta = readJsonFile(metaPath) || {};
+      meta.confidence_score = 0;
+      meta.trend = 'neutral';
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+    } catch (_error) {}
+  }
+
     return {
       deleteSession,
       deleteEntity,
       getSessionEntities,
       getSessions,
       saveSession,
+      updateEntity,
       updateEntityConfidence
     };
 }
@@ -264,6 +356,8 @@ function normalizeSessionRecord(record = {}) {
   const entity = record.entity && typeof record.entity === 'object' ? record.entity : {};
   const entityName = clean(entity.name || record.company || record.title || 'General');
   const entityId = sanitizeId(entity.id || entityName || 'general');
+  const grading = record.grading || null;
+  const notes = normalizeNotes(record.notes, grading, mode);
 
   return {
     id: clean(record.id) || Date.now().toString(),
@@ -279,9 +373,9 @@ function normalizeSessionRecord(record = {}) {
     attendees: Array.isArray(record.attendees) ? record.attendees.map(normalizeAttendee).filter(Boolean) : [],
     date: clean(record.date) || new Date().toISOString(),
     transcript: Array.isArray(record.transcript) ? record.transcript.map(normalizeTurn).filter(Boolean) : [],
-    notes: normalizeNotes(record.notes),
+    notes,
     cards: Array.isArray(record.cards) ? record.cards.map(normalizeCard).filter(Boolean) : [],
-    grading: record.grading || null,
+    grading,
     source: clean(record.source || 'native')
   };
 }
@@ -332,10 +426,18 @@ function normalizeCard(card = {}) {
   };
 }
 
-function normalizeNotes(notes = {}) {
+function normalizeNotes(notes = {}, grading = {}, mode = 'interview') {
+  const gradeInfo = grading && typeof grading === 'object' ? grading : {};
+  const summary = clean(notes.summary);
+  const actionItems = Array.isArray(notes.actionItems) ? notes.actionItems.map(clean).filter(Boolean) : [];
+  const shouldCarryExamples = mode !== 'interview';
+  const gradingExamples = shouldCarryExamples && Array.isArray(gradeInfo.examples)
+    ? gradeInfo.examples.map(clean).filter(Boolean)
+    : [];
+
   return {
-    summary: clean(notes.summary),
-    actionItems: Array.isArray(notes.actionItems) ? notes.actionItems.map(clean).filter(Boolean) : []
+    summary: summary || clean(gradeInfo.reasoning),
+    actionItems: actionItems.length ? actionItems : gradingExamples
   };
 }
 

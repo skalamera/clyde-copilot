@@ -34,6 +34,7 @@ test('meeting mode prompt focuses on notes, recap, actions, and memory', () => {
 
   assert.match(prompt, /live meeting assistant/i);
   assert.match(prompt, /Platform weekly/);
+  assert.match(prompt, /Long term memory across meetings/);
   assert.match(prompt, /release notes/);
   assert.deepEqual(getAllowedCardTypes('meeting'), ['recap', 'action', 'follow_up', 'suggestion', 'note']);
 });

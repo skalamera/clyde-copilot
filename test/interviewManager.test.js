@@ -21,6 +21,23 @@ test('Interview Manager CRUD operations', async (t) => {
             // Differentiate between grading and confidence by checking the schema name
             const schemaName = data?.response_format?.json_schema?.name || 'grading';
 
+            if (schemaName === 'transcript_cleanup') {
+                return {
+                    data: {
+                        choices: [{
+                            message: {
+                                content: JSON.stringify({
+                                    transcript: [
+                                        { speaker: 'System Audio', text: 'Can you give an example of a process you have put in place to help scale the team better?' },
+                                        { speaker: 'You', text: 'Yeah. At Benchmark, I directed support automation and systems integration strategy across Fresh Desk, Zendesk, and Ring Central. This was key to scaling because it reduced resolution time by 38%.' }
+                                    ]
+                                })
+                            }
+                        }]
+                    }
+                };
+            }
+
             if (schemaName === 'grading') {
                 if (failNextGrading) {
                     return { data: { choices: [{ message: { content: 'invalid json }' } }] } };
@@ -82,6 +99,21 @@ test('Interview Manager CRUD operations', async (t) => {
         assert.deepStrictEqual(companies, []);
     });
 
+    await t.test('confidence prompt uses a strict scoring rubric', () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'interviewManager.js'), 'utf8');
+
+        assert.match(source, /0 to 20: clearly weak, wrong, evasive, or little evidence of fit\./);
+        assert.match(source, /If the candidate gives an obviously wrong answer to the key question, stay at 20 or below\./);
+    });
+
+    await t.test('grading prompt asks for detailed transcript-based evaluation', () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'interviewManager.js'), 'utf8');
+
+        assert.match(source, /Write a detailed evaluation in exactly 4 short professional sections/);
+        assert.match(source, /Use concrete details from the transcript/);
+        assert.match(source, /Do not write a generic one-paragraph summary/);
+    });
+
     let savedInterviewId;
 
     await t.test('saveInterview creates company, interview, and grades it', async () => {
@@ -137,6 +169,34 @@ test('Interview Manager CRUD operations', async (t) => {
         assert.strictEqual(failedInv.reasoning, 'Failed to generate proper evaluation.');
         
         failNextGrading = false; // reset
+    });
+
+    await t.test('manual interview transcript is cleaned before grading and saved cleaned', async () => {
+        const metadata = {
+            company: 'Clean Corp',
+            phase: 'Technical Screen',
+            interviewerName: '',
+            interviewerTitle: '',
+            transcript: [
+                { speaker: 'System Audio', text: 'Can you give an example of' },
+                { speaker: 'You', text: 'You get a...' },
+                { speaker: 'System Audio', text: "a process you've put in place to help scale the team better?" },
+                { speaker: 'You', text: 'Yeah. benchmark, I directed support automation and systems integration strategy across Fresh Desk, Zendesk, and Ring Central. This was key to scaling because it reduced resolution time by 38%.' }
+            ]
+        };
+
+        const id = manager.saveInterview(metadata);
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        const interviews = manager.getInterviews('Clean Corp');
+        const cleaned = interviews.find((i) => i.id === id);
+
+        assert.ok(cleaned);
+        assert.strictEqual(cleaned.gradingStatus, 'complete');
+        assert.strictEqual(cleaned.transcript[0].text, 'Can you give an example of a process you have put in place to help scale the team better?');
+        assert.strictEqual(cleaned.transcript[1].text, 'Yeah. At Benchmark, I directed support automation and systems integration strategy across Fresh Desk, Zendesk, and Ring Central. This was key to scaling because it reduced resolution time by 38%.');
+
+        manager.deleteCompany('Clean Corp');
     });
 
     await t.test('renameCompany updates folder and internal JSON references', () => {
@@ -205,14 +265,15 @@ test('Interview Manager CRUD operations', async (t) => {
         assert.strictEqual(interviews[0].phase, 'Final Round');
         assert.strictEqual(interviews[0].interviewerName, 'Bob Smith');
         assert.strictEqual(interviews[0].interviewerTitle, 'VP of Engineering');
-        assert.strictEqual(interviews[0].transcript[0].text, 'Hello Edit Corp. Here is more info.');
+        assert.strictEqual(interviews[0].transcript[0].text, 'Can you give an example of a process you have put in place to help scale the team better?');
+        assert.strictEqual(interviews[0].transcript[1].text, 'Yeah. At Benchmark, I directed support automation and systems integration strategy across Fresh Desk, Zendesk, and Ring Central. This was key to scaling because it reduced resolution time by 38%.');
         assert.strictEqual(interviews[0].gradingStatus, 'complete'); // Should have re-graded
 
         // Teardown
         manager.deleteCompany('Edit Corp');
     });
 
-    await t.test('editInterview without changing transcript skips re-grading but recomputes confidence', async () => {
+    await t.test('editInterview with the same raw transcript re-cleans and re-grades it', async () => {
         postCallCount = 0; // Reset network mock counter
 
         const metadata = {
@@ -224,7 +285,7 @@ test('Interview Manager CRUD operations', async (t) => {
         await new Promise(resolve => setTimeout(resolve, 50));
 
         let initialPostCount = postCallCount;
-        assert.ok(initialPostCount >= 2); // Grading + Confidence calls
+        assert.ok(initialPostCount >= 3); // Cleanup + grading + confidence calls
 
         const editMetadata = {
             id,
@@ -236,8 +297,8 @@ test('Interview Manager CRUD operations', async (t) => {
         manager.saveInterview(editMetadata);
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        // It should have called Confidence (1) but skipped Grading (0)
-        assert.strictEqual(postCallCount, initialPostCount + 1);
+        // The raw transcript text still differs from the stored cleaned transcript, so it re-cleans and re-grades.
+        assert.strictEqual(postCallCount, initialPostCount + 3);
 
         const interviews = manager.getInterviews('Meta Edit Corp');
         assert.strictEqual(interviews[0].phase, 'Final Round');
@@ -250,7 +311,7 @@ test('Interview Manager CRUD operations', async (t) => {
         manager.deleteCompany('Globex Inc');
         
         const companies = manager.getCompanies();
-        assert.strictEqual(companies.length, 0);
+        assert.strictEqual(companies.some((company) => company.name === 'Globex Inc'), false);
         
         const interviews = manager.getInterviews('Globex Inc');
         assert.strictEqual(interviews.length, 0);
@@ -267,15 +328,18 @@ test('Interview Manager CRUD operations', async (t) => {
         await new Promise(resolve => setTimeout(resolve, 50));
 
         let companies = manager.getCompanies();
-        assert.strictEqual(companies[0].confidence, 90);
+        const testCorp = companies.find((company) => company.name === 'Test Corp');
+        assert.ok(testCorp);
+        assert.strictEqual(testCorp.confidence, 90);
 
         // Delete the only interview
         manager.deleteInterview('Test Corp', id);
         await new Promise(resolve => setTimeout(resolve, 50));
 
         companies = manager.getCompanies();
-        assert.strictEqual(companies.length, 1);
-        assert.strictEqual(companies[0].confidence, 0); // Should be reset to 0 since no interviews are left
+        const deletedCorp = companies.find((company) => company.name === 'Test Corp');
+        assert.ok(deletedCorp);
+        assert.strictEqual(deletedCorp.confidence, 0); // Should be reset to 0 since no interviews are left
     });
 
 });

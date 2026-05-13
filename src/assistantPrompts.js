@@ -28,7 +28,7 @@ function buildAssistantPrompt(options = {}) {
       context.meetingTitle ? `Meeting title: ${context.meetingTitle}.` : '',
       context.company ? `Organization: ${context.company}.` : '',
       formatAttendees(context.attendees),
-      context.memory ? `Relevant memory from prior conversations:\n${context.memory}` : '',
+      context.memory ? `Long term memory across meetings:\n${context.memory}` : '',
       context.jobDescription ? `Meeting brief or source context:\n${context.jobDescription}` : '',
       context.resumeText ? `User background:\n${context.resumeText}` : '',
       ragContext ? `Retrieved context:\n${ragContext}` : '',

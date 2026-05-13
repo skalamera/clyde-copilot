@@ -123,7 +123,7 @@ function createMeetingAssistant(options = {}) {
       let ragContext = '';
       let targetQuestion = '';
       
-      const hasPinecone = !!(process.env.PINECONE_API_KEY && process.env.PINECONE_HOST);
+      const hasPinecone = !!(settings.ragEnabled && process.env.PINECONE_API_KEY && process.env.PINECONE_HOST);
       
       if (isSuggestionRequest) {
         logger.log(`[Intent] Generating suggestion based on recent history...`);

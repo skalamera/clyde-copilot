@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { generateChat } = require('./llmClient');
+const {
+    buildTranscriptCleanupPrompt,
+    normalizeCleanedTranscriptResponse,
+    transcriptToText
+} = require('./transcriptCleanup');
 
 function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
     const interviewsDir = path.join(appPath, 'Interviews');
@@ -230,10 +235,25 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
         const filePath = path.join(companyDir, `${actualId}.json`);
         fs.writeFileSync(filePath, JSON.stringify(interviewData, null, 2));
 
-        if (transcriptChanged) {
-            // Re-grade specific interview because transcript changed
-            processGradingInBackground(companyDir, actualId, interviewData).catch(e => {
-                console.error("Background grading failed", e);
+        if (transcriptChanged && transcript.length > 0) {
+            // Clean transcript before grading so the stored record and evaluation use the same text.
+            processTranscriptCleanupInBackground(companyDir, actualId, interviewData).then((cleanedTranscript) => {
+                const nextInterviewData = cleanedTranscript && cleanedTranscript.length
+                    ? { ...interviewData, transcript: cleanedTranscript }
+                    : interviewData;
+
+                if (cleanedTranscript && cleanedTranscript.length) {
+                    fs.writeFileSync(filePath, JSON.stringify(nextInterviewData, null, 2));
+                }
+
+                processGradingInBackground(companyDir, actualId, nextInterviewData).catch(e => {
+                    console.error("Background grading failed", e);
+                });
+            }).catch(e => {
+                console.error("Transcript cleanup failed", e);
+                processGradingInBackground(companyDir, actualId, interviewData).catch(err => {
+                    console.error("Background grading failed", err);
+                });
             });
         } else {
             // Transcript didn't change, so no need to regrade the specific interview.
@@ -297,6 +317,13 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
         
         Review the transcripts of all their interviews so far.
         Determine the likelihood of them receiving an offer or moving to the next round, as a percentage from 0 to 100.
+        Use a harsh rubric:
+        - 0 to 20: clearly weak, wrong, evasive, or little evidence of fit.
+        - 21 to 40: mixed or mostly weak evidence.
+        - 41 to 60: acceptable but not convincing.
+        - 61 to 75: solid but with real gaps.
+        - 76 to 100: only for consistently strong evidence across the transcript.
+        If the candidate gives an obviously wrong answer to the key question, stay at 20 or below.
         CRITICAL: Be extremely precise and granular with your percentage. Do NOT default to round numbers or multiples of 5 (e.g. avoid exactly 80, 85, 90). Instead, give highly specific numbers based on a detailed analysis of their performance (e.g., 82, 87, 91, 74). Be highly realistic and critical.
         Determine if their trend is "up", "down", or "neutral" compared to previous rounds (if only one round, default to neutral).
         
@@ -355,7 +382,7 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
 
         try {
             // 1. Grade the specific interview
-            const transcriptText = interviewData.transcript.map(t => `${t.speaker}: ${t.text}`).join('\n');
+            const transcriptText = transcriptToText(interviewData.transcript);
             
             const roleStr = interviewData.role ? `\nRole/Job Title: ${interviewData.role}` : '';
             const jd = getCompanyJobDescription(interviewData.company);
@@ -365,6 +392,8 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
             Company: ${interviewData.company}${roleStr}${jdStr}
             
             Give a highly precise grade (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, D-, F) based on clarity, technical accuracy, conciseness, and professionalism. Be strict and exact.
+            Write a detailed evaluation in exactly 4 short professional sections using markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, and **Outlook:**.
+            Use concrete details from the transcript. Do not write a generic one-paragraph summary. Finish every sentence. Keep examples separate from the written evaluation.
             
             Transcript:
             ${transcriptText}`;
@@ -383,7 +412,7 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
                         type: 'object',
                         properties: {
                             grade: { type: 'string', enum: ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'] },
-                            reasoning: { type: 'string' },
+                            reasoning: { type: 'string', description: 'The detailed evaluation formatted in exactly 4 sections with markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, **Outlook:**' },
                             examples: { type: 'array', items: { type: 'string' } }
                         },
                         required: ['grade', 'reasoning', 'examples'],
@@ -422,6 +451,51 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
             fs.writeFileSync(path.join(companyDir, `${id}.json`), JSON.stringify(interviewData, null, 2));
             if (onStatus) onStatus({ state: 'error', message: `Grading failed for ${interviewData.company}` });
         }
+    }
+
+    async function processTranscriptCleanupInBackground(companyDir, id, interviewData) {
+        const prompt = buildTranscriptCleanupPrompt(interviewData.transcript);
+
+        const responseText = await generateChat({
+            provider,
+            apiKey,
+            model,
+            temperature: 0,
+            maxTokens: 8192,
+            axiosClient,
+            localUrl,
+            jsonSchema: {
+                name: 'transcript_cleanup',
+                schema: {
+                    type: 'object',
+                    properties: {
+                        transcript: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    speaker: { type: 'string' },
+                                    text: { type: 'string' }
+                                },
+                                required: ['speaker', 'text'],
+                                additionalProperties: false
+                            }
+                        }
+                    },
+                    required: ['transcript'],
+                    additionalProperties: false
+                }
+            },
+            messages: [{ role: 'user', content: prompt }]
+        });
+
+        const cleanedTranscript = normalizeCleanedTranscriptResponse(responseText, interviewData.transcript);
+        if (cleanedTranscript) {
+            return cleanedTranscript;
+        }
+
+        console.error("Failed to parse cleaned transcript JSON:", responseText);
+        return null;
     }
 
     return {

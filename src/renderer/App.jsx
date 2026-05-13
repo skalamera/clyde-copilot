@@ -63,10 +63,80 @@ function parseRawTranscript(raw) {
   return turns;
 }
 
+function transcriptToText(turns = []) {
+  return turns.map((turn) => `${turn.speaker || 'Unknown'}: ${turn.text || ''}`).join('\n');
+}
+
+function toDateTimeLocal(value) {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocal(value, fallback) {
+  if (!value) {
+    return fallback || new Date().toISOString();
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? (fallback || new Date().toISOString()) : date.toISOString();
+}
+
+function confidenceBand(value) {
+  const score = Number(value) || 0;
+  if (score >= 80) return 'high';
+  if (score >= 55) return 'medium';
+  return 'low';
+}
+
+function cleanEvaluationText(value) {
+  return String(value || '')
+    .replace(/\*\*/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1')
+    .trim();
+}
+
+function parseEvaluationText(value) {
+  const text = String(value || '').trim();
+  const markerPattern = /(?:^|\s)(?:\d+\.\s*)?\*\*([^:*]+):\*\*\s*/g;
+  const markers = Array.from(text.matchAll(markerPattern));
+
+  if (!markers.length) {
+    return {
+      overview: cleanEvaluationText(text),
+      sections: []
+    };
+  }
+
+  const overview = cleanEvaluationText(text.slice(0, markers[0].index));
+  const sections = markers
+    .map((marker, index) => {
+      const nextMarker = markers[index + 1];
+      const body = text.slice(marker.index + marker[0].length, nextMarker ? nextMarker.index : text.length);
+
+      return {
+        title: cleanEvaluationText(marker[1]),
+        body: cleanEvaluationText(body.replace(/^\d+\.\s*/, ''))
+      };
+    })
+    .filter((section) => section.title || section.body);
+
+  return { overview, sections };
+}
+
 function NewOpportunityModal({ onClose, onSave }) {
   const [company, setCompany] = useState('');
   const [role, setRole] = useState('');
   const [phase, setPhase] = useState('Recruiter Screen');
+  const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
   const [rawText, setRawText] = useState('');
 
   return (
@@ -101,6 +171,10 @@ function NewOpportunityModal({ onClose, onSave }) {
               <option value="Other">Other</option>
             </select>
           </label>
+          <label>
+            Session date
+            <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
           <label className="wide-field">
             Transcript Text
             <textarea 
@@ -114,11 +188,245 @@ function NewOpportunityModal({ onClose, onSave }) {
         <div className="drawer-actions">
           <button type="button" className="primary-action" onClick={() => {
             if (!company || !role) { alert('Company and Role are required.'); return; }
-            onSave({ company, role, phase, transcript: rawText ? parseRawTranscript(rawText) : [] });
+            onSave({ company, role, phase, date, transcript: rawText ? parseRawTranscript(rawText) : [] });
           }}>
             Create Opportunity
           </button>
         </div>
+      </section>
+    </div>
+  );
+}
+
+function NewMeetingModal({ onClose, onSave }) {
+  const [title, setTitle] = useState('');
+  const [attendees, setAttendees] = useState('');
+  const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
+  const [memory, setMemory] = useState('');
+
+  return (
+    <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
+      <section className="settings-drawer">
+        <div className="drawer-head">
+          <div>
+            <h2>Add New Meeting</h2>
+            <p>Create a meeting record and set it as the active meeting.</p>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="settings-form">
+          <label>
+            Meeting title
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Platform weekly" />
+          </label>
+          <label>
+            Attendees
+            <input value={attendees} onChange={(event) => setAttendees(event.target.value)} placeholder="Morgan: PM, Lee: Eng" />
+          </label>
+          <label>
+            Session date
+            <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+          </label>
+          <label className="wide-field">
+            Meeting-specific memory
+            <textarea
+              value={memory}
+              onChange={(event) => setMemory(event.target.value)}
+              placeholder="Paste prior notes, recurring decisions, or person context."
+            />
+          </label>
+        </div>
+        <div className="drawer-actions">
+          <button
+            type="button"
+            className="primary-action"
+            onClick={() => {
+              if (!title.trim()) {
+                alert('Meeting title is required.');
+                return;
+              }
+              onSave({
+                title: title.trim(),
+                attendees: parseAttendees(attendees),
+                date,
+                memory: memory.trim()
+              });
+            }}
+          >
+            Create Meeting
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
+  const activeInterview = mode === 'interview'
+    ? entities.find((entity) => entity.id === settings.currentCompany || entity.name === settings.currentCompany)
+    : null;
+  const activeMeeting = mode === 'meeting'
+    ? entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)
+    : null;
+  const firstEntity = entities[0] || null;
+  const defaultEntity = mode === 'interview' ? (activeInterview || firstEntity) : (activeMeeting || firstEntity);
+  const [destination, setDestination] = useState(defaultEntity ? 'existing' : 'new');
+  const [existingEntityId, setExistingEntityId] = useState(defaultEntity?.id || '');
+  const [company, setCompany] = useState(activeInterview?.name || settings.currentCompany || '');
+  const [role, setRole] = useState(activeInterview?.role || settings.currentRole || '');
+  const [phase, setPhase] = useState('Live Session');
+  const [interviewerName, setInterviewerName] = useState('');
+  const [interviewerTitle, setInterviewerTitle] = useState('');
+  const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
+  const [meetingName, setMeetingName] = useState(activeMeeting?.name || settings.meetingTitle || '');
+
+  const isInterview = mode === 'interview';
+  const selectedEntity = entities.find((entity) => entity.id === existingEntityId);
+  const canSubmit = isInterview
+    ? (destination === 'existing' ? Boolean(existingEntityId) : Boolean(company.trim() && role.trim()))
+    : (destination === 'existing' ? Boolean(existingEntityId) : Boolean(meetingName.trim()));
+
+  function submit(event) {
+    event.preventDefault();
+    if (!canSubmit) {
+      return;
+    }
+
+    if (isInterview) {
+      onSave({
+        mode: 'interview',
+        destination,
+        entity: destination === 'existing'
+          ? {
+            id: selectedEntity?.id || existingEntityId,
+            name: selectedEntity?.name || existingEntityId,
+            role: selectedEntity?.role || role || ''
+          }
+          : {
+            id: company.trim(),
+            name: company.trim(),
+            role: role.trim()
+          },
+        phase: phase.trim() || 'Live Session',
+        interviewerName: interviewerName.trim(),
+        interviewerTitle: interviewerTitle.trim(),
+        date
+      });
+      return;
+    }
+
+    onSave({
+      mode: 'meeting',
+      destination,
+      entity: destination === 'existing'
+        ? {
+          id: selectedEntity?.id || existingEntityId,
+          name: selectedEntity?.name || existingEntityId,
+          role: ''
+        }
+        : {
+          id: meetingName.trim(),
+          name: meetingName.trim(),
+          role: ''
+        },
+      date
+    });
+  }
+
+  return (
+    <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
+      <section className="settings-drawer">
+        <div className="drawer-head">
+          <div>
+            <h2>{isInterview ? 'Save interview transcript' : 'Save meeting transcript'}</h2>
+            <p>Choose where Clyde should attach this session.</p>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+
+        <form className="settings-form" onSubmit={submit}>
+          <div className="tabs" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+            <button
+              type="button"
+              className={destination === 'existing' ? 'active' : ''}
+              onClick={() => setDestination('existing')}
+              disabled={!entities.length}
+            >
+              {isInterview ? 'Existing company' : 'Existing meeting'}
+            </button>
+            <button
+              type="button"
+              className={destination === 'new' ? 'active' : ''}
+              onClick={() => setDestination('new')}
+            >
+              {isInterview ? 'New company' : 'New meeting'}
+            </button>
+          </div>
+
+          {destination === 'existing' ? (
+            <label className="wide-field">
+              {isInterview ? 'Company' : 'Meeting'}
+              <select value={existingEntityId} onChange={(event) => setExistingEntityId(event.target.value)}>
+                {entities.map((entity) => (
+                  <option key={entity.id} value={entity.id}>{entity.name}</option>
+                ))}
+              </select>
+            </label>
+          ) : isInterview ? (
+            <div className="form-grid">
+              <label>
+                Company name
+                <input value={company} onChange={(event) => setCompany(event.target.value)} placeholder="Acme Corp" />
+              </label>
+              <label>
+                Job title
+                <input value={role} onChange={(event) => setRole(event.target.value)} placeholder="Staff Engineer" />
+              </label>
+            </div>
+          ) : (
+            <label className="wide-field">
+              Meeting name
+              <input value={meetingName} onChange={(event) => setMeetingName(event.target.value)} placeholder="Platform weekly" />
+            </label>
+          )}
+
+          {isInterview ? (
+            <div className="form-grid">
+              <label>
+                Interview phase
+                <select value={phase} onChange={(event) => setPhase(event.target.value)}>
+                  <option value="Recruiter Screen">Recruiter Screen</option>
+                  <option value="Interview #1">Interview #1</option>
+                  <option value="Interview #2">Interview #2</option>
+                  <option value="Interview #3">Interview #3</option>
+                  <option value="Live Session">Live Session</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+              <label>
+                Interviewer
+                <input value={interviewerName} onChange={(event) => setInterviewerName(event.target.value)} placeholder="Optional name" />
+              </label>
+              <label>
+                Interviewer title
+                <input value={interviewerTitle} onChange={(event) => setInterviewerTitle(event.target.value)} placeholder="Optional title" />
+              </label>
+              <label>
+                Session date
+                <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+              </label>
+            </div>
+          ) : (
+            <label className="wide-field">
+              Session date
+              <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+            </label>
+          )}
+
+          <button type="submit" className="primary-action" disabled={!canSubmit}>
+            Save transcript
+          </button>
+        </form>
       </section>
     </div>
   );
@@ -166,6 +474,7 @@ function JobDescriptionModal({ entity, onClose, onSave }) {
 
 function ManualTranscriptModal({ entity, onClose, onSave }) {
   const [phase, setPhase] = useState('Interview #1');
+  const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
   const [rawText, setRawText] = useState('');
 
   return (
@@ -189,6 +498,10 @@ function ManualTranscriptModal({ entity, onClose, onSave }) {
               <option value="Other">Other</option>
             </select>
           </label>
+          <label>
+            Session date
+            <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
           <label className="wide-field">
             Transcript Text
             <textarea 
@@ -202,9 +515,154 @@ function ManualTranscriptModal({ entity, onClose, onSave }) {
         <div className="drawer-actions">
           <button type="button" className="primary-action" onClick={() => {
             if (!rawText) return;
-            onSave({ phase, transcript: parseRawTranscript(rawText) });
+            onSave({ phase, date, transcript: parseRawTranscript(rawText) });
           }}>
             Save & Grade
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EditEntityModal({ entity, onClose, onSave }) {
+  const [name, setName] = useState(entity?.name || '');
+  const [role, setRole] = useState(entity?.role || '');
+
+  useEffect(() => {
+    setName(entity?.name || '');
+    setRole(entity?.role || '');
+  }, [entity]);
+
+  return (
+    <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
+      <section className="settings-drawer">
+        <div className="drawer-head">
+          <div>
+            <h2>Edit opportunity</h2>
+            <p>Update the company and role shown across the interview timeline.</p>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="settings-form">
+          <label>
+            Company name
+            <input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
+            Title
+            <input value={role} onChange={(event) => setRole(event.target.value)} />
+          </label>
+        </div>
+        <div className="drawer-actions">
+          <button
+            type="button"
+            className="primary-action"
+            onClick={() => onSave({ name: name.trim(), role: role.trim() })}
+            disabled={!name.trim()}
+          >
+            Save changes
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EditSessionModal({ session, onClose, onSave }) {
+  const [title, setTitle] = useState(session?.title || '');
+  const [company, setCompany] = useState(session?.entity?.name || '');
+  const [role, setRole] = useState(session?.entity?.role || '');
+  const [date, setDate] = useState(toDateTimeLocal(session?.date));
+  const [summary, setSummary] = useState(session?.notes?.summary || '');
+  const [actions, setActions] = useState((session?.mode === 'interview' ? (session?.grading?.examples || []) : (session?.notes?.actionItems || [])).join('\n'));
+  const [transcriptText, setTranscriptText] = useState(transcriptToText(session?.transcript || []));
+
+  useEffect(() => {
+    setTitle(session?.title || '');
+    setCompany(session?.entity?.name || '');
+    setRole(session?.entity?.role || '');
+    setDate(toDateTimeLocal(session?.date));
+    setSummary(session?.notes?.summary || '');
+    setActions((session?.mode === 'interview' ? (session?.grading?.examples || []) : (session?.notes?.actionItems || [])).join('\n'));
+    setTranscriptText(transcriptToText(session?.transcript || []));
+  }, [session]);
+
+  return (
+    <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
+      <section className="settings-drawer">
+        <div className="drawer-head">
+          <div>
+            <h2>Edit interview</h2>
+            <p>Changes to transcript text may trigger a fresh grade after saving.</p>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="settings-form">
+          <div className="form-grid">
+            <label>
+              Company name
+              <input value={company} onChange={(event) => setCompany(event.target.value)} />
+            </label>
+            <label>
+              Title
+              <input value={role} onChange={(event) => setRole(event.target.value)} />
+            </label>
+            <label>
+              Session title
+              <input value={title} onChange={(event) => setTitle(event.target.value)} />
+            </label>
+            <label>
+              Date
+              <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+            </label>
+          </div>
+          <label className="wide-field">
+            Summary
+            <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
+          </label>
+          <label className="wide-field">
+            {session?.mode === 'interview' ? 'Examples' : 'Action items'}
+            <textarea value={actions} onChange={(event) => setActions(event.target.value)} placeholder="One item per line" />
+          </label>
+          <label className="wide-field">
+            Transcript
+            <textarea
+              value={transcriptText}
+              onChange={(event) => setTranscriptText(event.target.value)}
+              placeholder={"Interviewer: Tell me about yourself.\nYou: I..."}
+              style={{ minHeight: '260px' }}
+            />
+          </label>
+        </div>
+        <div className="drawer-actions">
+          <button
+            type="button"
+            className="primary-action"
+            onClick={() => onSave({
+              ...session,
+              title: title.trim() || 'Interview session',
+              phase: title.trim() || session.phase || '',
+              date: fromDateTimeLocal(date, session.date),
+              entity: {
+                ...(session.entity || {}),
+                name: company.trim() || session.entity?.name || 'Interview',
+                role: role.trim()
+              },
+              transcript: parseRawTranscript(transcriptText),
+              notes: {
+                summary: summary.trim(),
+                actionItems: session?.mode === 'interview'
+                  ? []
+                  : actions.split('\n').map((item) => item.trim()).filter(Boolean)
+              },
+              grading: session?.mode === 'interview' ? {
+                ...(session.grading || {}),
+                examples: actions.split('\n').map((item) => item.trim()).filter(Boolean)
+              } : session?.grading
+            })}
+          >
+            Save changes
           </button>
         </div>
       </section>
@@ -233,10 +691,14 @@ function App() {
   const [activeTab, setActiveTab] = useState('prep');
   const [serviceChecking, setServiceChecking] = useState(false);
   const [newOpportunityOpen, setNewOpportunityOpen] = useState(false);
+  const [newMeetingOpen, setNewMeetingOpen] = useState(false);
   const [jdModalOpen, setJdModalOpen] = useState(false);
   const [jdTargetEntity, setJdTargetEntity] = useState(null);
   const [manualTranscriptOpen, setManualTranscriptOpen] = useState(false);
   const [manualTargetEntity, setManualTargetEntity] = useState(null);
+  const [editEntityTarget, setEditEntityTarget] = useState(null);
+  const [editSessionTarget, setEditSessionTarget] = useState(null);
+  const [postSessionPromptOpen, setPostSessionPromptOpen] = useState(false);
 
   useEffect(() => {
     const handleJd = (e) => {
@@ -260,7 +722,7 @@ function App() {
       return {
         title: settings.meetingTitle || 'Untitled meeting',
         subtitle: attendeeSummary(settings.meetingAttendees),
-        brief: settings.meetingMemory || 'No meeting memory saved yet.'
+        brief: settings.meetingMemory || 'No long term memory saved yet.'
       };
     }
 
@@ -436,7 +898,10 @@ function App() {
   function stopCapture() {
     api?.stopTranscription?.();
     setIsStreaming(false);
-    setStatus('Capture stopped. Save the session when ready.');
+    setStatus(transcript.length ? 'Capture stopped. Choose where to save the transcript.' : 'Capture stopped.');
+    if (transcript.length) {
+      setPostSessionPromptOpen(true);
+    }
   }
 
   function resetSession() {
@@ -452,67 +917,92 @@ function App() {
       return;
     }
 
+    setPostSessionPromptOpen(true);
+  }
+
+  async function saveSessionFromPrompt(payload) {
+    if (!transcript.length) {
+      setStatus('No transcript captured yet.');
+      return;
+    }
+
     try {
-      if (mode === 'interview') {
-        await saveInterviewSession();
+      if (payload.mode === 'interview') {
+        await saveInterviewSession(payload);
       } else {
-        await saveMeetingSession();
+        await saveMeetingSession(payload);
       }
 
-      setStatus('Session saved.');
+      setPostSessionPromptOpen(false);
+      setStatus(payload.mode === 'interview' ? 'Interview transcript saved. Scoring started.' : 'Meeting transcript saved.');
       setTimelineOpen(true);
-      await reloadSessions(mode);
+      await reloadSessions(payload.mode, payload.entity?.id);
     } catch (error) {
       setStatus(`Save failed: ${error.message}`);
     }
   }
 
-  async function saveInterviewSession() {
-    const company = settings.currentCompany || 'Interview';
-    const phase = 'Live Session';
+  async function saveInterviewSession(payload) {
+    const entity = payload?.entity || {
+      id: settings.currentCompany || 'Interview',
+      name: settings.currentCompany || 'Interview',
+      role: settings.currentRole || ''
+    };
+    const phase = payload?.phase || 'Live Session';
+    const attendees = payload?.interviewerName
+      ? [{ name: payload.interviewerName, role: payload.interviewerTitle || '' }]
+      : [];
 
-    try {
-      await api?.saveInterview?.({
-        company,
-        role: settings.currentRole || '',
-        phase,
-        interviewerName: '',
-        interviewerTitle: ''
-      });
-    } catch (_error) {
-      await api?.saveSession?.({
-        mode: 'interview',
-        entity: {
-          id: company,
-          name: company,
-          role: settings.currentRole || ''
-        },
-        title: phase,
-        phase,
-        transcript,
-        notes: buildNotes(transcript, assistantCards),
-        cards: assistantCards,
-        grading: { status: 'pending' }
-      });
+    await api?.saveSession?.({
+      mode: 'interview',
+      entity,
+      title: phase,
+      phase,
+      date: fromDateTimeLocal(payload?.date),
+      attendees,
+      transcript,
+      notes: buildNotes(transcript, assistantCards, 'interview'),
+      cards: assistantCards,
+      grading: { status: 'pending' }
+    });
+
+    const nextSettings = await api?.setActiveSessionContext?.({
+      mode: 'interview',
+      company: entity.id,
+      role: entity.role || ''
+    });
+    if (nextSettings) {
+      setSettings(nextSettings);
     }
   }
 
-  async function saveMeetingSession() {
-    const title = settings.meetingTitle || 'Meeting';
+  async function saveMeetingSession(payload) {
+    const entity = payload?.entity || {
+      id: settings.meetingTitle || 'Meeting',
+      name: settings.meetingTitle || 'Meeting',
+      role: ''
+    };
+
     await api?.saveSession?.({
       mode: 'meeting',
-      entity: {
-        id: title,
-        name: title,
-        role: ''
-      },
-      title,
+      entity,
+      title: 'Meeting transcript',
+      date: fromDateTimeLocal(payload?.date),
       attendees: settings.meetingAttendees || [],
       transcript,
-      notes: buildNotes(transcript, assistantCards),
+      notes: buildNotes(transcript, assistantCards, 'meeting'),
       cards: assistantCards,
       grading: null
     });
+
+    const nextSettings = await api?.setActiveSessionContext?.({
+      mode: 'meeting',
+      meetingTitle: entity.name || entity.id,
+      attendees: settings.meetingAttendees || []
+    });
+    if (nextSettings) {
+      setSettings(nextSettings);
+    }
   }
 
   async function runCommand(command) {
@@ -552,6 +1042,122 @@ function App() {
     }
   }
 
+  async function setActiveMeeting(entityId) {
+    if (!entityId) {
+      const nextSettings = await api?.setActiveSessionContext?.({
+        mode: 'meeting',
+        meetingTitle: '',
+        attendees: []
+      });
+      if (nextSettings) {
+        setSettings(nextSettings);
+      }
+      return;
+    }
+
+    const entity = entities.find((item) => item.id === entityId);
+    const meetingSessions = await api?.getSessions?.({ mode: 'meeting', entityId });
+    const latest = Array.isArray(meetingSessions) ? meetingSessions[0] : null;
+    const nextSettings = await api?.setActiveSessionContext?.({
+      mode: 'meeting',
+      meetingTitle: entity?.name || entityId,
+      attendees: latest?.attendees || []
+    });
+    if (nextSettings) {
+      setSettings(nextSettings);
+    }
+  }
+
+  async function createMeetingMemory(data) {
+    await api?.saveSession?.({
+      mode: 'meeting',
+      entity: {
+        id: data.title,
+        name: data.title,
+        role: ''
+      },
+      title: 'Meeting-specific memory',
+      date: fromDateTimeLocal(data.date),
+      attendees: data.attendees || [],
+      transcript: [],
+      notes: {
+        summary: data.memory || '',
+        actionItems: []
+      },
+      cards: [],
+      grading: null
+    });
+
+    setNewMeetingOpen(false);
+    await reloadSessions('meeting');
+    const nextSettings = await api?.setActiveSessionContext?.({
+      mode: 'meeting',
+      meetingTitle: data.title,
+      attendees: data.attendees || []
+    });
+    if (nextSettings) {
+      setSettings(nextSettings);
+    }
+  }
+
+  async function saveEntityEdits(entity, patch) {
+    if (!entity?.id || !patch?.name) {
+      return;
+    }
+
+    const updated = await api?.updateSessionEntity?.({
+      mode,
+      entityId: entity.id,
+      patch
+    });
+
+    if (mode === 'interview' && settings.currentCompany === entity.id) {
+      const nextSettings = await api?.setActiveSessionContext?.({
+        mode,
+        company: entity.id,
+        role: patch.role || ''
+      });
+      if (nextSettings) {
+        setSettings(nextSettings);
+      }
+    }
+
+    setEditEntityTarget(null);
+    await reloadSessions(mode, updated?.id || entity.id);
+  }
+
+  async function saveSessionEdits(nextSession) {
+    if (!nextSession?.id) {
+      return;
+    }
+
+    const record = {
+      ...nextSession,
+      entity: {
+        ...(nextSession.entity || {}),
+        id: nextSession.entity?.id || selectedEntity || nextSession.entity?.name
+      }
+    };
+
+    if (record.source === 'legacy-interview' && api?.saveManualInterview) {
+      await api.saveManualInterview({
+        id: record.id,
+        originalCompany: selectedEntity || record.entity.id || record.entity.name,
+        company: record.entity.name,
+        role: record.entity.role || '',
+        phase: record.title || record.phase || 'Interview session',
+        interviewerName: record.attendees?.[0]?.name || '',
+        interviewerTitle: record.attendees?.[0]?.role || '',
+        transcript: record.transcript
+      });
+    } else {
+      await api?.saveSession?.(record);
+    }
+
+    setEditSessionTarget(null);
+    await reloadSessions(mode, record.entity.id || selectedEntity);
+  }
+
   return (
     <div className="app-shell">
       <TitleBar
@@ -561,6 +1167,7 @@ function App() {
         onSettings={() => setSettingsOpen(true)}
         settings={settings}
         onAddNewOpportunity={() => setNewOpportunityOpen(true)}
+        onAddNewMeeting={() => setNewMeetingOpen(true)}
         onChangeActiveInterview={async (company, role) => {
           const nextSettings = await api?.setActiveSessionContext?.({
             mode,
@@ -571,6 +1178,7 @@ function App() {
             setSettings(nextSettings);
           }
         }}
+        onChangeActiveMeeting={setActiveMeeting}
       />
 
       <main className={`workspace ${timelineOpen ? 'workspace-timeline' : ''}`}>
@@ -590,6 +1198,9 @@ function App() {
             mode={mode}
             onRefresh={() => reloadSessions(mode, selectedEntity)}
             onAddNewOpportunity={() => setNewOpportunityOpen(true)}
+            onAddNewMeeting={() => setNewMeetingOpen(true)}
+            onEditEntity={(entity) => setEditEntityTarget(entity)}
+            onEditSession={(session) => setEditSessionTarget(session)}
             onSelectEntity={async (entityId) => {
               setSelectedEntity(entityId);
               const nextSessions = await api?.getSessions?.({ mode, entityId });
@@ -606,6 +1217,7 @@ function App() {
                 setSettings(nextSettings);
               }
             }}
+            onChangeActiveMeeting={setActiveMeeting}
             selectedEntity={selectedEntity}
             sessions={sessions}
           />
@@ -681,6 +1293,7 @@ function App() {
                   entity: { id: data.company, name: data.company, role: data.role },
                   title: data.phase,
                   phase: data.phase,
+                  date: fromDateTimeLocal(data.date),
                   transcript: data.transcript,
                   grading: { status: 'pending' }
                 });
@@ -689,12 +1302,30 @@ function App() {
                   mode: 'interview',
                   entity: { id: data.company, name: data.company, role: data.role },
                   title: 'Opportunity created',
+                  date: fromDateTimeLocal(data.date),
                   transcript: []
                 });
               }
               setNewOpportunityOpen(false);
               reloadSessions('interview');
             }} 
+          />
+        )}
+
+        {newMeetingOpen && (
+          <NewMeetingModal
+            onClose={() => setNewMeetingOpen(false)}
+            onSave={createMeetingMemory}
+          />
+        )}
+
+        {postSessionPromptOpen && (
+          <PostSessionSaveModal
+            entities={entities}
+            mode={mode}
+            onClose={() => setPostSessionPromptOpen(false)}
+            onSave={saveSessionFromPrompt}
+            settings={settings}
           />
         )}
 
@@ -729,6 +1360,7 @@ function App() {
                 entity: manualTargetEntity,
                 title: data.phase,
                 phase: data.phase,
+                date: fromDateTimeLocal(data.date),
                 transcript: data.transcript,
                 grading: { status: 'pending' }
               });
@@ -737,12 +1369,31 @@ function App() {
             }}
           />
         )}
+
+        {editEntityTarget && (
+          <EditEntityModal
+            entity={editEntityTarget}
+            onClose={() => setEditEntityTarget(null)}
+            onSave={(patch) => saveEntityEdits(editEntityTarget, patch)}
+          />
+        )}
+
+        {editSessionTarget && (
+          <EditSessionModal
+            session={editSessionTarget}
+            onClose={() => setEditSessionTarget(null)}
+            onSave={saveSessionEdits}
+          />
+        )}
     </div>
   );
 }
 
-function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChangeActiveInterview, onAddNewOpportunity }) {
+function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
   const isInterview = mode === 'interview';
+  const activeMeetingId = isInterview
+    ? ''
+    : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
 
   return (
     <header className="title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 14px' }}>
@@ -753,7 +1404,7 @@ function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChange
           <span />
         </div>
         
-        {isInterview && (
+        {isInterview ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', WebkitAppRegion: 'no-drag' }}>
             <span style={{ color: 'var(--muted)' }}>Active Interview:</span>
             <select 
@@ -780,6 +1431,37 @@ function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChange
               {entities.map(ent => (
                 <option key={ent.id} value={ent.id}>
                   {ent.name}{ent.role ? ` - ${ent.role}` : ''}
+                </option>
+              ))}
+              <option value="__new__">+ Add New</option>
+            </select>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', WebkitAppRegion: 'no-drag' }}>
+            <span style={{ color: 'var(--muted)' }}>Active Meeting:</span>
+            <select
+              value={activeMeetingId}
+              onChange={(event) => {
+                if (event.target.value === '__new__') {
+                  onAddNewMeeting();
+                } else {
+                  onChangeActiveMeeting(event.target.value);
+                }
+              }}
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--line)',
+                color: 'var(--text)',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              <option value="">None</option>
+              {entities.map((entity) => (
+                <option key={entity.id} value={entity.id}>
+                  {entity.name}
                 </option>
               ))}
               <option value="__new__">+ Add New</option>
@@ -888,7 +1570,7 @@ function StatusStrip({ health, isStreaming, mode, provider, screenShareHidden, s
       </div>
       <div className="status-pills">
         <span>{provider === 'local' ? 'Local LLM' : `${provider} cloud`}</span>
-        <span>{mode === 'interview' ? 'Candidate context' : 'Meeting memory'}</span>
+        <span>{mode === 'interview' ? 'Candidate context' : 'Long term memory'}</span>
         <span>{screenShareHidden ? 'Screen-share safe' : 'Visible overlay'}</span>
       </div>
       <div className="health-grid" data-testid="healthGrid">
@@ -1062,7 +1744,7 @@ function ContextPanel({ activeTab, cards, mode, onTab, settings, transcriptText 
     : [
       ['Meeting', settings.meetingTitle || 'Not set'],
       ['Attendees', attendeeSummary(settings.meetingAttendees) || 'Not set'],
-      ['Memory', settings.meetingMemory || 'Not set']
+      ['Long term memory', settings.meetingMemory || 'Not set']
     ];
 
   return (
@@ -1131,8 +1813,11 @@ function ContextPanel({ activeTab, cards, mode, onTab, settings, transcriptText 
   );
 }
 
-function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview }) {
+function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
+  const activeMeetingId = mode === 'meeting'
+    ? entities.find((entity) => entity.id === settings?.meetingTitle || entity.name === settings?.meetingTitle)?.id || ''
+    : '';
   const [hasJd, setHasJd] = useState(false);
   const api = window.electronAPI;
 
@@ -1150,6 +1835,11 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onSelect
         // If this was the active interview, clear it
         if (settings?.currentCompany === selected.id) {
             await onChangeActiveInterview('', '');
+        }
+      } else {
+        await api?.deleteSessionEntity?.({ mode, entityId: selected.id });
+        if (activeMeetingId === selected.id) {
+          await onChangeActiveMeeting('');
         }
       }
       onSelectEntity(''); // clear selected entity
@@ -1175,12 +1865,19 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onSelect
                 + Add New Opportunity
               </button>
             )}
+            {mode === 'meeting' && (
+              <button type="button" onClick={onAddNewMeeting} className="primary-action" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                + Add New Meeting
+              </button>
+            )}
             <button type="button" onClick={onRefresh} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>Refresh</button>
           </div>
         </div>
         <div className="entity-list">
           {entities.length ? entities.map((entity) => {
-            const isActive = mode === 'interview' && settings?.currentCompany === entity.id;
+            const isActive = mode === 'interview'
+              ? settings?.currentCompany === entity.id
+              : activeMeetingId === entity.id;
             return (
               <div key={entity.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <button
@@ -1192,24 +1889,24 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onSelect
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                     <strong>{entity.name}</strong>
                     {mode === 'interview' && entity.confidence > 0 && (
-                      <span style={{ 
-                        fontSize: '0.75rem', 
-                        padding: '2px 6px', 
-                        borderRadius: '12px', 
-                        background: 'rgba(0,0,0,0.3)',
-                        color: entity.confidence > 70 ? 'var(--success)' : (entity.confidence > 40 ? 'var(--warning)' : 'var(--danger)')
-                      }}>
+                      <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
                         {entity.confidence}%
                       </span>
                     )}
                   </div>
                   <span>{entity.role || entity.kind}</span>
                 </button>
-                {mode === 'interview' && (
+                {(mode === 'interview' || mode === 'meeting') && (
                   <button 
                     type="button" 
-                    title={isActive ? "Active Interview" : "Set as Active Interview"}
-                    onClick={() => onChangeActiveInterview(entity.id, entity.role)}
+                    title={isActive ? (mode === 'interview' ? 'Active Interview' : 'Active Meeting') : (mode === 'interview' ? 'Set as Active Interview' : 'Set as Active Meeting')}
+                    onClick={() => {
+                      if (mode === 'interview') {
+                        onChangeActiveInterview(isActive ? '' : entity.id, isActive ? '' : entity.role);
+                      } else {
+                        onChangeActiveMeeting(isActive ? '' : entity.id);
+                      }
+                    }}
                     style={{ 
                       padding: '4px 8px', 
                       background: isActive ? 'var(--cyan)' : 'transparent',
@@ -1235,6 +1932,11 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onSelect
           </div>
           {selected && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {mode === 'interview' && (
+                <button type="button" onClick={() => onEditEntity(selected)}>
+                  Edit details
+                </button>
+              )}
               <button type="button" onClick={handleDeleteEntity} style={{ padding: '4px', background: 'transparent', border: 'none', cursor: 'pointer' }} title="Delete Entity">
                 🗑️
               </button>
@@ -1253,7 +1955,12 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onSelect
         </div>
         <div className="session-list">
           {sessions.length ? sessions.map((session) => (
-            <SessionBlock key={`${session.mode}-${session.entity.id}-${session.id}`} session={session} onDelete={() => handleDeleteSession(session)} />
+            <SessionBlock
+              key={`${session.mode}-${session.entity.id}-${session.id}`}
+              session={session}
+              onDelete={() => handleDeleteSession(session)}
+              onEdit={() => onEditSession(session)}
+            />
           )) : <EmptyState title="No sessions selected" body="Choose a company or meeting from the rail." />}
         </div>
       </div>
@@ -1261,7 +1968,7 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onSelect
   );
 }
 
-function SessionBlock({ session, onDelete }) {
+function SessionBlock({ session, onDelete, onEdit }) {
   return (
     <article className="session-block">
       <div className="session-head">
@@ -1273,17 +1980,17 @@ function SessionBlock({ session, onDelete }) {
                 🗑️
               </button>
             )}
+            {onEdit && (
+              <button type="button" onClick={onEdit} className="small-action">
+                Edit
+              </button>
+            )}
           </div>
           <p>{new Date(session.date).toLocaleString()}</p>
         </div>
         {session.grading?.grade ? <span className="grade-pill">{session.grading.grade}</span> : <span className="grade-pill muted">{session.mode}</span>}
       </div>
-      {session.notes?.summary ? <p className="session-summary">{session.notes.summary}</p> : null}
-      {session.notes?.actionItems?.length ? (
-        <ul className="action-list">
-          {session.notes.actionItems.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
-        </ul>
-      ) : null}
+      <EvaluationNotes summary={session.notes?.summary} examples={session.mode === 'interview' ? (session.grading?.examples || []) : (session.notes?.actionItems || [])} />
       <details>
         <summary>Transcript</summary>
         <div className="session-transcript">
@@ -1295,6 +2002,37 @@ function SessionBlock({ session, onDelete }) {
         </div>
       </details>
     </article>
+  );
+}
+
+function EvaluationNotes({ summary, examples = [] }) {
+  const evaluation = parseEvaluationText(summary);
+  const hasSummary = Boolean(evaluation.overview || evaluation.sections.length);
+  const cleanExamples = examples.map(cleanEvaluationText).filter(Boolean);
+
+  if (!hasSummary && !cleanExamples.length) {
+    return null;
+  }
+
+  return (
+    <section className="evaluation-notes" aria-label="Interview evaluation">
+      {evaluation.overview ? <p className="session-summary">{evaluation.overview}</p> : null}
+      {evaluation.sections.length ? (
+        <div className="evaluation-sections">
+          {evaluation.sections.map((section, index) => (
+            <div className="evaluation-section" key={`${section.title}-${index}`}>
+              {section.title ? <h4>{section.title}</h4> : null}
+              {section.body ? <p>{section.body}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {cleanExamples.length ? (
+        <ul className="action-list evaluation-examples">
+          {cleanExamples.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
@@ -1323,17 +2061,11 @@ function SettingsDrawer(props) {
 }
 
 function SetupFields({ compact = false, mode, onSave, settings }) {
-  const [draft, setDraft] = useState({
-    ...settings,
-    meetingAttendeesText: attendeeLines(settings.meetingAttendees)
-  });
+  const [draft, setDraft] = useState({ ...settings });
   const [activeTab, setActiveTab] = useState('context');
 
   useEffect(() => {
-    setDraft({
-      ...settings,
-      meetingAttendeesText: attendeeLines(settings.meetingAttendees)
-    });
+    setDraft({ ...settings });
   }, [settings]);
 
   function update(key, value) {
@@ -1366,27 +2098,13 @@ function SetupFields({ compact = false, mode, onSave, settings }) {
 
       {activeTab === 'context' && (
         <>
-          <div className="form-grid">
-            {mode === 'meeting' && (
-              <>
-                <label>
-                  Meeting title
-                  <input value={draft.meetingTitle || ''} onChange={(event) => update('meetingTitle', event.target.value)} placeholder="Platform weekly" />
-                </label>
-                <label>
-                  Attendees
-                  <input value={draft.meetingAttendeesText || ''} onChange={(event) => update('meetingAttendeesText', event.target.value)} placeholder="Morgan: PM, Lee: Eng" />
-                </label>
-              </>
-            )}
-          </div>
-          <label className="wide-field" style={{ marginTop: mode === 'meeting' ? '0' : '15px' }}>
-            {mode === 'interview' ? 'Resume / background' : 'Meeting memory'}
+          <label className="wide-field" style={{ marginTop: '15px' }}>
+            {mode === 'interview' ? 'Resume / background' : 'Long term memory'}
             <textarea
               style={{ minHeight: '120px' }}
               value={mode === 'interview' ? (draft.resumeText || '') : (draft.meetingMemory || '')}
               onChange={(event) => update(mode === 'interview' ? 'resumeText' : 'meetingMemory', event.target.value)}
-              placeholder={mode === 'interview' ? 'Paste resume facts, metrics, and projects.' : 'Paste prior notes, person context, or recurring meeting memory.'}
+              placeholder={mode === 'interview' ? 'Paste resume facts, metrics, and projects.' : 'Persistent context Clyde should use across all meetings.'}
             />
           </label>
           <div style={{ marginTop: '15px', padding: '10px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--line)' }}>
@@ -1598,7 +2316,14 @@ function summarizeTranscript(transcript) {
   return lastTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join(' ');
 }
 
-function buildNotes(transcript, cards) {
+function buildNotes(transcript, cards, mode = 'interview') {
+  if (mode === 'interview') {
+    return {
+      summary: '',
+      actionItems: []
+    };
+  }
+
   return {
     summary: summarizeTranscript(transcript) || 'Session saved from Clyde.',
     actionItems: cards

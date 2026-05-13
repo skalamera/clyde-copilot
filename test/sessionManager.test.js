@@ -48,9 +48,23 @@ test('session manager saves and reads interview and meeting sessions', () => {
   assert.equal(interviews[0].entity.name, 'Acme');
   assert.equal(interviews[0].phase, 'Technical Screen');
 
+  const updatedEntity = manager.updateEntity('interview', 'acme', {
+    name: 'Acme Labs',
+    role: 'Principal Engineer'
+  });
+  const updatedInterviews = manager.getSessions({ mode: 'interview', entityId: 'acme' });
+
+  assert.equal(updatedEntity.name, 'Acme Labs');
+  assert.equal(updatedInterviews[0].entity.name, 'Acme Labs');
+  assert.equal(updatedInterviews[0].entity.role, 'Principal Engineer');
+
   assert.equal(meetings.length, 1);
   assert.equal(meetings[0].mode, 'meeting');
   assert.deepEqual(meetings[0].notes.actionItems, ['Assign owner']);
+
+  assert.equal(manager.deleteEntity('meeting', 'platform-weekly'), true);
+  assert.deepEqual(manager.getSessionEntities('meeting'), []);
+  assert.deepEqual(manager.getSessions({ mode: 'meeting', entityId: 'platform-weekly' }), []);
 });
 
 test('session manager can read existing interview manager files', () => {
@@ -86,4 +100,169 @@ test('session manager can read existing interview manager files', () => {
   assert.equal(sessions[0].mode, 'interview');
   assert.equal(sessions[0].entity.name, 'Acme');
   assert.equal(sessions[0].grading.grade, 'A');
+});
+
+test('deleteEntity removes legacy interview company folders', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-legacy-delete-'));
+  const legacyDir = path.join(tempDir, 'Interviews', 'curbwaste');
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyDir, 'meta.json'), JSON.stringify({ name: 'CurbWaste' }, null, 2));
+  fs.writeFileSync(path.join(legacyDir, '123.json'), JSON.stringify({
+    id: '123',
+    company: 'CurbWaste',
+    phase: 'Interview #1',
+    transcript: [{ speaker: 'Interviewer', text: 'Welcome.' }]
+  }, null, 2));
+
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  assert.equal(manager.getSessions({ mode: 'interview', entityId: 'curbwaste' }).length, 1);
+  assert.equal(manager.deleteEntity('interview', 'curbwaste'), true);
+  assert.equal(fs.existsSync(legacyDir), false);
+  assert.deepEqual(manager.getSessions({ mode: 'interview', entityId: 'curbwaste' }), []);
+});
+
+test('deleteEntity removes native and legacy interview folders together', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-hybrid-delete-'));
+  const legacyDir = path.join(tempDir, 'Interviews', 'curbwaste');
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyDir, 'meta.json'), JSON.stringify({ name: 'CurbWaste' }, null, 2));
+  fs.writeFileSync(path.join(legacyDir, 'legacy.json'), JSON.stringify({
+    id: 'legacy',
+    company: 'CurbWaste',
+    transcript: [{ speaker: 'Interviewer', text: 'Legacy.' }]
+  }, null, 2));
+
+  const manager = createSessionManager({ appPath: tempDir });
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'curbwaste', name: 'CurbWaste', role: 'Customer Support Manager' },
+    title: 'Native session',
+    transcript: [{ speaker: 'Interviewer', text: 'Native.' }]
+  });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  assert.equal(manager.getSessions({ mode: 'interview', entityId: 'curbwaste' }).length, 2);
+  assert.equal(manager.deleteEntity('interview', 'curbwaste'), true);
+  assert.equal(fs.existsSync(path.join(tempDir, 'Sessions', 'interview', 'curbwaste')), false);
+  assert.equal(fs.existsSync(legacyDir), false);
+  assert.deepEqual(manager.getSessions({ mode: 'interview', entityId: 'curbwaste' }), []);
+});
+
+test('deleting the last interview session resets company confidence', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-confidence-reset-'));
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Recruiter Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Tell me about yourself.' }]
+  });
+
+  manager.updateEntityConfidence('apollo', 78, 'up');
+
+  let entities = manager.getSessionEntities('interview');
+  assert.equal(entities[0].confidence, 78);
+
+  const [session] = manager.getSessions({ mode: 'interview', entityId: 'apollo' });
+  assert.ok(session);
+  assert.equal(manager.deleteSession({ mode: 'interview', id: session.id, entityId: 'apollo' }), true);
+
+  entities = manager.getSessionEntities('interview');
+  assert.equal(entities[0].confidence, 0);
+  assert.deepEqual(manager.getSessions({ mode: 'interview', entityId: 'apollo' }), []);
+});
+
+test('saving a generated-id session twice updates the original record', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-session-resave-'));
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const record = {
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Engineer' },
+    title: 'Recruiter Screen',
+    phase: 'Recruiter Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Tell me about yourself.' }],
+    grading: { status: 'pending' }
+  };
+
+  const firstId = manager.saveSession(record);
+  record.grading = { status: 'complete', grade: 'A' };
+  const secondId = manager.saveSession(record);
+
+  const sessions = manager.getSessions({ mode: 'interview', entityId: 'apollo' });
+
+  assert.equal(secondId, firstId);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].grading.grade, 'A');
+});
+
+test('graded interview sessions expose evaluation text as notes without action items', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-session-eval-'));
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Recruiter Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Walk me through your background.' }],
+    grading: {
+      status: 'complete',
+      grade: 'A',
+      reasoning: 'Clear examples tied to the support operations role.',
+      examples: ['Explained ticket QA process.', 'Named escalation improvements.']
+    }
+  });
+
+  const [session] = manager.getSessions({ mode: 'interview', entityId: 'apollo' });
+
+  assert.equal(session.notes.summary, 'Clear examples tied to the support operations role.');
+  assert.deepEqual(session.notes.actionItems, []);
+});
+
+test('interview grading does not turn examples into action items', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-session-no-actions-'));
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Recruiter Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Walk me through your background.' }],
+    grading: {
+      status: 'complete',
+      grade: 'A',
+      reasoning: 'Strong fit for the role.',
+      examples: ['Mentioned systems work.']
+    }
+  });
+
+  const [session] = manager.getSessions({ mode: 'interview', entityId: 'apollo' });
+
+  assert.equal(session.notes.summary, 'Strong fit for the role.');
+  assert.deepEqual(session.notes.actionItems, []);
 });

@@ -116,6 +116,91 @@ test('does not call LM Studio when only the user speaks', async () => {
   assert.equal(requests.length, 0);
 });
 
+test('does not retrieve Pinecone context when RAG is disabled', async () => {
+  const meetingAssistantPath = require.resolve('../src/meetingAssistant');
+  const pineconeClientPath = require.resolve('../src/pineconeClient');
+  const originalMeetingAssistantCache = require.cache[meetingAssistantPath];
+  const originalPineconeClientCache = require.cache[pineconeClientPath];
+  const originalPineconeApiKey = process.env.PINECONE_API_KEY;
+  const originalPineconeHost = process.env.PINECONE_HOST;
+
+  let searchCalls = 0;
+
+  try {
+    process.env.PINECONE_API_KEY = 'env-key';
+    process.env.PINECONE_HOST = 'https://example-index.pinecone.io';
+
+    delete require.cache[meetingAssistantPath];
+    require.cache[pineconeClientPath] = {
+      id: pineconeClientPath,
+      filename: pineconeClientPath,
+      loaded: true,
+      exports: {
+        detectResumeQuestion: async () => 'Tell me about your support career.',
+        searchResumeVectors: async () => {
+          searchCalls++;
+          return [{ text: 'Pinecone fact' }];
+        }
+      }
+    };
+
+    const { createMeetingAssistant: createAssistantWithFakePinecone } = require('../src/meetingAssistant');
+    const requests = [];
+
+    const assistant = createAssistantWithFakePinecone({
+      settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b',
+        ragEnabled: false
+      },
+      axiosClient: {
+        post: async (url, data) => {
+          requests.push({ url, data });
+          return {
+            data: {
+              choices: [{
+                message: { content: '{"answers": [{"question":"Why support?", "bullets": ["Because I like solving customer problems."]}]}' }
+              }]
+            }
+          };
+        }
+      },
+      intervalMs: 1
+    });
+
+    await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you walk me through your support career?' });
+
+    assert.equal(searchCalls, 0);
+    assert.equal(requests.length, 1);
+    assert.doesNotMatch(requests[0].data.messages[0].content, /Pinecone fact/);
+  } finally {
+    if (originalPineconeApiKey === undefined) {
+      delete process.env.PINECONE_API_KEY;
+    } else {
+      process.env.PINECONE_API_KEY = originalPineconeApiKey;
+    }
+
+    if (originalPineconeHost === undefined) {
+      delete process.env.PINECONE_HOST;
+    } else {
+      process.env.PINECONE_HOST = originalPineconeHost;
+    }
+
+    delete require.cache[meetingAssistantPath];
+
+    if (originalMeetingAssistantCache) {
+      require.cache[meetingAssistantPath] = originalMeetingAssistantCache;
+    }
+
+    if (originalPineconeClientCache) {
+      require.cache[pineconeClientPath] = originalPineconeClientCache;
+    } else {
+      delete require.cache[pineconeClientPath];
+    }
+  }
+});
+
 test('warns when LM Studio returns no visible assistant content', async () => {
   const statuses = [];
 

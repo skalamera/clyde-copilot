@@ -19,6 +19,11 @@ const { createMeetingAssistant } = require('./src/meetingAssistant');
 const { createInterviewManager } = require('./src/interviewManager');
 const { createSessionManager } = require('./src/sessionManager');
 const { generateChat } = require('./src/llmClient');
+const {
+    buildTranscriptCleanupPrompt,
+    normalizeCleanedTranscriptResponse,
+    transcriptToText
+} = require('./src/transcriptCleanup');
 
 let mainWindow;
 let audioCaptures;
@@ -792,12 +797,89 @@ function createWindow () {
       const sessionId = sessionManager.saveSession(record || {});
       
       // If it's an interview session that needs grading, trigger background grading
-      if (record && record.mode === 'interview' && record.grading && record.grading.status === 'pending') {
-         processSessionGradingInBackground(sessionId, record, loadSettings()).catch(console.error);
+      const hasTranscript = record && Array.isArray(record.transcript) && record.transcript.length > 0;
+      if (record && record.mode === 'interview' && record.grading && record.grading.status === 'pending' && hasTranscript) {
+         processInterviewCleanupAndGradingInBackground(sessionId, record, loadSettings()).catch(console.error);
+      } else if (record && record.mode === 'interview' && record.entity && !hasTranscript) {
+         sessionManager.updateEntityConfidence(record.entity.id, 0, 'neutral');
       }
       
       return sessionId;
   });
+
+  async function processInterviewCleanupAndGradingInBackground(sessionId, record, settings) {
+      try {
+          const cleanedTranscript = await processTranscriptCleanupInBackground(record, settings);
+          const nextRecord = cleanedTranscript && cleanedTranscript.length
+              ? { ...record, transcript: cleanedTranscript }
+              : record;
+
+          if (cleanedTranscript && cleanedTranscript.length) {
+              sessionManager.saveSession(nextRecord);
+          }
+
+          await processSessionGradingInBackground(sessionId, nextRecord, settings);
+      } catch (error) {
+          console.error("Transcript cleanup failed", error);
+          await processSessionGradingInBackground(sessionId, record, settings);
+      }
+  }
+
+  async function processTranscriptCleanupInBackground(record, settings) {
+      if (!record?.transcript || record.transcript.length === 0) {
+          return [];
+      }
+
+      const provider = settings.llmProvider || 'local';
+      const apiKey = settings.llmApiKey || '';
+      const model = settings.llmModel || '';
+      const localUrl = settings.localLlmUrl;
+      const prompt = buildTranscriptCleanupPrompt(record.transcript);
+
+      const responseText = await generateChat({
+          provider,
+          apiKey,
+          model,
+          temperature: 0,
+          maxTokens: 8192,
+          axiosClient: axios,
+          localUrl,
+          jsonSchema: {
+              name: 'transcript_cleanup',
+              schema: {
+                  type: 'object',
+                  properties: {
+                      transcript: {
+                          type: 'array',
+                          items: {
+                              type: 'object',
+                              properties: {
+                                  speaker: { type: 'string' },
+                                  text: { type: 'string' }
+                              },
+                              required: ['speaker', 'text'],
+                              additionalProperties: false
+                          }
+                      }
+                  },
+                  required: ['transcript'],
+                  additionalProperties: false
+              }
+          },
+          messages: [{ role: 'user', content: prompt }]
+      });
+
+      const cleanedTranscript = normalizeCleanedTranscriptResponse(responseText, record.transcript);
+      if (cleanedTranscript) {
+          return cleanedTranscript;
+      }
+
+      try {
+          console.error('Failed to parse cleaned transcript JSON:', responseText);
+      } catch (_error) {}
+
+      return null;
+  }
 
   async function processSessionGradingInBackground(sessionId, record, settings) {
       sendAudioStatus({ state: 'processing', message: `Grading interview for ${record.entity.name}...` });
@@ -808,7 +890,7 @@ function createWindow () {
           const model = settings.llmModel || '';
           const localUrl = settings.localLlmUrl;
 
-          const transcriptText = record.transcript.map(t => `${t.speaker}: ${t.text}`).join('\n');
+          const transcriptText = transcriptToText(record.transcript);
           const roleStr = record.entity.role ? `\nRole/Job Title: ${record.entity.role}` : '';
           const jd = interviewManager.getCompanyJobDescription(record.entity.name) || interviewManager.getCompanyJobDescription(record.entity.id);
           const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
@@ -817,6 +899,8 @@ function createWindow () {
           Company: ${record.entity.name}${roleStr}${jdStr}
           
           Give a highly precise grade (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, D-, F) based on clarity, technical accuracy, conciseness, and professionalism. Be strict and exact.
+          Write a detailed evaluation in exactly 4 short professional sections using markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, and **Outlook:**.
+          Use concrete details from the transcript. Do not write a generic one-paragraph summary. Finish every sentence. Keep examples separate from the written evaluation.
           
           Transcript:
           ${transcriptText}`;
@@ -826,7 +910,7 @@ function createWindow () {
               apiKey,
               model,
               temperature: 0.2,
-              maxTokens: 800,
+              maxTokens: 1800,
               axiosClient: axios,
               localUrl,
               jsonSchema: {
@@ -835,7 +919,7 @@ function createWindow () {
                       type: 'object',
                       properties: {
                           grade: { type: 'string', enum: ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'] },
-                          reasoning: { type: 'string' },
+                          reasoning: { type: 'string', description: 'The detailed evaluation formatted in exactly 4 sections with markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, **Outlook:**' },
                           examples: { type: 'array', items: { type: 'string' } }
                       },
                       required: ['grade', 'reasoning', 'examples'],
@@ -958,7 +1042,40 @@ function createWindow () {
   }
 
   ipcMain.handle('delete-session', (event, payload) => {
-      return sessionManager.deleteSession(payload || {});
+      const nextPayload = payload || {};
+      const deleted = sessionManager.deleteSession(nextPayload);
+
+      if (nextPayload.mode === 'interview' && nextPayload.entityId) {
+          const remaining = sessionManager.getSessions({ mode: 'interview', entityId: nextPayload.entityId });
+          if (remaining.length > 0) {
+              processSessionConfidenceInBackground(remaining[0].entity, loadSettings()).catch(console.error);
+          } else {
+              sessionManager.updateEntityConfidence(nextPayload.entityId, 0, 'neutral');
+          }
+      }
+
+      return deleted;
+  });
+
+  ipcMain.handle('delete-session-entity', (event, payload) => {
+      return sessionManager.deleteEntity(payload && payload.mode, payload && payload.entityId);
+  });
+
+  ipcMain.handle('update-session-entity', (event, payload) => {
+      const nextEntity = sessionManager.updateEntity(
+          payload && payload.mode,
+          payload && payload.entityId,
+          payload && payload.patch
+      );
+
+      if (payload && payload.mode === 'interview' && payload.entityId) {
+          const patch = payload.patch || {};
+          if (patch.role !== undefined) {
+              try { interviewManager.setCompanyRole(payload.entityId, patch.role); } catch (error) { console.warn(error.message); }
+          }
+      }
+
+      return nextEntity;
   });
 
   ipcMain.handle('set-active-session-context', (event, context) => {

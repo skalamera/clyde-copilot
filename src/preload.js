@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getSessionEntities: (mode) => ipcRenderer.invoke('get-session-entities', mode),
     saveSession: (sessionRecord) => ipcRenderer.invoke('save-session', sessionRecord),
     deleteSession: (payload) => ipcRenderer.invoke('delete-session', payload),
+    deleteSessionEntity: (payload) => ipcRenderer.invoke('delete-session-entity', payload),
+    updateSessionEntity: (payload) => ipcRenderer.invoke('update-session-entity', payload),
     setActiveSessionContext: (context) => ipcRenderer.invoke('set-active-session-context', context),
     validateServices: (settings) => ipcRenderer.invoke('validate-services', settings),
     extractJobContext: (jobDescription) => ipcRenderer.invoke('extract-job-context', jobDescription),
