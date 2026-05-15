@@ -2561,7 +2561,10 @@ function App() {
             onHide={() => setOverlayHidden(true)}
             onShow={() => setOverlayHidden(false)}
             onStop={stopCapture}
+            onReset={resetSession}
             settings={settings}
+            captureProtectionEnabled={settings?.captureProtectionEnabled}
+            onToggleCaptureProtection={toggleCaptureProtection}
           />
         ) : (
         <>
@@ -2631,13 +2634,14 @@ function App() {
             mode={mode}
           />
         ) : <>
-          <StatusStrip
-            health={health}
-            isStreaming={isStreaming}
-            mode={mode}
-            provider={settings.llmProvider}
-            status={status}
-          />
+            <StatusStrip
+              health={health}
+              isStreaming={isStreaming}
+              mode={mode}
+              provider={settings.llmProvider}
+              status={status}
+              startCapture={startCapture}
+            />
 
           {setupOpen ? (
             <SetupPanel
@@ -2976,13 +2980,18 @@ function ModeToggle({ mode, onChange }) {
   );
 }
 
-function StatusStrip({ health, isStreaming, mode, provider, status }) {
+function StatusStrip({ health, isStreaming, mode, provider, status, startCapture }) {
   return (
     <div className="status-strip">
-      <div className="status-line">
-        <span className={`pulse ${isStreaming ? 'live' : ''}`} />
-        <span>{status}</span>
-      </div>
+      <div className="status-line" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span className={`pulse ${isStreaming ? 'live' : ''}`} />
+              <strong>{status}</strong>
+            </div>
+            {!isStreaming && (
+              <button className="primary-action" type="button" onClick={startCapture} style={{ padding: '4px 16px', minHeight: '30px' }}>Start</button>
+            )}
+          </div>
       <div className="status-pills">
         <span>{provider === 'local' ? 'Local LLM' : `${provider} cloud`}</span>
         <span>{mode === 'interview' ? 'Candidate context' : 'Long term memory'}</span>
@@ -3018,7 +3027,7 @@ function SetupPanel({ mode, onClose, onSave, onValidate, serviceChecking, settin
   );
 }
 
-function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onShow, onStop, settings }) {
+function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onShow, onStop, onReset, settings, captureProtectionEnabled, onToggleCaptureProtection }) {
   const [prompt, setPrompt] = useState('');
   const [promptType, setPromptType] = useState(null);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
@@ -3075,8 +3084,18 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
       ) : null}
       {!hidden ? (
         <div className="active-assistant-panel">
+          <div style={{ width: '100%', height: '24px', WebkitAppRegion: 'drag', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'grab', marginBottom: '-4px' }}>
+            <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px' }} />
+          </div>
           <div className="active-capture-bar">
-            <button type="button" className="active-icon-btn ghost-toggle" onClick={onHide} aria-label="Hide Clyde overlay" title="Hide Clyde">
+            <button 
+              type="button"
+              className={`active-icon-btn ghost-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
+              onClick={onToggleCaptureProtection}
+              aria-label="Toggle Capture Protection"
+              title="Toggle Capture Protection"
+              style={{ filter: captureProtectionEnabled ? 'none' : 'grayscale(1) opacity(0.5)' }}
+            >
               <img src={ghostUrl} alt="" className="active-capture-icon" style={{width:'38px', height:'38px', objectFit:'contain'}} />
             </button>
             <button type="button" className={`active-icon-btn ${promptType === 'camera' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'camera' ? null : 'camera'); setSourceMenuOpen(false); }} aria-label="Screenshot Prompt" title="Ask with Screenshot">
@@ -3087,6 +3106,9 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
             </button>
             <button type="button" className={`active-icon-btn ${promptType === 'custom' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'custom' ? null : 'custom'); setSourceMenuOpen(false); }} aria-label="Custom Prompt" title="Custom Prompt">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M14 6l4 4"></path><path d="M5 21v-4L15.5 6.5a2.828 2.828 0 1 1 4 4L9 21H5z"></path><path d="M3 10h5M3 14h5" strokeDasharray="2 2"></path></svg>
+            </button>
+            <button type="button" className="active-icon-btn reset-btn" onClick={() => { setPromptType(null); onReset(); }} aria-label="Reset session" title="Reset Session">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '20px', height: '20px'}}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
             </button>
             <button type="button" className="active-icon-btn stop-btn" onClick={() => { setPromptType(null); onStop(); }} aria-label="Stop capture" title="Stop Capture">
               <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect></svg>
@@ -3175,10 +3197,6 @@ function LivePanel(props) {
     isStreaming,
     liveLevels,
     onCommand,
-    onReset,
-    onSave,
-    onStart,
-    onStop,
     transcript
   } = props;
 
@@ -3189,15 +3207,8 @@ function LivePanel(props) {
           <h2>{context.title}</h2>
           <p>{context.subtitle}</p>
         </div>
-        <div className="capture-controls">
-          <button data-testid="startBtn" type="button" onClick={onStart} disabled={isStreaming}>Start</button>
-          <button data-testid="stopBtn" type="button" onClick={onStop} disabled={!isStreaming}>Stop</button>
-          <button data-testid="saveBtn" type="button" onClick={onSave} disabled={isStreaming || transcript.length === 0}>Save</button>
-          <button type="button" onClick={onReset} title="Reset session">Reset</button>
-        </div>
       </div>
-
-      <div className="meters" data-testid="liveVoiceMeters">
+        <div className="meters" data-testid="liveVoiceMeters">
         {liveLevels.length ? liveLevels.map((source) => (
           <div className={`meter ${source.speaking ? 'speaking' : ''}`} key={source.id || source.label}>
             <div>
