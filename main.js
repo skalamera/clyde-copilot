@@ -1,9 +1,8 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const axios = require('axios');
 const log = require('electron-log');
-const { autoUpdater } = require('electron-updater');
 
 // Configure electron-log
 log.transports.file.level = 'info';
@@ -24,6 +23,14 @@ const {
     normalizeCleanedTranscriptResponse,
     transcriptToText
 } = require('./src/transcriptCleanup');
+const {
+    buildMeetingPostProcessPrompt,
+    normalizeMeetingPostProcessResponse
+} = require('./src/meetingPostProcessing');
+const { startAutoUpdater } = require('./src/autoUpdater');
+const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
+const { buildTrendAnalysisSessionSignature, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
+const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
 
 let mainWindow;
 let audioCaptures;
@@ -47,13 +54,10 @@ const healthState = {
 };
 
 function configureElectronStorage() {
-    const appData = app.getPath('appData');
-    const userData = path.join(appData, 'Clyde');
-    const sessionData = path.join(userData, 'Session');
+    const { sessionDataPath } = resolveElectronStoragePaths(app.getPath('userData'));
 
-    fs.mkdirSync(sessionData, { recursive: true });
-    app.setPath('userData', userData);
-    app.setPath('sessionData', sessionData);
+    fs.mkdirSync(sessionDataPath, { recursive: true });
+    app.setPath('sessionData', sessionDataPath);
 }
 
 function loadSettings() {
@@ -80,7 +84,8 @@ function loadSettings() {
         meetingTitle: store.get('meetingTitle', ''),
         meetingAttendees: store.get('meetingAttendees', []),
         meetingMemory: store.get('meetingMemory', ''),
-        screenShareHidden: store.get('screenShareHidden', true)
+        captureProtectionEnabled: store.get('captureProtectionEnabled', true),
+        uiOpacity: store.get('uiOpacity', 100)
     };
 
     // Fallbacks from env if settings aren't populated
@@ -104,6 +109,7 @@ function saveSettings(newSettings) {
     const store = new Store();
     
     store.set(newSettings);
+    applyCaptureProtection(newSettings);
     
     // Update process.env immediately
     if (newSettings.geminiApiKey) process.env.GEMINI_API_KEY = newSettings.geminiApiKey;
@@ -157,6 +163,22 @@ function saveSettings(newSettings) {
 
     // Force health recheck
     checkServiceHealth(newSettings);
+}
+
+function applyCaptureProtection(settings = {}) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    if (process.platform !== 'win32' && process.platform !== 'darwin') {
+        return;
+    }
+
+    try {
+        mainWindow.setContentProtection(Boolean(settings.captureProtectionEnabled));
+    } catch (error) {
+        console.warn('Failed to apply screen capture protection:', error);
+    }
 }
 
 /**
@@ -403,6 +425,30 @@ function sendAudioLevelUpdate(update) {
     mainWindow.webContents.send('audio-level-update', update);
 }
 
+async function captureDesktopScreenshot() {
+    const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 1600, height: 1000 }
+    });
+
+    const source = sources
+        .filter((item) => item && item.thumbnail && !item.thumbnail.isEmpty())
+        .sort((left, right) => {
+            const leftSize = left.thumbnail.getSize();
+            const rightSize = right.thumbnail.getSize();
+            return (rightSize.width * rightSize.height) - (leftSize.width * leftSize.height);
+        })[0];
+
+    if (!source) {
+        throw new Error('No screen source was available.');
+    }
+
+    return {
+        mimeType: 'image/png',
+        data: source.thumbnail.toPNG().toString('base64')
+    };
+}
+
 function getMeetingAssistant() {
     if (meetingAssistant) {
         return meetingAssistant;
@@ -637,6 +683,7 @@ function createWindow () {
     width: 1200,
     height: 800,
     transparent: true,
+    backgroundColor: '#00000000',
     frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'preload.js'),
@@ -644,6 +691,9 @@ function createWindow () {
       contextIsolation: true
     }
   });
+
+  const settings = loadSettings();
+  applyCaptureProtection(settings);
 
   const rendererIndex = path.join(__dirname, 'src', 'renderer-dist', 'index.html');
   const legacyRendererIndex = path.join(__dirname, 'src', 'index.html');
@@ -655,7 +705,6 @@ function createWindow () {
       healthCheckTimer = setInterval(() => checkServiceHealth(loadSettings()), Number(process.env.CLYDE_HEALTH_INTERVAL_MS || 10000));
   });
 
-  const settings = loadSettings();
   interviewManager = createInterviewManager({
       appPath: app.getPath('userData'),
       axiosClient: axios,
@@ -685,6 +734,7 @@ function createWindow () {
               : 'Capturing audio.';
 
           sendAudioStatus({ state: 'capturing', message });
+            if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.setIgnoreMouseEvents(true, { forward: true }); }
           updateHealth('capture', { state: 'ready', detail: message });
       }
   });
@@ -693,10 +743,12 @@ function createWindow () {
       if (audioCaptures) {
           stopAudioCaptures();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
+            if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.setIgnoreMouseEvents(false); }
           updateHealth('capture', { state: 'idle', detail: 'Stopped.' });
       } else {
           stopLiveAudioLevels();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
+            if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.setIgnoreMouseEvents(false); }
       }
   });
 
@@ -719,8 +771,23 @@ function createWindow () {
       stopAudioLevelTest();
   });
 
-  ipcMain.on('request-suggestion', () => {
-      getMeetingAssistant().requestSuggestion();
+  ipcMain.handle('request-suggestion', async (event, payload = {}) => {
+      let screenshot = null;
+      let screenshotWarning = '';
+
+      if (payload && payload.includeScreenshot) {
+          try {
+              screenshot = await captureDesktopScreenshot();
+          } catch (error) {
+              screenshotWarning = `Screenshot was unavailable: ${error.message}`;
+          }
+      }
+
+      return getMeetingAssistant().requestSuggestion({
+          prompt: payload && payload.prompt,
+          screenshot,
+          screenshotWarning
+      });
   });
 
   ipcMain.handle('save-settings', (event, settings) => {
@@ -747,16 +814,19 @@ function createWindow () {
   ipcMain.handle('delete-company', (event, company) => {
       interviewManager.deleteCompany(company);
       sessionManager.deleteEntity('interview', company);
+      deleteTrendAnalysis(app.getPath('userData'), company);
       return true;
   });
 
   ipcMain.handle('rename-company', (event, oldName, newName) => {
       interviewManager.renameCompany(oldName, newName);
+      renameTrendAnalysis(app.getPath('userData'), oldName, newName);
       return true;
   });
 
   ipcMain.handle('set-company-role', (event, companyName, role) => {
       interviewManager.setCompanyRole(companyName, role);
+      deleteTrendAnalysis(app.getPath('userData'), companyName);
       return true;
   });
 
@@ -766,6 +836,7 @@ function createWindow () {
 
   ipcMain.handle('set-company-jd', (event, companyName, jdText) => {
       interviewManager.setCompanyJobDescription(companyName, jdText);
+      deleteTrendAnalysis(app.getPath('userData'), companyName);
       return true;
   });
 
@@ -793,15 +864,24 @@ function createWindow () {
       return sessionManager.getSessionEntities(mode || 'interview');
   });
 
-  ipcMain.handle('save-session', (event, record) => {
+  ipcMain.handle('save-session', async (event, record) => {
       const sessionId = sessionManager.saveSession(record || {});
       
       // If it's an interview session that needs grading, trigger background grading
       const hasTranscript = record && Array.isArray(record.transcript) && record.transcript.length > 0;
-      if (record && record.mode === 'interview' && record.grading && record.grading.status === 'pending' && hasTranscript) {
+      const isInterviewSession = record && record.mode === 'interview' && record.entity;
+      if (isInterviewSession) {
+         deleteTrendAnalysis(app.getPath('userData'), record.entity.id);
+      }
+
+      if (isInterviewSession && record.grading && record.grading.status === 'pending' && hasTranscript) {
          processInterviewCleanupAndGradingInBackground(sessionId, record, loadSettings()).catch(console.error);
-      } else if (record && record.mode === 'interview' && record.entity && !hasTranscript) {
+      } else if (record && record.mode === 'meeting' && hasTranscript) {
+         await processMeetingCleanupAndNotesInBackground(sessionId, record, loadSettings());
+      } else if (isInterviewSession && !hasTranscript) {
          sessionManager.updateEntityConfidence(record.entity.id, 0, 'neutral');
+      } else if (isInterviewSession && hasTranscript) {
+         processSessionConfidenceInBackground(record.entity, loadSettings()).catch(console.error);
       }
       
       return sessionId;
@@ -822,6 +902,23 @@ function createWindow () {
       } catch (error) {
           console.error("Transcript cleanup failed", error);
           await processSessionGradingInBackground(sessionId, record, settings);
+      }
+  }
+
+  async function processMeetingCleanupAndNotesInBackground(sessionId, record, settings) {
+      try {
+          const processed = await processMeetingPostProcessing(record, settings);
+          if (!processed) {
+              return;
+          }
+
+          sessionManager.saveSession({
+              ...record,
+              transcript: processed.transcript,
+              notes: processed.notes
+          });
+      } catch (error) {
+          console.error(`Meeting post-processing failed for session ${sessionId}`, error);
       }
   }
 
@@ -881,6 +978,79 @@ function createWindow () {
       return null;
   }
 
+  async function processMeetingPostProcessing(record, settings) {
+      if (!record?.transcript || record.transcript.length === 0) {
+          return null;
+      }
+
+      const provider = settings.llmProvider || 'local';
+      const apiKey = settings.llmApiKey || '';
+      const model = settings.llmModel || '';
+      const localUrl = settings.localLlmUrl;
+      const prompt = buildMeetingPostProcessPrompt(
+          record.transcript,
+          Array.isArray(record.attendees) && record.attendees.length ? record.attendees : (settings.meetingAttendees || [])
+      );
+
+      const responseText = await generateChat({
+          provider,
+          apiKey,
+          model,
+          temperature: 0,
+          maxTokens: 8192,
+          axiosClient: axios,
+          localUrl,
+          jsonSchema: {
+              name: 'meeting_post_process',
+              schema: {
+                  type: 'object',
+                  properties: {
+                      transcript: {
+                          type: 'array',
+                          items: {
+                              type: 'object',
+                              properties: {
+                                  speaker: { type: 'string' },
+                                  text: { type: 'string' }
+                              },
+                              required: ['speaker', 'text'],
+                              additionalProperties: false
+                          }
+                      },
+                      notes: {
+                          type: 'object',
+                          properties: {
+                              summary: { type: 'string' },
+                              actionItems: {
+                                  type: 'array',
+                                  items: {
+                                      type: 'object',
+                                      properties: {
+                                          attendee: { type: 'string' },
+                                          items: {
+                                              type: 'array',
+                                              items: { type: 'string' }
+                                          }
+                                      },
+                                      required: ['attendee', 'items'],
+                                      additionalProperties: false
+                                  }
+                              }
+                          },
+                          required: ['summary', 'actionItems'],
+                          additionalProperties: false
+                      }
+                  },
+                  required: ['transcript', 'notes'],
+                  additionalProperties: false
+              }
+          },
+          messages: [{ role: 'user', content: prompt }]
+      });
+
+      return normalizeMeetingPostProcessResponse(responseText, record.transcript);
+  }
+
   async function processSessionGradingInBackground(sessionId, record, settings) {
       sendAudioStatus({ state: 'processing', message: `Grading interview for ${record.entity.name}...` });
 
@@ -898,7 +1068,7 @@ function createWindow () {
           const prompt = `You are an expert technical recruiter and hiring manager. Evaluate the candidate ("You") based on the interview transcript.
           Company: ${record.entity.name}${roleStr}${jdStr}
           
-          Give a highly precise grade (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, D-, F) based on clarity, technical accuracy, conciseness, and professionalism. Be strict and exact.
+          Return transcript_rating as a whole number from 0 to 5 based on this single transcript. 0 means unusable or no evidence. 1 means weak. 2 means below bar. 3 means acceptable. 4 means strong. 5 means excellent. Rate clarity, technical accuracy, conciseness, professionalism, and concrete evidence. Be strict and exact.
           Write a detailed evaluation in exactly 4 short professional sections using markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, and **Outlook:**.
           Use concrete details from the transcript. Do not write a generic one-paragraph summary. Finish every sentence. Keep examples separate from the written evaluation.
           
@@ -918,18 +1088,18 @@ function createWindow () {
                   schema: {
                       type: 'object',
                       properties: {
-                          grade: { type: 'string', enum: ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'] },
+                          transcript_rating: { type: 'integer', minimum: 0, maximum: 5 },
                           reasoning: { type: 'string', description: 'The detailed evaluation formatted in exactly 4 sections with markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, **Outlook:**' },
                           examples: { type: 'array', items: { type: 'string' } }
                       },
-                      required: ['grade', 'reasoning', 'examples'],
+                      required: ['transcript_rating', 'reasoning', 'examples'],
                       additionalProperties: false
                   }
               },
               messages: [{ role: 'user', content: prompt }]
           });
 
-          let gradeData = { grade: 'C', reasoning: 'Failed to generate proper evaluation.', examples: [] };
+          let gradeData = { transcript_rating: 0, reasoning: 'Failed to generate proper evaluation.', examples: [] };
           try {
               let cleanedText = resultText.trim();
               if (cleanedText.startsWith('\`\`\`json')) {
@@ -945,11 +1115,13 @@ function createWindow () {
           // Update record and save it
           record.grading = {
               status: 'complete',
-              grade: gradeData.grade,
+              transcriptRating: normalizeTranscriptRating(gradeData.transcript_rating),
               reasoning: gradeData.reasoning,
-              examples: gradeData.examples
+              examples: Array.isArray(gradeData.examples) ? gradeData.examples : [],
+              scoredAt: new Date().toISOString()
           };
           sessionManager.saveSession(record);
+          deleteTrendAnalysis(app.getPath('userData'), record.entity.id);
 
           // Now recompute confidence score
           await processSessionConfidenceInBackground(record.entity, settings);
@@ -958,6 +1130,8 @@ function createWindow () {
           console.error("Grading processing error:", error);
           record.grading = { status: 'failed' };
           sessionManager.saveSession(record);
+          deleteTrendAnalysis(app.getPath('userData'), record.entity.id);
+          await processSessionConfidenceInBackground(record.entity, settings);
           sendAudioStatus({ state: 'error', message: `Grading failed for ${record.entity.name}` });
       }
   }
@@ -1046,6 +1220,7 @@ function createWindow () {
       const deleted = sessionManager.deleteSession(nextPayload);
 
       if (nextPayload.mode === 'interview' && nextPayload.entityId) {
+          deleteTrendAnalysis(app.getPath('userData'), nextPayload.entityId);
           const remaining = sessionManager.getSessions({ mode: 'interview', entityId: nextPayload.entityId });
           if (remaining.length > 0) {
               processSessionConfidenceInBackground(remaining[0].entity, loadSettings()).catch(console.error);
@@ -1058,7 +1233,15 @@ function createWindow () {
   });
 
   ipcMain.handle('delete-session-entity', (event, payload) => {
-      return sessionManager.deleteEntity(payload && payload.mode, payload && payload.entityId);
+      const deleted = sessionManager.deleteEntity(payload && payload.mode, payload && payload.entityId);
+      if (payload && payload.mode === 'interview') {
+          deleteTrendAnalysis(app.getPath('userData'), payload.entityId);
+      }
+      return deleted;
+  });
+
+  ipcMain.handle('get-trend-analysis', (event, companyId) => {
+      return loadTrendAnalysis(app.getPath('userData'), companyId);
   });
 
   ipcMain.handle('update-session-entity', (event, payload) => {
@@ -1070,6 +1253,7 @@ function createWindow () {
 
       if (payload && payload.mode === 'interview' && payload.entityId) {
           const patch = payload.patch || {};
+          deleteTrendAnalysis(app.getPath('userData'), payload.entityId);
           if (patch.role !== undefined) {
               try { interviewManager.setCompanyRole(payload.entityId, patch.role); } catch (error) { console.warn(error.message); }
           }
@@ -1087,8 +1271,7 @@ function createWindow () {
           currentRole: context && context.role !== undefined ? context.role : settings.currentRole,
           meetingTitle: context && context.meetingTitle !== undefined ? context.meetingTitle : settings.meetingTitle,
           meetingAttendees: context && Array.isArray(context.attendees) ? context.attendees : settings.meetingAttendees,
-          meetingMemory: context && context.memory !== undefined ? context.memory : settings.meetingMemory,
-          screenShareHidden: context && context.screenShareHidden !== undefined ? Boolean(context.screenShareHidden) : settings.screenShareHidden
+          meetingMemory: context && context.memory !== undefined ? context.memory : settings.meetingMemory
       };
 
       saveSettings(nextSettings);
@@ -1115,6 +1298,145 @@ function createWindow () {
       };
       await checkServiceHealth(settings);
       return JSON.parse(JSON.stringify(healthState));
+  });
+
+  ipcMain.handle('generate-trend-analysis', async (event, companyId, options = {}) => {
+      const settings = loadSettings();
+      const allSessions = sessionManager.getSessions({ mode: 'interview', entityId: companyId });
+      if (!allSessions || allSessions.length < 2) {
+          return null;
+      }
+
+      const sortedSessions = [...allSessions].reverse();
+      
+      const provider = settings.llmProvider || 'local';
+      const apiKey = settings.llmApiKey || '';
+      const model = settings.llmModel || '';
+      const localUrl = settings.localLlmUrl;
+
+      const combinedTranscripts = sortedSessions.map((inv, idx) => `\n--- Interview ${idx + 1} (${inv.title || inv.phase || 'Phase ' + (idx+1)}) ---\n` + (inv.transcript || []).map(t => `${t.speaker}: ${t.text}`).join('\n')).join('\n');
+      const companyName = sortedSessions[0].entity.name || companyId;
+      const roleStr = sortedSessions[0].entity.role ? `\nRole/Job Title: ${sortedSessions[0].entity.role}` : '';
+      const jd = interviewManager.getCompanyJobDescription(companyName) || interviewManager.getCompanyJobDescription(companyId);
+      const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+      const sessionsSignature = buildTrendAnalysisSessionSignature(sortedSessions);
+      const persistedAnalysis = loadTrendAnalysis(app.getPath('userData'), companyId);
+      const forceRegenerate = Boolean(options && options.force);
+
+      if (
+          !forceRegenerate
+          && persistedAnalysis
+          && persistedAnalysis.sessionsSignature === sessionsSignature
+          && persistedAnalysis.sessionsCount === sortedSessions.length
+          && isTrendAnalysisComplete(persistedAnalysis.analysis, sortedSessions.length)
+      ) {
+          return persistedAnalysis.analysis;
+      }
+
+      const prompt = `You are an expert technical recruiter analyzing a candidate's performance trend across multiple interview phases.
+Company: ${companyName}${roleStr}${jdStr}
+
+Review the transcripts of all their interviews in chronological order.
+1. Determine the overall trend direction ("up", "down", "sideways").
+2. Provide a structured deep dive analysis explaining EXACTLY what caused the trend (up, down, or sideways) from phase to phase. Include an executive summary, key strengths, areas for improvement, and a phase-by-phase observation. Cite specific examples.
+3. Return exactly ${sortedSessions.length} phase breakdown entries, one for each interview below, in the same chronological order.
+4. Return pre_call_prep with exactly 3 detailed bullets for each prep section:
+   - cumulative_phase_summary: a cumulative summary of all phases and where the candidate currently stands.
+   - probable_focus: likely next-round focus areas based on prior transcripts and the job context.
+   - interviewer_question_patterns: actual patterns/themes across previous interviewer questions, not exact question repeats.
+   - questions_to_ask: useful questions the candidate can ask in the next round.
+
+Transcripts:
+${combinedTranscripts}`;
+
+      try {
+          const response = await generateChat({
+              provider,
+              apiKey,
+              model,
+              temperature: 0.2,
+              maxTokens: 2600,
+              axiosClient: axios,
+              localUrl,
+              jsonSchema: {
+                  name: 'trend_analysis',
+                  schema: {
+                      type: 'object',
+                      properties: {
+                          trend: { type: 'string', enum: ['up', 'down', 'sideways'] },
+                          executive_summary: { type: 'string' },
+                          key_strengths: { type: 'array', items: { type: 'string' } },
+                          areas_for_improvement: { type: 'array', items: { type: 'string' } },
+                          phase_breakdown: {
+                              type: 'array',
+                              items: {
+                                  type: 'object',
+                                  properties: {
+                                      phase: { type: 'string' },
+                                      observation: { type: 'string' }
+                                  },
+                                  required: ['phase', 'observation']
+                              }
+                          },
+                          pre_call_prep: {
+                              type: 'object',
+                              properties: {
+                                  cumulative_phase_summary: {
+                                      type: 'array',
+                                      minItems: 3,
+                                      maxItems: 3,
+                                      items: { type: 'string' }
+                                  },
+                                  probable_focus: {
+                                      type: 'array',
+                                      minItems: 3,
+                                      maxItems: 3,
+                                      items: { type: 'string' }
+                                  },
+                                  interviewer_question_patterns: {
+                                      type: 'array',
+                                      minItems: 3,
+                                      maxItems: 3,
+                                      items: { type: 'string' }
+                                  },
+                                  questions_to_ask: {
+                                      type: 'array',
+                                      minItems: 3,
+                                      maxItems: 3,
+                                      items: { type: 'string' }
+                                  }
+                              },
+                              required: ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'questions_to_ask'],
+                              additionalProperties: false
+                          }
+                      },
+                      required: ['trend', 'executive_summary', 'key_strengths', 'areas_for_improvement', 'phase_breakdown', 'pre_call_prep'],
+                      additionalProperties: false
+                  }
+              },
+              messages: [{ role: 'user', content: prompt }]
+          });
+
+          let parsed = { trend: 'sideways', executive_summary: 'Failed to generate analysis.', key_strengths: [], areas_for_improvement: [], phase_breakdown: [], pre_call_prep: {} };
+          try {
+              let cleanedText = response.trim();
+              if (cleanedText.startsWith('\`\`\`json')) cleanedText = cleanedText.replace(/^\`\`\`json/g, '').replace(/\`\`\`$/g, '').trim();
+              else if (cleanedText.startsWith('\`\`\`')) cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
+              parsed = JSON.parse(cleanedText);
+          } catch(e) {
+              console.error("Failed to parse trend analysis:", response);
+          }
+          const normalized = normalizeTrendAnalysisResult(parsed, sortedSessions);
+          saveTrendAnalysis(app.getPath('userData'), companyId, {
+              sessionsCount: sortedSessions.length,
+              sessionsSignature,
+              analysis: normalized
+          });
+          return normalized;
+      } catch (err) {
+          console.error("Trend analysis error:", err);
+          return null;
+      }
   });
 
   ipcMain.handle('extract-job-context', async (event, jobDescription) => {
@@ -1191,11 +1513,11 @@ ${jobDescription}`;
 app.whenReady().then(() => {
     configureElectronStorage();
     createWindow();
-    
-    // Auto Updater logic
-    autoUpdater.logger = log;
-    autoUpdater.logger.transports.file.level = 'info';
-    autoUpdater.checkForUpdatesAndNotify();
+
+    startAutoUpdater({
+        isPackaged: app.isPackaged,
+        logger: log
+    });
 });
 
 app.on('window-all-closed', () => {
@@ -1210,4 +1532,22 @@ app.on('window-all-closed', () => {
 // Expose a simple IPC channel for initial setup if needed later
 ipcMain.handle('get-system-info', async (event) => {
     return { os: process.platform, arch: process.arch };
+});
+
+ipcMain.handle('close-app', async () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.close();
+    }
+    return true;
+});
+
+ipcMain.handle('hide-app', async () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        if (typeof mainWindow.hide === 'function') {
+            mainWindow.hide();
+        } else {
+            mainWindow.minimize();
+        }
+    }
+    return true;
 });
