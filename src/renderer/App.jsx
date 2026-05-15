@@ -2525,7 +2525,7 @@ function App() {
   const activeCapture = workspaceView === 'live' && isStreaming;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${activeCapture ? 'app-shell-active' : ''}`}>
       {activeCapture ? null : (
       <TitleBar
         entities={entities}
@@ -3077,16 +3077,16 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
         <div className="active-assistant-panel">
           <div className="active-capture-bar">
             <button type="button" className="active-icon-btn ghost-toggle" onClick={onHide} aria-label="Hide Clyde overlay" title="Hide Clyde">
-              <img src={ghostUrl} alt="" className="active-capture-icon" style={{width:'28px', height:'28px'}} />
+              <img src={ghostUrl} alt="" className="active-capture-icon" style={{width:'38px', height:'38px', objectFit:'contain'}} />
             </button>
             <button type="button" className={`active-icon-btn ${promptType === 'camera' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'camera' ? null : 'camera'); setSourceMenuOpen(false); }} aria-label="Screenshot Prompt" title="Ask with Screenshot">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+              <span style={{fontSize: "22px"}}>📸</span><span style={{position: "absolute", top: "8px", right: "8px", fontSize: "12px"}}>✨</span>
             </button>
             <button type="button" className="active-icon-btn nudge-btn" onClick={handleNudge} aria-label="Nudge AI" title="What should I say next?">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path><path d="M22 10l-2 -2m0 6l2 -2" stroke="var(--amber)" strokeWidth="2"></path></svg>
             </button>
             <button type="button" className={`active-icon-btn ${promptType === 'custom' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'custom' ? null : 'custom'); setSourceMenuOpen(false); }} aria-label="Custom Prompt" title="Custom Prompt">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M14 6l4 4"></path><path d="M5 21v-4L15.5 6.5a2.828 2.828 0 1 1 4 4L9 21H5z"></path><path d="M3 10h5M3 14h5" strokeDasharray="2 2"></path></svg>
             </button>
             <button type="button" className="active-icon-btn stop-btn" onClick={() => { setPromptType(null); onStop(); }} aria-label="Stop capture" title="Stop Capture">
               <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect></svg>

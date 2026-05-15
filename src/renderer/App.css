@@ -38,10 +38,6 @@ body,
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(79, 231, 255, 0.11), transparent 30%),
-    radial-gradient(circle at 80% 10%, rgba(166, 255, 106, 0.07), transparent 24%),
-    var(--body-base-rgba);
   color: var(--text);
   letter-spacing: 0;
 }
@@ -114,9 +110,13 @@ textarea:focus {
 }
 
 .app-shell {
+  background:
+    radial-gradient(circle at top left, rgba(79, 231, 255, 0.11), transparent 30%),
+    radial-gradient(circle at 80% 10%, rgba(166, 255, 106, 0.07), transparent 24%),
+    var(--body-base-rgba);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
-  background: var(--shell-base-rgba);
+  
   min-height: 100vh;
   overflow-x: hidden;
 }
@@ -191,7 +191,7 @@ textarea:focus {
   gap: 10px;
   grid-area: center;
   justify-content: center;
-  justify-self: center;
+  align-self: center;
   color: var(--muted);
   font-size: 0.86rem;
   min-width: 0;
@@ -642,6 +642,7 @@ h1 {
   min-height: 100vh;
   padding: 0;
   width: 100%;
+  pointer-events: none;
 }
 
 .active-capture-shell {
@@ -653,6 +654,7 @@ h1 {
   min-height: 100%;
   padding: 0;
   position: relative;
+  pointer-events: none;
 }
 
 .active-restore-chip {
@@ -667,21 +669,22 @@ h1 {
   font-size: 0.88rem;
   font-weight: 800;
   gap: 8px;
-  justify-self: center;
+  align-self: center;
   padding: 8px 14px 8px 8px;
 }
 
 .active-capture-bar {
   -webkit-app-region: drag;
   align-items: center;
-  background: rgba(20, 23, 29, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #13171e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   display: flex;
-  gap: 8px;
+  gap: 16px;
   justify-self: center;
-  padding: 8px;
+  align-self: center;
+  padding: 12px 24px;
   transform: none;
   z-index: 30;
 }
@@ -746,18 +749,24 @@ h1 {
 
 .active-assistant-panel {
   -webkit-app-region: no-drag;
-  background: transparent !important;
+  background: rgba(8, 18, 28, 0.7) !important;
+  backdrop-filter: blur(28px);
   border: 0 !important;
+  border-left: 1px solid rgba(154, 202, 255, 0.24) !important;
   border-radius: 0 !important;
-  box-shadow: none !important;
+  box-shadow: -10px 0 40px rgba(0,0,0,0.4) !important;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 100vw;
+  gap: 12px;
+  width: 420px;
   height: 100vh;
-  padding: 10px;
+  padding: 16px;
   overflow: auto;
   scrollbar-width: none;
+  position: fixed;
+  top: 0;
+  right: 0;
+  box-sizing: border-box;
 }
 
 .active-assistant-panel::-webkit-scrollbar {
@@ -1054,15 +1063,7 @@ h1 {
 .active-resize-handle.se { bottom: -8px; right: -8px; cursor: nwse-resize; }
 .active-resize-handle.sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
 
-@media (max-width: 900px) {
-  .active-assistant-panel {
-    left: 0 !important;
-    top: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    resize: none;
-  }
-}
+
 
 .pane-title {
   border-bottom: 1px solid var(--line);
@@ -1672,17 +1673,17 @@ label {
 
 .active-icon-btn {
   -webkit-app-region: no-drag;
-  background: transparent;
-  border: 1px solid transparent;
+  background: #1b2129;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   padding: 0;
-  color: var(--muted);
+  color: #94a3b8;
   transition: all 0.2s ease;
 }
 
@@ -1717,4 +1718,15 @@ label {
 
 .active-icon-btn.nudge-btn svg {
   stroke: var(--amber);
+}
+
+.active-assistant-panel, .active-restore-chip { pointer-events: auto; }
+
+.app-shell-active {
+  pointer-events: none; /* shell */
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+body:has(.app-shell-active) {
+  background: transparent !important;
 }
