@@ -1780,7 +1780,7 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
   );
 }
 
-function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, onDelete }) {
+function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, onDelete, onStart }) {
   const [title, setTitle] = useState(event?.title || '');
   const [date, setDate] = useState(toDateTimeLocal(event?.date || new Date().toISOString()));
   const initialAssociation = event?.associationMode || (initialEntity?.kind === 'meeting' ? 'meeting' : (initialEntity?.id ? 'opportunity' : 'generic'));
@@ -1936,6 +1936,11 @@ function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, o
             <button type="submit" className="primary-action" disabled={!title.trim()}>
               {isEditing ? 'Save Changes' : 'Create Event'}
             </button>
+            {isEditing && (associationMode === 'opportunity' || associationMode === 'meeting') && (
+              <button type="button" onClick={() => { onStart(associationMode, associationMode === 'opportunity' ? opportunityId : meetingId); }} className="primary-action">
+                Start Session
+              </button>
+            )}
             {isEditing && (
               <button type="button" onClick={() => { if(confirm('Delete event?')) onDelete(event.id); }} style={{ color: '#ff3366', background: 'transparent', border: '1px solid rgba(255, 51, 102, 0.3)' }}>
                 Delete Event
@@ -2659,6 +2664,7 @@ function App() {
 
           <section className="context-full-width">
               <ContextPanel
+                onStart={() => startCapture()}
                 mode={mode}
                 settings={settings}
                 entities={entities}
@@ -2792,6 +2798,19 @@ function App() {
             onClose={() => setCalendarModalOpen(false)}
             onSave={saveCalendarEvent}
             onDelete={deleteCalendarEvent}
+            onStart={async (type, id) => {
+              setCalendarModalOpen(false);
+              if (type === 'opportunity') {
+                const entity = entities.find(e => e.id === id);
+                await chooseMode('interview');
+                const nextSettings = await api?.setActiveSessionContext?.({ mode: 'interview', company: id, role: entity?.role || '' });
+                if (nextSettings) setSettings(nextSettings);
+              } else if (type === 'meeting') {
+                await chooseMode('meeting');
+                await setActiveMeeting(id);
+              }
+              startCapture();
+            }}
           />
         )}
     </div>
@@ -3312,7 +3331,7 @@ function AssistantCards({ cards, variant = 'default' }) {
   );
 }
 
-function ContextPanel({ mode, settings, entities, calendarEvents = [] }) {
+function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }) {
   const api = window.electronAPI;
   const [activeSessions, setActiveSessions] = useState([]);
   const [trendAnalysis, setTrendAnalysis] = useState(null);
@@ -3471,10 +3490,9 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [] }) {
                   <div className="suggestion-box">
                     <strong>Next session</strong>
                     <p style={{ marginTop: '8px' }}>
-                      <strong>{nextInterviewEvent.title || 'Scheduled interview'}</strong><br />
-                      {formatEventDateTime(nextInterviewEvent.date)}
+                      
+                      <button type="button" className="primary-action" style={{ marginTop: '10px', width: '100%' }} onClick={onStart}>Start Interview</button>
                     </p>
-                    {nextInterviewEvent.description ? <p>{nextInterviewEvent.description}</p> : null}
                   </div>
                 ) : null}
 
