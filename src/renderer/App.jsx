@@ -1,6 +1,39 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  buildTrendAnalysisSessionSignature,
+  getTranscriptRating,
+  isTrendAnalysisComplete
+} from './trendAnalysisClient.js';
 
 const logoUrl = new URL('../../clyde.svg', import.meta.url).href;
+const ghostUrl = new URL('../../clyde_ghost.svg', import.meta.url).href;
+
+function unwrapTrendAnalysisRecord(record) {
+  if (!record) {
+    return null;
+  }
+
+  if (record.analysis) {
+    return record.analysis;
+  }
+
+  if (record.data) {
+    return record.data;
+  }
+
+  return record;
+}
+
+function isTrendAnalysisRecordFresh(record, sessionSignature, sessionCount) {
+  const analysis = unwrapTrendAnalysisRecord(record);
+  return Boolean(
+    record
+    && record.sessionsSignature === sessionSignature
+    && record.sessionsCount === sessionCount
+    && analysis
+    && isTrendAnalysisComplete(analysis, sessionCount)
+  );
+}
 
 const DEFAULT_HEALTH = {
   audio: { state: 'unknown', label: 'Audio', detail: 'Not checked yet.' },
@@ -24,20 +57,46 @@ const EMPTY_SETTINGS = {
   meetingTitle: '',
   meetingAttendees: [],
   meetingMemory: '',
-  screenShareHidden: true,
   ragEnabled: false,
   pineconeApiKey: '',
-  pineconeHost: ''
+  pineconeHost: '',
+  captureProtectionEnabled: true,
+  uiOpacity: 100
 };
 
 const COMMANDS = [
-  { id: 'assist', label: 'Assist' },
-  { id: 'recap', label: 'Recap' },
-  { id: 'follow_up', label: 'Follow-up questions' },
-  { id: 'resume', label: 'Answer from resume' },
-  { id: 'summary', label: 'Summarize last 2 minutes' },
-  { id: 'note', label: 'Save note' }
+  { id: 'assist', label: 'AI reply' }
 ];
+
+function clampUiOpacity(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 100;
+  }
+
+  return Math.max(35, Math.min(200, Math.round(parsed)));
+}
+
+function applyUiOpacityToRoot(value) {
+  const root = document.documentElement;
+  const slider = clampUiOpacity(value);
+
+  function scaleAlpha(baseAlpha) {
+    if (slider >= 100) {
+      const progress = (slider - 100) / 100;
+      return baseAlpha + (1 - baseAlpha) * progress;
+    }
+
+    const progress = (100 - slider) / 65;
+    return Math.max(0.02, baseAlpha * (1 - 0.85 * progress));
+  }
+
+  root.style.setProperty('--panel', `rgba(9, 18, 28, ${scaleAlpha(0.22).toFixed(3)})`);
+  root.style.setProperty('--panel-strong', `rgba(12, 24, 36, ${scaleAlpha(0.30).toFixed(3)})`);
+  root.style.setProperty('--body-base-rgba', `rgba(3, 6, 9, ${scaleAlpha(0.24).toFixed(3)})`);
+  root.style.setProperty('--shell-base-rgba', `rgba(2, 8, 14, ${scaleAlpha(0.10).toFixed(3)})`);
+  root.style.setProperty('--titlebar-base-rgba', `rgba(3, 6, 9, ${scaleAlpha(0.28).toFixed(3)})`);
+}
 
 function parseRawTranscript(raw) {
   const turns = [];
@@ -67,6 +126,10 @@ function transcriptToText(turns = []) {
   return turns.map((turn) => `${turn.speaker || 'Unknown'}: ${turn.text || ''}`).join('\n');
 }
 
+function transcriptTextsMatch(left = [], right = []) {
+  return transcriptToText(left) === transcriptToText(right);
+}
+
 function toDateTimeLocal(value) {
   if (!value) {
     return '';
@@ -94,6 +157,39 @@ function confidenceBand(value) {
   if (score >= 80) return 'high';
   if (score >= 55) return 'medium';
   return 'low';
+}
+
+function StarRating({ rating = 0, label = 'Transcript rating' }) {
+  const normalized = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+
+  return (
+    <span className="star-rating" aria-label={`${label} ${normalized} out of 5`}>
+      {Array.from({ length: 5 }, (_, index) => {
+        const filled = index < normalized;
+        return (
+          <svg
+            key={index}
+            className={`star-icon ${filled ? 'filled' : 'empty'}`}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path d="M12 2.8l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 2.8z" />
+          </svg>
+        );
+      })}
+    </span>
+  );
+}
+
+function useNowMs() {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return nowMs;
 }
 
 function cleanEvaluationText(value) {
@@ -132,6 +228,136 @@ function parseEvaluationText(value) {
   return { overview, sections };
 }
 
+function formatEventDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Date not set';
+  }
+
+  return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function extractInterviewerQuestions(sessions = []) {
+  const questions = [];
+  const seen = new Set();
+  const ordered = [...sessions].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  for (const session of ordered) {
+    const transcript = Array.isArray(session?.transcript) ? session.transcript : [];
+    for (const turn of transcript) {
+      const speaker = String(turn?.speaker || '').toLowerCase();
+      const text = cleanEvaluationText(turn?.text || '');
+      if (!text || !text.includes('?')) {
+        continue;
+      }
+      if (/(^you$|candidate|clyde|assistant|ai)/i.test(speaker)) {
+        continue;
+      }
+
+      const candidates = text.match(/[^?]{8,}\?/g) || [text];
+      for (const candidate of candidates) {
+        const question = cleanEvaluationText(candidate);
+        if (question.length < 15) {
+          continue;
+        }
+
+        const key = question.toLowerCase();
+        if (seen.has(key)) {
+          continue;
+        }
+
+        seen.add(key);
+        questions.push(question);
+        if (questions.length >= 6) {
+          return questions;
+        }
+      }
+    }
+  }
+
+  return questions;
+}
+
+function buildInterviewPrepSuggestions(sessions = [], phaseBreakdown = []) {
+  const transcriptText = sessions
+    .flatMap((session) => (Array.isArray(session?.transcript) ? session.transcript : []))
+    .map((turn) => cleanEvaluationText(turn?.text || ''))
+    .join(' ');
+  const summaryText = sessions.map((session) => cleanEvaluationText(session?.notes?.summary || '')).join(' ');
+  const phaseText = phaseBreakdown.map((phase) => cleanEvaluationText(phase?.observation || '')).join(' ');
+  const corpus = `${transcriptText} ${summaryText} ${phaseText}`.toLowerCase();
+
+  const rules = [
+    {
+      pattern: /(impact|outcome|result|metric|kpi|improv|measur|scale)/i,
+      ready: 'Prepare 2 outcome-driven stories with concrete metrics, constraints, and your exact contribution.',
+      ask: 'What outcomes would define success in the first 60-90 days?'
+    },
+    {
+      pattern: /(incident|outage|escalat|debug|triage|root cause|postmortem)/i,
+      ready: 'Be ready to explain a high-pressure incident: triage steps, ownership, communication, and prevention.',
+      ask: 'How are incidents triaged, and what ownership model does this role have during critical escalations?'
+    },
+    {
+      pattern: /(stakeholder|cross-functional|partner|align|conflict|influence)/i,
+      ready: 'Prepare examples of cross-functional alignment and how you handled disagreement while keeping delivery moving.',
+      ask: 'Which cross-functional teams will this role partner with most often?'
+    },
+    {
+      pattern: /(process|workflow|runbook|automation|efficiency|playbook)/i,
+      ready: 'Have a clear story about a process or automation you implemented and the measurable operational lift.',
+      ask: 'Where are the biggest workflow bottlenecks that this role is expected to improve first?'
+    },
+    {
+      pattern: /(lead|mentor|coach|hire|team|manage)/i,
+      ready: 'Be ready for leadership depth: coaching style, raising standards, and decision-making in ambiguous situations.',
+      ask: 'How is leadership evaluated for this role beyond delivery output?'
+    },
+    {
+      pattern: /(system design|architecture|latency|reliability|availability|performance)/i,
+      ready: 'Expect system design depth and tradeoff questions around reliability, performance, and long-term maintainability.',
+      ask: 'Which reliability or performance constraints matter most for this team right now?'
+    }
+  ];
+
+  const readySet = new Set();
+  const askSet = new Set();
+  for (const rule of rules) {
+    if (!rule.pattern.test(corpus)) {
+      continue;
+    }
+    readySet.add(rule.ready);
+    askSet.add(rule.ask);
+  }
+
+  if (!readySet.size) {
+    readySet.add('Prepare concise stories for role fit, technical judgment, and collaboration tradeoffs with concrete outcomes.');
+    askSet.add('What are the top priorities for this role in the next quarter?');
+  }
+
+  const watchouts = phaseBreakdown
+    .map((item) => {
+      const phase = cleanEvaluationText(item?.phase || '') || 'Recent phase';
+      const observation = cleanEvaluationText(item?.observation || '');
+      if (!observation) {
+        return '';
+      }
+      const sentence = (observation.match(/[^.!?]+[.!?]?/) || [observation])[0];
+      return `${phase}: ${sentence.trim()}`;
+    })
+    .filter(Boolean)
+    .slice(-3);
+
+  const interviewerQuestions = extractInterviewerQuestions(sessions).slice(0, 4);
+
+  return {
+    readyTopics: Array.from(readySet).slice(0, 5),
+    questionsToAsk: Array.from(askSet).slice(0, 4),
+    watchouts,
+    interviewerQuestions
+  };
+}
+
 function NewOpportunityModal({ onClose, onSave }) {
   const [company, setCompany] = useState('');
   const [role, setRole] = useState('');
@@ -168,6 +394,14 @@ function NewOpportunityModal({ onClose, onSave }) {
               <option value="Recruiter Screen">Recruiter Screen</option>
               <option value="Interview #1">Interview #1</option>
               <option value="Interview #2">Interview #2</option>
+              <option value="Interview #3">Interview #3</option>
+              <option value="Interview #4">Interview #4</option>
+              <option value="Interview #5">Interview #5</option>
+              <option value="Interview #6">Interview #6</option>
+              <option value="Interview #7">Interview #7</option>
+              <option value="Interview #8">Interview #8</option>
+              <option value="Interview #9">Interview #9</option>
+              <option value="Interview #10">Interview #10</option>
               <option value="Other">Other</option>
             </select>
           </label>
@@ -203,6 +437,7 @@ function NewMeetingModal({ onClose, onSave }) {
   const [attendees, setAttendees] = useState('');
   const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
   const [memory, setMemory] = useState('');
+  const [transcriptText, setTranscriptText] = useState('');
 
   return (
     <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
@@ -228,11 +463,20 @@ function NewMeetingModal({ onClose, onSave }) {
             <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
           </label>
           <label className="wide-field">
-            Meeting-specific memory
+            Transcript
+            <textarea
+              value={transcriptText}
+              onChange={(event) => setTranscriptText(event.target.value)}
+              placeholder={"Sarah Jenkins: Let's review the launch plan.\nMarcus Thorne: I will send the vendor quote today."}
+              style={{ minHeight: '180px' }}
+            />
+          </label>
+          <label className="wide-field">
+            Meeting memory
             <textarea
               value={memory}
               onChange={(event) => setMemory(event.target.value)}
-              placeholder="Paste prior notes, recurring decisions, or person context."
+              placeholder="Optional long-term context, recurring decisions, or person notes."
             />
           </label>
         </div>
@@ -249,7 +493,8 @@ function NewMeetingModal({ onClose, onSave }) {
                 title: title.trim(),
                 attendees: parseAttendees(attendees),
                 date,
-                memory: memory.trim()
+                memory: memory.trim(),
+                transcriptText: transcriptText.trim()
               });
             }}
           >
@@ -262,6 +507,11 @@ function NewMeetingModal({ onClose, onSave }) {
 }
 
 function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
+  useEffect(() => {
+    // Keep the prompt pinned to the top when it opens after Stop or Save.
+    window.scrollTo(0, 0);
+  }, []);
+
   const activeInterview = mode === 'interview'
     ? entities.find((entity) => entity.id === settings.currentCompany || entity.name === settings.currentCompany)
     : null;
@@ -274,6 +524,7 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
   const [existingEntityId, setExistingEntityId] = useState(defaultEntity?.id || '');
   const [company, setCompany] = useState(activeInterview?.name || settings.currentCompany || '');
   const [role, setRole] = useState(activeInterview?.role || settings.currentRole || '');
+  const [jobDescription, setJobDescription] = useState('');
   const [phase, setPhase] = useState('Live Session');
   const [interviewerName, setInterviewerName] = useState('');
   const [interviewerTitle, setInterviewerTitle] = useState('');
@@ -314,6 +565,12 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
       });
       return;
     }
+
+    const resolvedColor = associationMode === 'opportunity'
+      ? '#00e5ff'
+      : associationMode === 'meeting'
+        ? '#00ffaa'
+        : (color || '#ffaa00');
 
     onSave({
       mode: 'meeting',
@@ -390,6 +647,18 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
             </label>
           )}
 
+          {isInterview && destination === 'new' ? (
+            <label className="wide-field">
+              Job description
+              <textarea
+                value={jobDescription}
+                onChange={(event) => setJobDescription(event.target.value)}
+                placeholder="Paste the job description here so Clyde can use it when grading this transcript."
+                style={{ minHeight: '180px' }}
+              />
+            </label>
+          ) : null}
+
           {isInterview ? (
             <div className="form-grid">
               <label>
@@ -399,6 +668,13 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
                   <option value="Interview #1">Interview #1</option>
                   <option value="Interview #2">Interview #2</option>
                   <option value="Interview #3">Interview #3</option>
+                  <option value="Interview #4">Interview #4</option>
+                  <option value="Interview #5">Interview #5</option>
+                  <option value="Interview #6">Interview #6</option>
+                  <option value="Interview #7">Interview #7</option>
+                  <option value="Interview #8">Interview #8</option>
+                  <option value="Interview #9">Interview #9</option>
+                  <option value="Interview #10">Interview #10</option>
                   <option value="Live Session">Live Session</option>
                   <option value="Other">Other</option>
                 </select>
@@ -495,6 +771,13 @@ function ManualTranscriptModal({ entity, onClose, onSave }) {
               <option value="Interview #1">Interview #1</option>
               <option value="Interview #2">Interview #2</option>
               <option value="Interview #3">Interview #3</option>
+              <option value="Interview #4">Interview #4</option>
+              <option value="Interview #5">Interview #5</option>
+              <option value="Interview #6">Interview #6</option>
+              <option value="Interview #7">Interview #7</option>
+              <option value="Interview #8">Interview #8</option>
+              <option value="Interview #9">Interview #9</option>
+              <option value="Interview #10">Interview #10</option>
               <option value="Other">Other</option>
             </select>
           </label>
@@ -574,18 +857,24 @@ function EditSessionModal({ session, onClose, onSave }) {
   const [company, setCompany] = useState(session?.entity?.name || '');
   const [role, setRole] = useState(session?.entity?.role || '');
   const [date, setDate] = useState(toDateTimeLocal(session?.date));
-  const [summary, setSummary] = useState(session?.notes?.summary || '');
-  const [actions, setActions] = useState((session?.mode === 'interview' ? (session?.grading?.examples || []) : (session?.notes?.actionItems || [])).join('\n'));
-  const [transcriptText, setTranscriptText] = useState(transcriptToText(session?.transcript || []));
+  const meetingFallback = getMeetingTranscriptFallback(session);
+  const [summary, setSummary] = useState(meetingFallback.summary);
+  const [actions, setActions] = useState(formatActionItemsForEditor(
+    session?.mode === 'interview' ? (session?.grading?.examples || []) : (session?.notes?.actionItems || [])
+  ));
+  const [transcriptText, setTranscriptText] = useState(meetingFallback.transcriptText || transcriptToText(session?.transcript || []));
 
   useEffect(() => {
+    const nextMeetingFallback = getMeetingTranscriptFallback(session);
     setTitle(session?.title || '');
     setCompany(session?.entity?.name || '');
     setRole(session?.entity?.role || '');
     setDate(toDateTimeLocal(session?.date));
-    setSummary(session?.notes?.summary || '');
-    setActions((session?.mode === 'interview' ? (session?.grading?.examples || []) : (session?.notes?.actionItems || [])).join('\n'));
-    setTranscriptText(transcriptToText(session?.transcript || []));
+    setSummary(nextMeetingFallback.summary);
+    setActions(formatActionItemsForEditor(
+      session?.mode === 'interview' ? (session?.grading?.examples || []) : (session?.notes?.actionItems || [])
+    ));
+    setTranscriptText(nextMeetingFallback.transcriptText || transcriptToText(session?.transcript || []));
   }, [session]);
 
   return (
@@ -593,8 +882,11 @@ function EditSessionModal({ session, onClose, onSave }) {
       <section className="settings-drawer">
         <div className="drawer-head">
           <div>
-            <h2>Edit interview</h2>
-            <p>Changes to transcript text may trigger a fresh grade after saving.</p>
+            <h2>{session?.mode === 'meeting' ? 'Edit meeting' : 'Edit interview'}</h2>
+            <p>{session?.mode === 'meeting'
+              ? 'Changes to transcript text will re-run cleanup and notes generation after saving.'
+              : 'Changes to transcript text may trigger a fresh rating after saving.'}
+            </p>
           </div>
           <button type="button" onClick={onClose}>Close</button>
         </div>
@@ -618,12 +910,16 @@ function EditSessionModal({ session, onClose, onSave }) {
             </label>
           </div>
           <label className="wide-field">
-            Summary
+            {session?.mode === 'meeting' ? 'Meeting notes' : 'Summary'}
             <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
           </label>
           <label className="wide-field">
-            {session?.mode === 'interview' ? 'Examples' : 'Action items'}
-            <textarea value={actions} onChange={(event) => setActions(event.target.value)} placeholder="One item per line" />
+            {session?.mode === 'interview' ? 'Examples' : 'Action items by attendee'}
+            <textarea
+              value={actions}
+              onChange={(event) => setActions(event.target.value)}
+              placeholder={session?.mode === 'meeting' ? 'Sarah Jenkins: Send recap\nMarcus Thorne: Confirm owner' : 'One item per line'}
+            />
           </label>
           <label className="wide-field">
             Transcript
@@ -654,7 +950,7 @@ function EditSessionModal({ session, onClose, onSave }) {
                 summary: summary.trim(),
                 actionItems: session?.mode === 'interview'
                   ? []
-                  : actions.split('\n').map((item) => item.trim()).filter(Boolean)
+                  : parseActionItemsText(actions)
               },
               grading: session?.mode === 'interview' ? {
                 ...(session.grading || {}),
@@ -670,6 +966,988 @@ function EditSessionModal({ session, onClose, onSave }) {
   );
 }
 
+function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }) {
+  const api = window.electronAPI;
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const selected = entities.find((entity) => entity.id === selectedEntity);
+  const chronologicalSessions = useMemo(
+    () => [...sessions].sort((a, b) => new Date(a.date) - new Date(b.date)),
+    [sessions]
+  );
+  const sessionsMatchSelected = useMemo(
+    () => sessions.length > 0 && sessions.every((session) => session.entity?.id === selected?.id),
+    [sessions, selected?.id]
+  );
+  const sessionSignature = useMemo(
+    () => buildTrendAnalysisSessionSignature(chronologicalSessions),
+    [chronologicalSessions]
+  );
+
+  useEffect(() => {
+    if (!selected || sessions.length < 2 || !sessionsMatchSelected) {
+      setAnalysis(null);
+      return;
+    }
+
+    const cacheKey = `trend-analysis-${selected.id}`;
+    let cachedAnalysis = null;
+    try {
+      const stored = localStorage.getItem(cacheKey);
+      if (stored) {
+        cachedAnalysis = JSON.parse(stored);
+      }
+    } catch (e) {
+      console.warn("Failed to parse cached analysis", e);
+    }
+
+    if (isTrendAnalysisRecordFresh(cachedAnalysis, sessionSignature, sessions.length)) {
+      setAnalysis(unwrapTrendAnalysisRecord(cachedAnalysis));
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await api?.getTrendAnalysis?.(selected.id);
+        if (cancelled) {
+          return;
+        }
+
+        if (isTrendAnalysisRecordFresh(stored, sessionSignature, sessions.length)) {
+          const nextAnalysis = unwrapTrendAnalysisRecord(stored);
+          setAnalysis(nextAnalysis);
+          localStorage.setItem(cacheKey, JSON.stringify(stored));
+          return;
+        }
+      } catch (error) {
+        console.warn('Failed to load persisted analysis', error);
+      }
+
+      setAnalysis(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEntity, sessionSignature, sessionsMatchSelected]);
+
+  async function generateAnalysis() {
+    if (!selected || !sessionsMatchSelected) return;
+    setLoading(true);
+    try {
+      const result = await api?.generateTrendAnalysis?.(selected.id, { force: true });
+      setAnalysis(result);
+      if (result && isTrendAnalysisComplete(result, sessions.length)) {
+        const cacheKey = `trend-analysis-${selected.id}`;
+        localStorage.setItem(cacheKey, JSON.stringify({
+          sessionsCount: sessions.length,
+          sessionsSignature: sessionSignature,
+          analysis: result
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const sortedSessions = [...chronologicalSessions].reverse();
+
+  return (
+    <section className="timeline-view" data-testid="trendsTimeline">
+      <div className="timeline-rail">
+        <div className="timeline-heading">
+          <h2>Trend Analysis</h2>
+        </div>
+        <div className="entity-list">
+          {entities.length ? entities.map((entity) => {
+            return (
+              <div key={entity.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <button
+                  className={entity.id === selectedEntity ? 'active' : ''}
+                  type="button"
+                  onClick={() => onSelectEntity(entity.id)}
+                  style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                    <strong>{entity.name}</strong>
+                    {entity.confidence > 0 && (
+                      <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
+                        {entity.confidence}%
+                      </span>
+                    )}
+                  </div>
+                  <span>{entity.role || entity.kind}</span>
+                </button>
+              </div>
+            );
+          }) : <EmptyState title="No saved sessions" body="Save a session to build history." />}
+        </div>
+      </div>
+
+      <div className="timeline-main" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <div className="timeline-title" style={{ flexShrink: 0 }}>
+          <div>
+            <h2>{selected?.name ? `${selected.name} Analysis` : 'Select a record'}</h2>
+            <p>{sessions.length} saved sessions</p>
+          </div>
+        </div>
+
+        {selected ? (
+          sessions.length < 2 ? (
+            <div style={{ marginTop: '40px' }}>
+              <EmptyState title="Not enough data" body="At least 2 interview sessions are required to analyze trends." />
+            </div>
+          ) : (
+            <div className="trends-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '10px 10px 40px 0', overflowY: 'auto', flex: 1, minHeight: 0 }}>
+              <div className="trends-kpi-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+                <div className="kpi-card" style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                  <h4 style={{ margin: 0, color: 'var(--muted)', fontSize: '0.9rem', fontWeight: 500 }}>Overall Confidence</h4>
+                  <div className="kpi-value" style={{ fontSize: '2rem', fontWeight: 600, color: 'var(--cyan)' }}>{selected.confidence || 0}%</div>
+                </div>
+                <div className="kpi-card" style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                  <h4 style={{ margin: 0, color: 'var(--muted)', fontSize: '0.9rem', fontWeight: 500 }}>Overall Trend</h4>
+                  <div className="kpi-value" style={{ fontSize: '2rem', fontWeight: 600, color: 'var(--text)', textTransform: 'capitalize' }}>{selected.trend || 'Neutral'}</div>
+                </div>
+                <div className="kpi-card" style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                  <h4 style={{ margin: 0, color: 'var(--muted)', fontSize: '0.9rem', fontWeight: 500 }}>Sessions Analyzed</h4>
+                  <div className="kpi-value" style={{ fontSize: '2rem', fontWeight: 600, color: 'var(--text)' }}>{sessions.length}</div>
+                </div>
+              </div>
+
+              <div className="trends-chart-container" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px' }}>
+                <h4 style={{ margin: '0 0 20px 0', color: 'var(--text)', fontWeight: 500 }}>Transcript Rating Over Time</h4>
+                <TrendChart sessions={sortedSessions} />
+              </div>
+
+              <div className="trends-analysis-section" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                  <h4 style={{ margin: 0, color: 'var(--text)', fontWeight: 500 }}>Deep Dive Analysis</h4>
+                  <button type="button" className="primary-action" onClick={generateAnalysis} disabled={loading} style={{ padding: '8px 16px' }}>
+                    {loading ? 'Analyzing...' : (analysis ? 'Regenerate Analysis' : 'Generate Analysis')}
+                  </button>
+                </div>
+                
+                {loading ? (
+                  <div className="analysis-loading pulse" style={{ padding: '40px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--cyan)', minHeight: '100px', width: '100%' }}>Reading transcripts and computing trends...</div>
+                ) : analysis ? (
+                  <div className="analysis-result" style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div className="analysis-kpi" style={{ marginBottom: '15px', fontSize: '1.1rem' }}>
+                      <strong style={{ color: 'var(--muted)' }}>AI Trend Direction: </strong> <span style={{ textTransform: 'capitalize', color: 'var(--cyan)', fontWeight: 'bold' }}>{analysis.trend}</span>
+                    </div>
+                    {analysis.executive_summary ? (
+                      <div className="structured-analysis" style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '20px' }}>
+                        <div className="analysis-card summary" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', borderLeft: '4px solid var(--cyan)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                          <h5 style={{ margin: '0 0 10px 0', color: 'var(--text)', fontSize: '1.05rem' }}>Executive Summary</h5>
+                          <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--muted)' }}>{analysis.executive_summary}</p>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                          <div className="analysis-card strengths" style={{ background: 'rgba(46, 204, 113, 0.05)', padding: '20px', borderRadius: '12px', borderTop: '3px solid rgba(46, 204, 113, 0.8)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                            <h5 style={{ margin: '0 0 15px 0', color: '#2ecc71', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}><span style={{ fontSize: '1.2rem' }}>↑</span> Key Strengths</h5>
+                            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.9rem', color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                              {analysis.key_strengths?.length ? analysis.key_strengths.map((item, i) => <li key={i} style={{ lineHeight: '1.4' }}>{item}</li>) : <li>None identified.</li>}
+                            </ul>
+                          </div>
+                          <div className="analysis-card improvements" style={{ background: 'rgba(231, 76, 60, 0.05)', padding: '20px', borderRadius: '12px', borderTop: '3px solid rgba(231, 76, 60, 0.8)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                            <h5 style={{ margin: '0 0 15px 0', color: '#e74c3c', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}><span style={{ fontSize: '1.2rem' }}>↓</span> Areas for Improvement</h5>
+                            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.9rem', color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                              {analysis.areas_for_improvement?.length ? analysis.areas_for_improvement.map((item, i) => <li key={i} style={{ lineHeight: '1.4' }}>{item}</li>) : <li>None identified.</li>}
+                            </ul>
+                          </div>
+                        </div>
+
+                        <div className="analysis-card breakdown" style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                          <h5 style={{ margin: '0 0 20px 0', color: 'var(--text)', fontSize: '1.05rem' }}>Phase-by-Phase Breakdown</h5>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {analysis.phase_breakdown?.map((pb, i) => (
+                              <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '16px', paddingBottom: i !== analysis.phase_breakdown.length - 1 ? '20px' : '0', borderBottom: i !== analysis.phase_breakdown.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none', alignItems: 'start' }}>
+                                <div style={{ minWidth: '140px', fontWeight: '600', color: 'var(--cyan)', fontSize: '0.9rem' }}>{pb.phase}</div>
+                                <div style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: '1.5' }}>{pb.observation}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="analysis-text" style={{ marginTop: '20px' }}>
+                        <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', margin: 0, color: 'var(--text)' }}>{analysis.deep_dive_analysis}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '20px' }}>
+                    <EmptyState title="No AI analysis yet" body="Click Generate Analysis to ask Clyde to review the transcripts and explain the trend." />
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        ) : (
+          <div style={{ marginTop: '40px' }}>
+            <EmptyState title="No opportunity selected" body="Choose a company from the list to view its trend analysis." />
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TrendChart({ sessions }) {
+  const padding = 30;
+  const width = 600;
+  const height = 200;
+
+  const validSessions = sessions
+    .map((session) => ({
+      session,
+      rating: getTranscriptRating(session.grading)
+    }))
+    .filter((item) => item.rating !== null);
+  
+  if (validSessions.length < 2) {
+    return <div className="chart-empty" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--muted)' }}>Not enough rated sessions to chart.</div>;
+  }
+
+  const maxVal = 5;
+  const minVal = 0;
+  
+  const points = validSessions.map(({ session, rating }, i) => {
+    const x = padding + (i * ((width - padding * 2) / (validSessions.length - 1)));
+    const y = height - padding - ((rating - minVal) / (maxVal - minVal)) * (height - padding * 2);
+    return {
+      x,
+      y,
+      label: session.phase || `Session ${i + 1}`,
+      rating
+    };
+  });
+
+  const pathD = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
+
+  return (
+    <div style={{ width: '100%', overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', minWidth: '400px', height: 'auto', display: 'block' }}>
+        {[0, 1, 2, 3, 4, 5].map(v => {
+          const y = height - padding - ((v - minVal) / (maxVal - minVal)) * (height - padding * 2);
+          return <line key={v} x1={padding} y1={y} x2={width - padding} y2={y} stroke="rgba(255,255,255,0.1)" />;
+        })}
+        
+        <path d={pathD} fill="none" stroke="var(--cyan)" strokeWidth="3" />
+        
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r="5" fill="var(--cyan)" />
+            <text x={p.x} y={p.y - 12} fill="white" fontSize="12" textAnchor="middle">{p.rating}/5</text>
+            <text x={p.x} y={height - 5} fill="var(--muted)" fontSize="10" textAnchor="middle">{p.label.length > 15 ? p.label.substring(0,12)+'...' : p.label}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+const calendarStyles = `
+  .calendar-workspace {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 20px;
+    gap: 20px;
+    overflow: hidden;
+    animation: fadeIn 0.4s ease-out;
+  }
+  .calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 15px 25px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+  .calendar-controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .calendar-controls h2 {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 400;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, #00e5ff, #ffffff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-transform: uppercase;
+  }
+  .calendar-actions {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .view-toggles {
+    display: flex;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+  }
+  .view-toggles button {
+    background: transparent;
+    border: none;
+    padding: 8px 16px;
+    color: var(--muted);
+    border-radius: 6px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+  }
+  .view-toggles button.active {
+    background: rgba(0, 229, 255, 0.15);
+    color: #00e5ff;
+    box-shadow: 0 2px 10px rgba(0,229,255,0.2), inset 0 1px 0 rgba(255,255,255,0.2);
+    border: 1px solid rgba(0, 229, 255, 0.3);
+  }
+  .calendar-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: rgba(10, 10, 15, 0.4);
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 12px 40px rgba(0,0,0,0.4);
+  }
+  .calendar-month-grid {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .calendar-days-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: center;
+    padding: 12px 0;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  .calendar-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    grid-auto-rows: minmax(100px, 1fr);
+    flex: 1;
+    overflow-y: auto;
+  }
+  .calendar-day {
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .calendar-day:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .calendar-day.empty {
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .calendar-day.today::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at top right, rgba(0, 229, 255, 0.1), transparent 70%);
+    pointer-events: none;
+  }
+  .calendar-day.today .day-number {
+    background: var(--cyan);
+    color: #000;
+    font-weight: bold;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+  }
+  .day-number {
+    font-size: 1rem;
+    color: #dbefff;
+    align-self: flex-end;
+    margin-bottom: 4px;
+    font-weight: 500;
+    z-index: 1;
+  }
+  .day-events {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    flex: 1;
+    z-index: 1;
+  }
+  .day-events::-webkit-scrollbar {
+    width: 4px;
+  }
+  .day-events::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.2);
+    border-radius: 4px;
+  }
+  .calendar-event-chip {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: #ffffff;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.65);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  .calendar-month-grid .calendar-event-chip {
+    color: #000000;
+    text-shadow: none;
+    font-weight: 600;
+  }
+  .calendar-event-chip:hover {
+    transform: translateY(-2px) scale(1.02);
+    filter: brightness(1.2);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  /* Week View */
+  .calendar-week-view {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    flex: 1;
+    overflow-y: auto;
+  }
+  .week-day-col {
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
+    display: flex;
+    flex-direction: column;
+    background: rgba(255,255,255,0.01);
+  }
+  .week-day-header {
+    text-align: center;
+    padding: 15px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .week-day-col.today .week-day-header {
+    background: rgba(0, 229, 255, 0.1);
+    border-bottom: 1px solid rgba(0, 229, 255, 0.3);
+  }
+  .week-day-col.today .week-day-header span {
+    color: var(--cyan);
+    font-weight: bold;
+    text-shadow: 0 0 10px rgba(0,229,255,0.5);
+  }
+  .week-day-header strong {
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .week-day-header span {
+    font-size: 1.4rem;
+  }
+  .week-day-events {
+    flex: 1;
+    padding: 15px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .calendar-event-card {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+    border-radius: 8px;
+    padding: 12px;
+    border-left: 4px solid var(--cyan);
+    border-top: 1px solid rgba(255,255,255,0.05);
+    border-right: 1px solid rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+  }
+  .calendar-event-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+  }
+  .calendar-event-card .event-time {
+    font-size: 0.8rem;
+    color: var(--cyan);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .calendar-event-card .event-title {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #f3fbff;
+  }
+  /* Day View */
+  .calendar-day-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    padding: 40px;
+    overflow-y: auto;
+    background: radial-gradient(circle at top right, rgba(255,255,255,0.02), transparent 50%);
+  }
+  .day-view-header h2 {
+    margin: 0 0 40px 0;
+    font-size: 2.5rem;
+    font-weight: 300;
+    color: var(--cyan);
+    letter-spacing: 1px;
+    text-shadow: 0 0 20px rgba(0,229,255,0.3);
+  }
+  .day-view-events {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-width: 900px;
+  }
+  .calendar-event-card.large {
+    display: flex;
+    gap: 25px;
+    padding: 25px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-left: 6px solid var(--cyan);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+  .calendar-event-card.large .event-time {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+    min-width: 90px;
+    padding-top: 2px;
+  }
+  .calendar-event-card.large .event-details {
+    flex: 1;
+  }
+  .calendar-event-card.large .event-title {
+    font-size: 1.4rem;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #fff;
+  }
+  .calendar-event-card.large .event-entity {
+    font-size: 0.9rem;
+    color: var(--cyan);
+    margin-bottom: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    display: inline-block;
+    padding: 4px 10px;
+    background: rgba(0, 229, 255, 0.1);
+    border-radius: 20px;
+    border: 1px solid rgba(0, 229, 255, 0.2);
+  }
+  .calendar-event-card.large .event-desc {
+    font-size: 1rem;
+    color: var(--muted);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    background: rgba(0,0,0,0.2);
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .empty-events {
+    color: var(--muted);
+    font-size: 1.2rem;
+    padding: 60px 0;
+    text-align: center;
+    background: rgba(255,255,255,0.02);
+    border-radius: 12px;
+    border: 1px dashed rgba(255,255,255,0.1);
+  }
+`;
+
+function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEvent, mode }) {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setView] = useState('month'); // 'month', 'week', 'day'
+
+  const safeEvents = Array.isArray(events) ? events : [];
+
+  // Calculations for month
+  const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+
+  const daysInMonth = getDaysInMonth(currentDate);
+  const firstDay = getFirstDayOfMonth(currentDate);
+
+  const shiftDate = (direction) => {
+    const delta = direction === 'prev' ? -1 : 1;
+    const next = new Date(currentDate);
+    if (view === 'day') {
+      next.setDate(next.getDate() + delta);
+    } else if (view === 'week') {
+      next.setDate(next.getDate() + (7 * delta));
+    } else {
+      next.setMonth(next.getMonth() + delta);
+    }
+    setCurrentDate(next);
+  };
+  const today = () => setCurrentDate(new Date());
+
+  const monthNames = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+
+  // Render month grid
+  const renderMonth = () => {
+    const days = [];
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<div key={`empty-${i}`} className="calendar-day empty"></div>);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      const dateStr = new Date(currentDate.getFullYear(), currentDate.getMonth(), i).toDateString();
+      const dayEvents = safeEvents.filter(e => new Date(e.date).toDateString() === dateStr);
+      const isToday = new Date().toDateString() === dateStr;
+
+      days.push(
+        <div key={i} className={`calendar-day ${isToday ? 'today' : ''}`} onClick={() => onEditEvent({ date: new Date(currentDate.getFullYear(), currentDate.getMonth(), i, 9, 0, 0).toISOString(), isDraft: true })}>
+          <span className="day-number">{i}</span>
+          <div className="day-events">
+            {dayEvents.map(evt => (
+              <div 
+                key={evt.id} 
+                className="calendar-event-chip" 
+                style={{ backgroundColor: evt.color || 'var(--cyan)' }}
+                onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
+                title={`${evt.title}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
+              >
+                {evt.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    return days;
+  };
+
+  const getWeekDays = (date) => {
+    const curr = new Date(date);
+    const first = curr.getDate() - curr.getDay();
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      days.push(new Date(curr.setDate(first + i)));
+    }
+    return days;
+  };
+
+  const renderWeek = () => {
+    const weekDays = getWeekDays(currentDate);
+    return (
+      <div className="calendar-week-view">
+        {weekDays.map((day, idx) => {
+          const dateStr = day.toDateString();
+          const dayEvents = safeEvents.filter(e => new Date(e.date).toDateString() === dateStr);
+          const isToday = new Date().toDateString() === dateStr;
+          return (
+            <div key={idx} className={`week-day-col ${isToday ? 'today' : ''}`}>
+              <div className="week-day-header">
+                <strong>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][idx]}</strong>
+                <span>{day.getDate()}</span>
+              </div>
+              <div className="week-day-events" onClick={() => onEditEvent({ date: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0).toISOString(), isDraft: true })}>
+                {dayEvents.sort((a,b) => new Date(a.date) - new Date(b.date)).map(evt => (
+                  <div 
+                    key={evt.id} 
+                    className="calendar-event-card" 
+                    style={{ borderLeftColor: evt.color || 'var(--cyan)' }}
+                    onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
+                    title={`${evt.title}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
+                  >
+                    <div className="event-time">{new Date(evt.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                    <div className="event-title">{evt.title}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderDay = () => {
+    const dateStr = currentDate.toDateString();
+    const dayEvents = safeEvents.filter(e => new Date(e.date).toDateString() === dateStr).sort((a,b) => new Date(a.date) - new Date(b.date));
+    
+    return (
+      <div className="calendar-day-view">
+        <div className="day-view-header">
+          <h2>{currentDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
+        </div>
+        <div className="day-view-events">
+          {dayEvents.length ? dayEvents.map(evt => {
+             const entity = entities.find(en => en.id === evt.entityId);
+             return (
+              <div 
+                key={evt.id} 
+                className="calendar-event-card large" 
+                style={{ borderLeftColor: evt.color || 'var(--cyan)' }}
+                onClick={() => onEditEvent(evt)}
+                title={`${evt.title}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
+              >
+                <div className="event-time">{new Date(evt.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="event-details">
+                  <div className="event-title">{evt.title}</div>
+                  {entity && <div className="event-entity">Associated with: {entity.name}</div>}
+                  {evt.description && <div className="event-desc">{evt.description}</div>}
+                </div>
+              </div>
+            )
+          }) : <div className="empty-events">No events scheduled for this day.</div>}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <section className="calendar-workspace">
+      <style>{calendarStyles}</style>
+      <div className="calendar-header">
+        <div className="calendar-controls">
+          <button type="button" onClick={today}>Today</button>
+          <button type="button" className="icon-button" onClick={() => shiftDate('prev')}>&lt;</button>
+          <button type="button" className="icon-button" onClick={() => shiftDate('next')}>&gt;</button>
+          <h2>{monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}</h2>
+        </div>
+        <div className="calendar-actions">
+          <div className="view-toggles">
+            <button type="button" className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
+            <button type="button" className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
+            <button type="button" className={view === 'day' ? 'active' : ''} onClick={() => setView('day')}>Day</button>
+          </div>
+          <button type="button" className="primary-action" onClick={() => onEditEvent(null)}>+ New Event</button>
+        </div>
+      </div>
+
+      <div className="calendar-body">
+        {view === 'month' && (
+          <div className="calendar-month-grid">
+            <div className="calendar-days-header">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d}>{d}</div>)}
+            </div>
+            <div className="calendar-days">
+              {renderMonth()}
+            </div>
+          </div>
+        )}
+        {view === 'week' && renderWeek()}
+        {view === 'day' && renderDay()}
+      </div>
+    </section>
+  );
+}
+
+function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, onDelete }) {
+  const [title, setTitle] = useState(event?.title || '');
+  const [date, setDate] = useState(toDateTimeLocal(event?.date || new Date().toISOString()));
+  const initialAssociation = event?.associationMode || (initialEntity?.kind === 'meeting' ? 'meeting' : (initialEntity?.id ? 'opportunity' : 'generic'));
+  const [associationMode, setAssociationMode] = useState(initialAssociation);
+  const [opportunityId, setOpportunityId] = useState(event?.opportunityId || (initialAssociation === 'opportunity' ? (event?.entityId || initialEntity?.id || '') : ''));
+  const [meetingId, setMeetingId] = useState(event?.meetingId || (initialAssociation === 'meeting' ? (event?.entityId || initialEntity?.id || '') : ''));
+  const [color, setColor] = useState(event?.color || '#00e5ff');
+  const [description, setDescription] = useState(event?.description || '');
+  const [opportunities, setOpportunities] = useState([]);
+  const [meetings, setMeetings] = useState([]);
+  const api = window.electronAPI;
+
+  const isEditing = !!event?.id;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAssociations() {
+      if (!api?.getSessionEntities) return;
+      const [interviewEntities, meetingEntities] = await Promise.all([
+        api.getSessionEntities('interview'),
+        api.getSessionEntities('meeting')
+      ]);
+      if (!cancelled) {
+        setOpportunities(Array.isArray(interviewEntities) ? interviewEntities : []);
+        setMeetings(Array.isArray(meetingEntities) ? meetingEntities : []);
+      }
+    }
+    loadAssociations().catch(() => {});
+    return () => { cancelled = true; };
+  }, [api]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    const linkedEntityId = associationMode === 'opportunity'
+      ? opportunityId
+      : associationMode === 'meeting'
+        ? meetingId
+        : '';
+    onSave({
+      id: event?.id,
+      title: title.trim(),
+      date: fromDateTimeLocal(date),
+      entityId: linkedEntityId,
+      associationMode,
+      opportunityId: associationMode === 'opportunity' ? opportunityId : '',
+      meetingId: associationMode === 'meeting' ? meetingId : '',
+      color: resolvedColor,
+      description: description.trim()
+    });
+  };
+
+  useEffect(() => {
+    if (associationMode === 'opportunity') setColor('#00e5ff');
+    if (associationMode === 'meeting') setColor('#00ffaa');
+    if (associationMode === 'generic') setColor('#ffaa00');
+  }, [associationMode]);
+
+  const resolvedColor = associationMode === 'opportunity'
+    ? '#00e5ff'
+    : associationMode === 'meeting'
+      ? '#00ffaa'
+      : (color || '#ffaa00');
+
+  return (
+    <div className="drawer-backdrop" style={{ zIndex: 4000 }}>
+      <section className="settings-drawer" style={{ background: 'rgba(20, 20, 25, 0.95)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+        <div className="drawer-head">
+          <div>
+            <h2>{isEditing ? 'Edit Event' : 'Create Event'}</h2>
+            <p>Schedule an interview, meeting, or general event.</p>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        
+        <form className="settings-form" onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '20px' }}>
+          <div className="form-grid">
+            <label>
+              Event Title
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Final Round Interview" required />
+            </label>
+            <label>
+              Date & Time
+              <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} required />
+            </label>
+          </div>
+          
+          <div className="form-grid">
+            <label>
+              Association Type
+              <select value={associationMode} onChange={(e) => setAssociationMode(e.target.value)}>
+                <option value="opportunity">Opportunity</option>
+                <option value="meeting">Meeting</option>
+                <option value="generic">Generic</option>
+              </select>
+            </label>
+            {associationMode === 'opportunity' && (
+              <label>
+                Associated Opportunity
+                <select value={opportunityId} onChange={(e) => setOpportunityId(e.target.value)}>
+                  <option value="">Select opportunity</option>
+                  {opportunities.map((ent) => (
+                    <option key={ent.id} value={ent.id}>{ent.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {associationMode === 'meeting' && (
+              <label>
+                Associated Meeting
+                <select value={meetingId} onChange={(e) => setMeetingId(e.target.value)}>
+                  <option value="">Select meeting</option>
+                  {meetings.map((ent) => (
+                    <option key={ent.id} value={ent.id}>{ent.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {associationMode === 'generic' && (
+              <label>
+                Association
+                <input value="Generic event (no link)" readOnly />
+              </label>
+            )}
+            <label>
+              Event Color
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                {['#00e5ff', '#ff3366', '#ffaa00', '#00ffaa', '#aa00ff'].map(c => (
+                  <button 
+                    key={c}
+                    type="button" 
+                    onClick={() => associationMode === 'generic' && setColor(c)}
+                    disabled={associationMode !== 'generic'}
+                    style={{ 
+                      width: '30px', height: '30px', borderRadius: '50%', background: c, 
+                      border: color === c ? '3px solid white' : '2px solid transparent',
+                      cursor: associationMode === 'generic' ? 'pointer' : 'not-allowed',
+                      opacity: associationMode === 'generic' ? 1 : 0.55,
+                      outline: 'none', padding: 0
+                    }}
+                  />
+                ))}
+              </div>
+            </label>
+          </div>
+          
+          <label className="wide-field" style={{ marginTop: '15px' }}>
+            Description / Notes
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ minHeight: '120px' }} placeholder="Meeting links, agenda, prep notes..." />
+          </label>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
+            <button type="submit" className="primary-action" disabled={!title.trim()}>
+              {isEditing ? 'Save Changes' : 'Create Event'}
+            </button>
+            {isEditing && (
+              <button type="button" onClick={() => { if(confirm('Delete event?')) onDelete(event.id); }} style={{ color: '#ff3366', background: 'transparent', border: '1px solid rgba(255, 51, 102, 0.3)' }}>
+                Delete Event
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function App() {
 
   const api = window.electronAPI;
@@ -679,16 +1957,16 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [transcript, setTranscript] = useState([]);
   const [assistantCards, setAssistantCards] = useState([]);
+  const [askPending, setAskPending] = useState(false);
+  const [overlayHidden, setOverlayHidden] = useState(false);
   const [health, setHealth] = useState(DEFAULT_HEALTH);
   const [liveLevels, setLiveLevels] = useState([]);
-  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState('live');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(true);
   const [entities, setEntities] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [selectedEntity, setSelectedEntity] = useState('');
-  const [commandText, setCommandText] = useState('');
-  const [activeTab, setActiveTab] = useState('prep');
   const [serviceChecking, setServiceChecking] = useState(false);
   const [newOpportunityOpen, setNewOpportunityOpen] = useState(false);
   const [newMeetingOpen, setNewMeetingOpen] = useState(false);
@@ -699,8 +1977,39 @@ function App() {
   const [editEntityTarget, setEditEntityTarget] = useState(null);
   const [editSessionTarget, setEditSessionTarget] = useState(null);
   const [postSessionPromptOpen, setPostSessionPromptOpen] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [calendarTargetEntity, setCalendarTargetEntity] = useState(null);
+  const [calendarEditEvent, setCalendarEditEvent] = useState(null);
+  const nowMs = useNowMs();
 
   useEffect(() => {
+    applyUiOpacityToRoot(settings.uiOpacity);
+  }, [settings.uiOpacity]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('clyde-calendar-events');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setCalendarEvents(Array.isArray(parsed) ? parsed : []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleAddEvent = (e) => {
+      if (e.detail?.evt) {
+        setCalendarTargetEntity(null);
+        setCalendarEditEvent(e.detail.evt);
+      } else {
+        setCalendarTargetEntity(e.detail?.entity || e.detail);
+        setCalendarEditEvent(null);
+      }
+      setCalendarModalOpen(true);
+    };
     const handleJd = (e) => {
       setJdTargetEntity(e.detail);
       setJdModalOpen(true);
@@ -709,29 +2018,34 @@ function App() {
       setManualTargetEntity(e.detail);
       setManualTranscriptOpen(true);
     };
+    window.addEventListener('open-calendar-modal', handleAddEvent);
     window.addEventListener('open-jd-modal', handleJd);
     window.addEventListener('open-manual-transcript-modal', handleManual);
     return () => {
+      window.removeEventListener('open-calendar-modal', handleAddEvent);
       window.removeEventListener('open-jd-modal', handleJd);
       window.removeEventListener('open-manual-transcript-modal', handleManual);
     };
   }, []);
 
   const context = useMemo(() => {
+    const activeInterview = entities.find((entity) => entity.id === settings.currentCompany || entity.name === settings.currentCompany);
+    const activeMeeting = entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle);
+
     if (mode === 'meeting') {
       return {
-        title: settings.meetingTitle || 'Untitled meeting',
-        subtitle: attendeeSummary(settings.meetingAttendees),
+        title: activeMeeting?.name || settings.meetingTitle || 'Untitled meeting',
+        subtitle: attendeeSummary(activeMeeting?.attendees) || attendeeSummary(settings.meetingAttendees),
         brief: settings.meetingMemory || 'No long term memory saved yet.'
       };
     }
 
     return {
-      title: settings.currentCompany || 'No active company',
-      subtitle: settings.currentRole || 'No role selected',
+      title: activeInterview?.name || settings.currentCompany || 'No active company',
+      subtitle: activeInterview?.role || settings.currentRole || 'No role selected',
       brief: settings.resumeText ? `${settings.resumeText.length.toLocaleString()} characters of resume context loaded.` : 'No resume context loaded.'
     };
-  }, [mode, settings]);
+  }, [entities, mode, settings]);
 
   const transcriptText = useMemo(
     () => transcript.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n'),
@@ -742,6 +2056,17 @@ function App() {
     () => assistantCards.filter((card) => card.body || card.question || (card.bullets && card.bullets.length)),
     [assistantCards]
   );
+
+  const nextUpcomingEvent = useMemo(() => {
+    const events = Array.isArray(calendarEvents) ? calendarEvents : [];
+    return events
+      .map((event) => ({
+        ...event,
+        eventTime: new Date(event?.date).getTime()
+      }))
+      .filter((event) => Number.isFinite(event.eventTime) && event.eventTime >= nowMs)
+      .sort((a, b) => a.eventTime - b.eventTime)[0] || null;
+  }, [calendarEvents, nowMs]);
 
   const reloadSessions = useCallback(async (nextMode = mode, nextEntity = '') => {
     if (!api?.getSessionEntities || !api?.getSessions) {
@@ -821,6 +2146,7 @@ function App() {
         ? update.cards
         : [{ type: 'note', title: update?.title || 'Live help', body: update?.text || '' }];
       setAssistantCards(nextCards.map(normalizeCardForRender));
+      setAskPending(false);
     });
 
     api?.onSessionReset?.(() => {
@@ -838,6 +2164,24 @@ function App() {
     reloadSessions(mode).catch((error) => setStatus(`Timeline failed: ${error.message}`));
   }, [mode, reloadSessions]);
 
+  const saveCalendarEvent = (event) => {
+    const prev = Array.isArray(calendarEvents) ? calendarEvents : [];
+    const nextEvents = event.id 
+      ? prev.map(e => e.id === event.id ? event : e)
+      : [...prev, { ...event, id: `evt-${Date.now()}` }];
+    setCalendarEvents(nextEvents);
+    localStorage.setItem('clyde-calendar-events', JSON.stringify(nextEvents));
+    setCalendarModalOpen(false);
+  };
+
+  const deleteCalendarEvent = (id) => {
+    const prev = Array.isArray(calendarEvents) ? calendarEvents : [];
+    const nextEvents = prev.filter(e => e.id !== id);
+    setCalendarEvents(nextEvents);
+    localStorage.setItem('clyde-calendar-events', JSON.stringify(nextEvents));
+    setCalendarModalOpen(false);
+  };
+
   async function chooseMode(nextMode) {
     setMode(nextMode);
     const nextSettings = { ...settings, appMode: nextMode };
@@ -851,6 +2195,7 @@ function App() {
       ...settings,
       ...nextSettings,
       appMode: mode,
+      uiOpacity: clampUiOpacity(nextSettings.uiOpacity ?? settings.uiOpacity),
       meetingAttendees: parseAttendees(nextSettings.meetingAttendeesText ?? attendeeLines(nextSettings.meetingAttendees || settings.meetingAttendees))
     };
 
@@ -862,14 +2207,26 @@ function App() {
       role: normalized.currentRole,
       meetingTitle: normalized.meetingTitle,
       attendees: normalized.meetingAttendees,
-      memory: normalized.meetingMemory,
-      screenShareHidden: normalized.screenShareHidden
+      memory: normalized.meetingMemory
     });
     setSettings(normalized);
     setSettingsOpen(false);
     setSetupOpen(false);
     setStatus('Settings saved.');
     await reloadSessions(mode);
+  }
+
+  async function toggleCaptureProtection() {
+    const enabled = !settings.captureProtectionEnabled;
+    const nextSettings = { ...settings, captureProtectionEnabled: enabled };
+    setSettings(nextSettings);
+    try {
+      await api?.saveSettings?.(nextSettings);
+      setStatus(`Screen capture protection ${enabled ? 'enabled' : 'disabled'}.`);
+    } catch (error) {
+      setSettings(settings);
+      setStatus(`Screen capture protection failed: ${error.message}`);
+    }
   }
 
   async function validateServices() {
@@ -890,6 +2247,8 @@ function App() {
   function startCapture() {
     setTranscript([]);
     setAssistantCards([]);
+    setAskPending(false);
+    setOverlayHidden(false);
     setStatus('Starting audio capture...');
     setIsStreaming(true);
     api?.startTranscription?.();
@@ -898,10 +2257,9 @@ function App() {
   function stopCapture() {
     api?.stopTranscription?.();
     setIsStreaming(false);
-    setStatus(transcript.length ? 'Capture stopped. Choose where to save the transcript.' : 'Capture stopped.');
-    if (transcript.length) {
-      setPostSessionPromptOpen(true);
-    }
+    setOverlayHidden(false);
+    setStatus('Capture stopped. Choose where to save the transcript.');
+    setPostSessionPromptOpen(true);
   }
 
   function resetSession() {
@@ -909,6 +2267,8 @@ function App() {
     setTranscript([]);
     setAssistantCards([]);
     setLiveLevels([]);
+    setAskPending(false);
+    setOverlayHidden(false);
   }
 
   async function saveCurrentSession() {
@@ -921,10 +2281,6 @@ function App() {
   }
 
   async function saveSessionFromPrompt(payload) {
-    if (!transcript.length) {
-      setStatus('No transcript captured yet.');
-      return;
-    }
 
     try {
       if (payload.mode === 'interview') {
@@ -934,8 +2290,10 @@ function App() {
       }
 
       setPostSessionPromptOpen(false);
-      setStatus(payload.mode === 'interview' ? 'Interview transcript saved. Scoring started.' : 'Meeting transcript saved.');
-      setTimelineOpen(true);
+      setStatus(payload.mode === 'interview'
+        ? 'Interview transcript saved. Scoring started.'
+        : 'Meeting transcript saved. Notes and action items were generated.');
+      setWorkspaceView('timeline');
       await reloadSessions(payload.mode, payload.entity?.id);
     } catch (error) {
       setStatus(`Save failed: ${error.message}`);
@@ -952,6 +2310,11 @@ function App() {
     const attendees = payload?.interviewerName
       ? [{ name: payload.interviewerName, role: payload.interviewerTitle || '' }]
       : [];
+    const jobDescription = String(payload?.jobDescription || '').trim();
+
+    if (payload?.destination === 'new' && jobDescription) {
+      await api?.setCompanyJobDescription?.(entity.id, jobDescription);
+    }
 
     await api?.saveSession?.({
       mode: 'interview',
@@ -1005,39 +2368,38 @@ function App() {
     }
   }
 
-  async function runCommand(command) {
-    if (command === 'assist' || command === 'resume') {
-      setStatus('Asking Clyde for live help...');
-      api?.requestSuggestion?.();
-      return;
-    }
-
-    const nextCard = makeLocalCommandCard(command, transcript, { ...settings, appMode: mode });
-    if (nextCard) {
-      setAssistantCards((current) => [nextCard, ...current].slice(0, 6));
-    }
-  }
-
-  function submitCommand(event) {
-    event.preventDefault();
-    const value = commandText.trim();
-    if (!value) {
-      return;
-    }
-
-    setAssistantCards((current) => [{
-      id: `note-${Date.now()}`,
+  async function runCommand(payload = {}) {
+    setStatus('Asking Clyde for live help...');
+    setAskPending(true);
+    const temporaryCard = {
+      id: `asking-${Date.now()}`,
       type: 'note',
-      title: 'Saved note',
-      body: value
-    }, ...current]);
-    setCommandText('');
+      title: 'Asking Clyde...',
+      body: payload.prompt ? 'Reading the screen and recent call context.' : 'Reading the screen and preparing live help.'
+    };
+    setAssistantCards((current) => [temporaryCard, ...current].slice(0, 4));
+
+    try {
+      const result = await api?.requestSuggestion?.(payload);
+      if (result?.skipped) {
+        setAskPending(false);
+        setStatus(`Clyde skipped request: ${result.skipped}.`);
+      } else if (Array.isArray(result?.cards) && result.cards.length) {
+        setAssistantCards(result.cards.map(normalizeCardForRender));
+        setAskPending(false);
+      } else if (result?.ok) {
+        setAskPending(false);
+      }
+    } catch (error) {
+      setAskPending(false);
+      setStatus(`Ask Clyde failed: ${error.message}`);
+      setAssistantCards((current) => current.filter((card) => card.id !== temporaryCard.id));
+    }
   }
 
   function chooseWorkspaceView(nextView) {
-    const nextTimelineOpen = nextView === 'timeline';
-    setTimelineOpen(nextTimelineOpen);
-    if (nextTimelineOpen) {
+    setWorkspaceView(nextView);
+    if (nextView === 'timeline' || nextView === 'trends' || nextView === 'calendar') {
       reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
     }
   }
@@ -1069,6 +2431,9 @@ function App() {
   }
 
   async function createMeetingMemory(data) {
+    const transcript = parseMeetingTranscriptInput(data);
+    const hasTranscript = transcript.length > 0;
+
     await api?.saveSession?.({
       mode: 'meeting',
       entity: {
@@ -1076,12 +2441,12 @@ function App() {
         name: data.title,
         role: ''
       },
-      title: 'Meeting-specific memory',
+      title: hasTranscript ? 'Meeting transcript' : 'Meeting memory',
       date: fromDateTimeLocal(data.date),
       attendees: data.attendees || [],
-      transcript: [],
+      transcript,
       notes: {
-        summary: data.memory || '',
+        summary: hasTranscript ? '' : (data.memory || ''),
         actionItems: []
       },
       cards: [],
@@ -1101,7 +2466,7 @@ function App() {
   }
 
   async function saveEntityEdits(entity, patch) {
-    if (!entity?.id || !patch?.name) {
+    if (!entity?.id || !patch) {
       return;
     }
 
@@ -1139,33 +2504,36 @@ function App() {
       }
     };
 
-    if (record.source === 'legacy-interview' && api?.saveManualInterview) {
-      await api.saveManualInterview({
-        id: record.id,
-        originalCompany: selectedEntity || record.entity.id || record.entity.name,
-        company: record.entity.name,
-        role: record.entity.role || '',
-        phase: record.title || record.phase || 'Interview session',
-        interviewerName: record.attendees?.[0]?.name || '',
-        interviewerTitle: record.attendees?.[0]?.role || '',
-        transcript: record.transcript
-      });
-    } else {
-      await api?.saveSession?.(record);
+    const transcriptChanged = record.mode === 'interview'
+      && !transcriptTextsMatch(editSessionTarget?.transcript || [], record.transcript || []);
+
+    if (transcriptChanged) {
+      // Clear the saved evaluation so the background grader repopulates it from the edited transcript.
+      record.notes = {
+        ...(record.notes || {}),
+        summary: ''
+      };
+      record.grading = { status: 'pending' };
     }
+
+    await api?.saveSession?.(record);
 
     setEditSessionTarget(null);
     await reloadSessions(mode, record.entity.id || selectedEntity);
   }
 
+  const activeCapture = workspaceView === 'live' && isStreaming;
+
   return (
     <div className="app-shell">
+      {activeCapture ? null : (
       <TitleBar
         entities={entities}
         mode={mode}
         onModeChange={chooseMode}
         onSettings={() => setSettingsOpen(true)}
         settings={settings}
+        onToggleCaptureProtection={toggleCaptureProtection}
         onAddNewOpportunity={() => setNewOpportunityOpen(true)}
         onAddNewMeeting={() => setNewMeetingOpen(true)}
         onChangeActiveInterview={async (company, role) => {
@@ -1180,19 +2548,31 @@ function App() {
         }}
         onChangeActiveMeeting={setActiveMeeting}
       />
+      )}
 
-      <main className={`workspace ${timelineOpen ? 'workspace-timeline' : ''}`}>
-        <BrandMasthead />
-
+      <main className={`workspace ${workspaceView !== 'live' ? 'workspace-timeline' : ''} ${activeCapture ? 'workspace-active-capture' : ''}`}>
+        {activeCapture ? (
+          <ActiveCaptureView
+            cards={filteredCards}
+            isAsking={askPending}
+            mode={mode}
+            onAsk={runCommand}
+            hidden={overlayHidden}
+            onHide={() => setOverlayHidden(true)}
+            onShow={() => setOverlayHidden(false)}
+            onStop={stopCapture}
+            settings={settings}
+          />
+        ) : (
+        <>
         <WorkspaceNav
-          entityCount={entities.length}
-          isStreaming={isStreaming}
           mode={mode}
-          onViewChange={chooseWorkspaceView}
-          view={timelineOpen ? 'timeline' : 'live'}
+          onViewChange={setWorkspaceView}
+          nextUpcomingEvent={nextUpcomingEvent}
+          view={workspaceView}
         />
 
-        {timelineOpen ? (
+        {workspaceView === 'timeline' ? (
           <TimelineView
             entities={entities}
             mode={mode}
@@ -1220,6 +2600,35 @@ function App() {
             onChangeActiveMeeting={setActiveMeeting}
             selectedEntity={selectedEntity}
             sessions={sessions}
+            calendarEvents={calendarEvents}
+          />
+        ) : workspaceView === 'trends' ? (
+          <TrendsView
+            entities={entities}
+            mode={mode}
+            onSelectEntity={async (entityId) => {
+              setSelectedEntity(entityId);
+              const nextSessions = await api?.getSessions?.({ mode, entityId });
+              setSessions(nextSessions || []);
+            }}
+            selectedEntity={selectedEntity}
+            sessions={sessions}
+          />
+        ) : workspaceView === 'calendar' ? (
+          <CalendarView
+            entities={entities}
+            events={calendarEvents}
+            onEditEvent={(evt) => {
+              if (evt) {
+                setCalendarTargetEntity(null);
+                setCalendarEditEvent(evt);
+              } else {
+                setCalendarTargetEntity(null);
+                setCalendarEditEvent(null);
+              }
+              setCalendarModalOpen(true);
+            }}
+            mode={mode}
           />
         ) : <>
           <StatusStrip
@@ -1227,7 +2636,6 @@ function App() {
             isStreaming={isStreaming}
             mode={mode}
             provider={settings.llmProvider}
-            screenShareHidden={settings.screenShareHidden}
             status={status}
           />
 
@@ -1245,31 +2653,27 @@ function App() {
           <section className="live-grid">
             <LivePanel
               cards={filteredCards}
-              commandText={commandText}
               context={context}
               isStreaming={isStreaming}
               liveLevels={liveLevels}
-              mode={mode}
               onCommand={runCommand}
-              onCommandText={setCommandText}
               onReset={resetSession}
               onSave={saveCurrentSession}
               onStart={startCapture}
               onStop={stopCapture}
-              onSubmitCommand={submitCommand}
               status={status}
               transcript={transcript}
             />
             <ContextPanel
-              activeTab={activeTab}
-              cards={filteredCards}
               mode={mode}
-              onTab={setActiveTab}
               settings={settings}
-              transcriptText={transcriptText}
+              entities={entities}
+              calendarEvents={calendarEvents}
             />
           </section>
         </>}
+        </>
+        )}
       </main>
 
       {settingsOpen ? (
@@ -1385,29 +2789,55 @@ function App() {
             onSave={saveSessionEdits}
           />
         )}
+
+        {calendarModalOpen && (
+          <CalendarEventModal
+            event={calendarEditEvent}
+            initialEntity={calendarTargetEntity}
+            entities={entities}
+            onClose={() => setCalendarModalOpen(false)}
+            onSave={saveCalendarEvent}
+            onDelete={deleteCalendarEvent}
+          />
+        )}
     </div>
   );
 }
 
-function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
+function TitleBar({ entities, mode, onModeChange, onSettings, settings, onToggleCaptureProtection, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
   const isInterview = mode === 'interview';
+  const api = window.electronAPI;
+  const captureProtectionEnabled = settings.captureProtectionEnabled !== false;
   const activeMeetingId = isInterview
     ? ''
     : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
 
   return (
-    <header className="title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 14px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-        <div className="window-dots" aria-hidden="true" style={{ position: 'relative', top: 0, left: 0 }}>
-          <span />
-          <span />
-          <span />
-        </div>
-        
+    <header className="title-bar">
+      <div className="title-brand">
+        <img src={logoUrl} alt="" className="brand-mark" />
+      </div>
+
+      <div className="title-center">
+        <ModeToggle mode={mode} onChange={onModeChange} />
+        <button
+          className={`capture-protection-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
+          type="button"
+          onClick={onToggleCaptureProtection}
+          aria-label={captureProtectionEnabled ? 'Disable screen capture protection' : 'Enable screen capture protection'}
+          aria-pressed={captureProtectionEnabled}
+          title={captureProtectionEnabled ? 'Screen capture protection enabled' : 'Screen capture protection disabled'}
+        >
+          <img src={ghostUrl} alt="" />
+        </button>
+      </div>
+
+      <div className="title-context">
         {isInterview ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', WebkitAppRegion: 'no-drag' }}>
-            <span style={{ color: 'var(--muted)' }}>Active Interview:</span>
+          <>
+            <span className="title-context-label">Active Interview:</span>
             <select 
+              className="title-context-select"
               value={settings.currentCompany || ''} 
               onChange={(e) => {
                 if (e.target.value === '__new__') {
@@ -1416,15 +2846,6 @@ function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChange
                   const entity = entities.find(ent => ent.id === e.target.value);
                   onChangeActiveInterview(e.target.value, entity?.role || '');
                 }
-              }}
-              style={{ 
-                background: 'rgba(255,255,255,0.05)', 
-                border: '1px solid var(--line)', 
-                color: 'var(--text)', 
-                padding: '4px 8px', 
-                borderRadius: '4px',
-                cursor: 'pointer',
-                outline: 'none'
               }}
             >
               <option value="">None</option>
@@ -1435,11 +2856,12 @@ function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChange
               ))}
               <option value="__new__">+ Add New</option>
             </select>
-          </div>
+          </>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', WebkitAppRegion: 'no-drag' }}>
-            <span style={{ color: 'var(--muted)' }}>Active Meeting:</span>
+          <>
+            <span className="title-context-label">Active Meeting:</span>
             <select
+              className="title-context-select"
               value={activeMeetingId}
               onChange={(event) => {
                 if (event.target.value === '__new__') {
@@ -1447,15 +2869,6 @@ function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChange
                 } else {
                   onChangeActiveMeeting(event.target.value);
                 }
-              }}
-              style={{
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid var(--line)',
-                color: 'var(--text)',
-                padding: '4px 8px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                outline: 'none'
               }}
             >
               <option value="">None</option>
@@ -1466,29 +2879,19 @@ function TitleBar({ entities, mode, onModeChange, onSettings, settings, onChange
               ))}
               <option value="__new__">+ Add New</option>
             </select>
-          </div>
+          </>
         )}
       </div>
 
-      <div className="title-center" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', WebkitAppRegion: 'no-drag' }}>
-        <ModeToggle mode={mode} onChange={onModeChange} />
-      </div>
-
-      <div className="title-actions" style={{ WebkitAppRegion: 'no-drag' }}>
+      <div className="title-actions title-icons">
         <button className="icon-button" type="button" onClick={onSettings} aria-label="Settings" title="Settings">
           <GearIcon />
         </button>
+        <button className="icon-button close-button" type="button" onClick={() => api?.closeApp?.()} aria-label="Close app" title="Close app">
+          X
+        </button>
       </div>
     </header>
-  );
-}
-
-function BrandMasthead() {
-  return (
-    <div className="brand-masthead">
-      <img src={logoUrl} alt="" className="brand-mark" />
-      <h1>Clyde</h1>
-    </div>
   );
 }
 
@@ -1501,38 +2904,50 @@ function GearIcon() {
   );
 }
 
-function WorkspaceNav({ entityCount, isStreaming, mode, onViewChange, view }) {
-  const timelineLabel = mode === 'interview' ? 'Interview timeline' : 'Meeting memory';
-  const timelineHint = mode === 'interview' ? 'Companies, transcripts, grades' : 'Notes, actions, transcripts';
-  const recordLabel = entityCount === 1 ? '1 record' : `${entityCount} records`;
+function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent }) {
+  const timelineLabel = mode === 'interview' ? 'Timeline' : 'Memory';
+  const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
+  const tabs = [
+    { id: 'live', eyebrow: 'Now', label: 'Assist' },
+    { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav' },
+    ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trends', testId: 'trendsNav' }] : []),
+    { id: 'calendar', eyebrow: 'Schedule', label: 'Calendar', testId: 'calendarNav' }
+  ];
 
   return (
     <nav className="workspace-nav" aria-label="Workspace view">
-      <div className="view-tabs">
-        <button
-          className={view === 'live' ? 'view-tab active' : 'view-tab'}
-          type="button"
-          aria-pressed={view === 'live'}
-          onClick={() => onViewChange('live')}
-        >
-          <span>Now</span>
-          <strong>Live assist</strong>
-        </button>
-        <button
-          className={view === 'timeline' ? 'view-tab active' : 'view-tab'}
-          data-testid="timelineNav"
-          type="button"
-          aria-pressed={view === 'timeline'}
-          onClick={() => onViewChange('timeline')}
-        >
-          <span>{timelineHint}</span>
-          <strong>{timelineLabel}</strong>
-        </button>
-      </div>
-      <div className="workspace-nav-status" aria-live="polite">
-        <span className={`status-dot ${isStreaming ? 'live' : ''}`} />
-        <span>{isStreaming ? 'Capture live' : 'Capture idle'}</span>
-        <span>{recordLabel}</span>
+      <div className="workspace-nav-inner">
+        <div className="view-tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={view === tab.id ? 'view-tab active' : 'view-tab'}
+              data-testid={tab.testId}
+              type="button"
+              aria-pressed={view === tab.id}
+              onClick={() => onViewChange(tab.id)}
+            >
+              <span>{tab.eyebrow}</span>
+              <strong>{tab.label}</strong>
+            </button>
+          ))}
+        </div>
+
+        <section className={nextUpcomingEvent ? 'workspace-nav-event' : 'workspace-nav-event workspace-nav-empty'} aria-label="Next upcoming event">
+          {nextUpcomingEvent ? (
+            <>
+              <span>Next up</span>
+              <strong>{nextUpcomingEvent.title || 'Scheduled item'}</strong>
+              <small>{formatEventDateTime(nextUpcomingEvent.date)}</small>
+            </>
+          ) : (
+            <>
+              <span>Next up</span>
+              <strong>No upcoming events</strong>
+              <small>Calendar is clear</small>
+            </>
+          )}
+        </section>
       </div>
     </nav>
   );
@@ -1561,7 +2976,7 @@ function ModeToggle({ mode, onChange }) {
   );
 }
 
-function StatusStrip({ health, isStreaming, mode, provider, screenShareHidden, status }) {
+function StatusStrip({ health, isStreaming, mode, provider, status }) {
   return (
     <div className="status-strip">
       <div className="status-line">
@@ -1571,7 +2986,6 @@ function StatusStrip({ health, isStreaming, mode, provider, screenShareHidden, s
       <div className="status-pills">
         <span>{provider === 'local' ? 'Local LLM' : `${provider} cloud`}</span>
         <span>{mode === 'interview' ? 'Candidate context' : 'Long term memory'}</span>
-        <span>{screenShareHidden ? 'Screen-share safe' : 'Visible overlay'}</span>
       </div>
       <div className="health-grid" data-testid="healthGrid">
         {Object.entries(health).map(([key, item]) => (
@@ -1604,21 +3018,167 @@ function SetupPanel({ mode, onClose, onSave, onValidate, serviceChecking, settin
   );
 }
 
+function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onShow, onStop, settings }) {
+  const [prompt, setPrompt] = useState('');
+  const [promptType, setPromptType] = useState(null);
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [includeScreenshot, setIncludeScreenshot] = useState(false);
+  const [sources, setSources] = useState(() => ({
+    resume: !settings?.ragEnabled,
+    memory: false,
+    rag: Boolean(settings?.ragEnabled),
+    web: false
+  }));
+
+  useEffect(() => {
+    setSources((current) => ({
+      resume: current.resume,
+      memory: current.memory,
+      rag: settings?.ragEnabled ? current.rag : false,
+      web: current.web
+    }));
+  }, [settings?.ragEnabled]);
+
+  async function submitAsk(event) {
+    event?.preventDefault?.();
+    const cleanPrompt = prompt.trim();
+    if (!cleanPrompt) return;
+    setPrompt('');
+    
+    const isCamera = promptType === 'camera';
+    await onAsk({
+      prompt: cleanPrompt,
+      includeScreenshot: isCamera || includeScreenshot,
+      sources: isCamera ? { resume: false, memory: false, rag: false, web: false } : sources,
+      mode
+    });
+    setPromptType(null);
+    setSourceMenuOpen(false);
+  }
+
+  function handleNudge() {
+    onAsk({
+      prompt: 'What should I say next?',
+      includeScreenshot: false,
+      sources: { resume: false, memory: false, rag: false, web: false },
+      mode
+    });
+  }
+
+  return (
+    <section className="active-capture-shell" aria-label="Active capture assistant">
+      {hidden ? (
+        <button type="button" className="active-restore-chip" onClick={onShow}>
+          <img src={ghostUrl} alt="" className="active-capture-icon" />
+          Show Clyde
+        </button>
+      ) : null}
+      {!hidden ? (
+        <div className="active-assistant-panel">
+          <div className="active-capture-bar">
+            <button type="button" className="active-icon-btn ghost-toggle" onClick={onHide} aria-label="Hide Clyde overlay" title="Hide Clyde">
+              <img src={ghostUrl} alt="" className="active-capture-icon" style={{width:'28px', height:'28px'}} />
+            </button>
+            <button type="button" className={`active-icon-btn ${promptType === 'camera' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'camera' ? null : 'camera'); setSourceMenuOpen(false); }} aria-label="Screenshot Prompt" title="Ask with Screenshot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+            </button>
+            <button type="button" className="active-icon-btn nudge-btn" onClick={handleNudge} aria-label="Nudge AI" title="What should I say next?">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path></svg>
+            </button>
+            <button type="button" className={`active-icon-btn ${promptType === 'custom' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'custom' ? null : 'custom'); setSourceMenuOpen(false); }} aria-label="Custom Prompt" title="Custom Prompt">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            </button>
+            <button type="button" className="active-icon-btn stop-btn" onClick={() => { setPromptType(null); onStop(); }} aria-label="Stop capture" title="Stop Capture">
+              <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect></svg>
+            </button>
+          </div>
+          
+          {promptType ? (
+            <div style={{ position: 'relative' }}>
+              <form className="active-ask-form" onSubmit={submitAsk}>
+                <input
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  placeholder={promptType === 'camera' ? 'Ask about the screen...' : 'Type a custom prompt...'}
+                  disabled={isAsking}
+                  autoFocus
+                />
+                {promptType === 'custom' && (
+                  <button type="button" className="active-source-button" onClick={() => setSourceMenuOpen((value) => !value)}>
+                    Sources
+                  </button>
+                )}
+                <button type="submit" disabled={isAsking || !prompt.trim()}>
+                  {isAsking ? 'Asking...' : 'Send'}
+                </button>
+              </form>
+              
+              {sourceMenuOpen && promptType === 'custom' && (
+                <div className="active-source-menu">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={sources.resume}
+                      onChange={(event) => setSources((current) => ({ ...current, resume: event.target.checked }))}
+                    />
+                    Resume / background
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={sources.memory}
+                      onChange={(event) => setSources((current) => ({ ...current, memory: event.target.checked }))}
+                    />
+                    Longterm memory
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={sources.rag}
+                      disabled={!settings?.ragEnabled}
+                      onChange={(event) => setSources((current) => ({ ...current, rag: event.target.checked }))}
+                    />
+                    RAG (Pinecone)
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={sources.web}
+                      onChange={(event) => setSources((current) => ({ ...current, web: event.target.checked }))}
+                    />
+                    Web Search
+                  </label>
+                  <label className="active-screenshot-toggle">
+                    <input
+                      type="checkbox"
+                      checked={includeScreenshot}
+                      onChange={(event) => setIncludeScreenshot(event.target.checked)}
+                    />
+                    Include screenshot
+                  </label>
+                </div>
+              )}
+            </div>
+          ) : null}
+          
+          <AssistantCards cards={cards} variant="active" />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function LivePanel(props) {
   const {
     cards,
-    commandText,
     context,
     isStreaming,
     liveLevels,
-    mode,
     onCommand,
-    onCommandText,
     onReset,
     onSave,
     onStart,
     onStop,
-    onSubmitCommand,
     transcript
   } = props;
 
@@ -1661,21 +3221,11 @@ function LivePanel(props) {
 
       <div className="command-row">
         {COMMANDS.map((command) => (
-          <button key={command.id} type="button" onClick={() => onCommand(command.id)}>
+          <button key={command.id} data-testid="aiReplyBtn" type="button" onClick={() => onCommand(command.id)}>
             {command.label}
           </button>
         ))}
       </div>
-
-      <form className="command-input" onSubmit={onSubmitCommand}>
-        <input
-          data-testid="commandInput"
-          value={commandText}
-          onChange={(event) => onCommandText(event.target.value)}
-          placeholder={mode === 'interview' ? 'Save a thought or ask Clyde for a sharper answer...' : 'Save a note, decision, or follow-up...'}
-        />
-        <button type="submit">Save note</button>
-      </form>
 
       <div className="live-columns">
         <Transcript transcript={transcript} />
@@ -1706,13 +3256,15 @@ function Transcript({ transcript }) {
   );
 }
 
-function AssistantCards({ cards }) {
+function AssistantCards({ cards, variant = 'default' }) {
+  const active = variant === 'active';
+
   return (
-    <div className="assistant-pane">
-      <div className="pane-title">
+    <div className={active ? 'assistant-pane assistant-pane-active' : 'assistant-pane'}>
+      {active ? null : <div className="pane-title">
         <h3>Live assistant</h3>
         <span>{cards.length} cards</span>
-      </div>
+      </div>}
       <div className="scroll-area card-stack">
         {cards.length ? cards.map((card, index) => (
           <article className={`assistant-card ${card.type || 'note'}`} key={card.id || `${card.title}-${index}`}>
@@ -1727,99 +3279,325 @@ function AssistantCards({ cards }) {
             {card.detail ? <small>{card.detail}</small> : null}
           </article>
         )) : (
-          <EmptyState title="No assistant cards yet" body="Clyde will add answers, recaps, risks, and follow-ups here." />
+          <EmptyState
+            title={active ? 'Ask Clyde or wait for suggestions.' : 'No assistant cards yet'}
+            body={active ? 'Live help will appear here during the call.' : 'Clyde will add answers, recaps, risks, and follow-ups here.'}
+          />
         )}
       </div>
     </div>
   );
 }
 
-function ContextPanel({ activeTab, cards, mode, onTab, settings, transcriptText }) {
-  const prepItems = mode === 'interview'
-    ? [
-      ['Company', settings.currentCompany || 'Not set'],
-      ['Role', settings.currentRole || 'Not set'],
-      ['Resume context', settings.resumeText ? `${settings.resumeText.length.toLocaleString()} characters` : 'Not set']
-    ]
-    : [
-      ['Meeting', settings.meetingTitle || 'Not set'],
-      ['Attendees', attendeeSummary(settings.meetingAttendees) || 'Not set'],
-      ['Long term memory', settings.meetingMemory || 'Not set']
-    ];
+function ContextPanel({ mode, settings, entities, calendarEvents = [] }) {
+  const api = window.electronAPI;
+  const [activeSessions, setActiveSessions] = useState([]);
+  const [trendAnalysis, setTrendAnalysis] = useState(null);
+  const [loadingTrend, setLoadingTrend] = useState(false);
+  const nowMs = useNowMs();
+
+  const activeInterview = mode === 'interview'
+    ? entities.find((entity) => entity.id === settings.currentCompany || entity.name === settings.currentCompany)
+    : null;
+  const activeMeeting = mode === 'meeting'
+    ? entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)
+    : null;
+
+  const activeId = mode === 'interview' ? activeInterview?.id : activeMeeting?.id;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      if (!activeId || !api?.getSessions) {
+        setActiveSessions([]);
+        setTrendAnalysis(null);
+        return;
+      }
+
+      const nextSessions = await api.getSessions({ mode, entityId: activeId });
+      if (cancelled) {
+        return;
+      }
+
+      const normalized = Array.isArray(nextSessions) ? nextSessions : [];
+      setActiveSessions(normalized);
+
+      if (mode !== 'interview' || normalized.length < 2) {
+        setTrendAnalysis(null);
+        return;
+      }
+
+      const sessionSignature = buildTrendAnalysisSessionSignature(normalized);
+      const cacheKey = `trend-analysis-${activeId}`;
+      try {
+        const raw = localStorage.getItem(cacheKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (isTrendAnalysisRecordFresh(parsed, sessionSignature, normalized.length)) {
+            setTrendAnalysis(unwrapTrendAnalysisRecord(parsed));
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to parse trend analysis cache', error);
+      }
+
+      try {
+        const stored = await api?.getTrendAnalysis?.(activeId);
+        if (isTrendAnalysisRecordFresh(stored, sessionSignature, normalized.length)) {
+          const nextAnalysis = unwrapTrendAnalysisRecord(stored);
+          setTrendAnalysis(nextAnalysis);
+          localStorage.setItem(cacheKey, JSON.stringify(stored));
+          return;
+        }
+      } catch (error) {
+        console.warn('Failed to load persisted trend analysis', error);
+      }
+
+      try {
+        localStorage.removeItem(cacheKey);
+      } catch (_error) {
+        // Ignore local cache cleanup failures.
+      }
+
+      if (api?.generateTrendAnalysis) {
+        setLoadingTrend(true);
+        try {
+          const generated = await api.generateTrendAnalysis(activeId);
+          if (cancelled) {
+            return;
+          }
+
+          if (isTrendAnalysisComplete(generated, normalized.length)) {
+            setTrendAnalysis(generated);
+            localStorage.setItem(cacheKey, JSON.stringify({
+              sessionsSignature: sessionSignature,
+              sessionsCount: normalized.length,
+              analysis: generated
+            }));
+            return;
+          }
+        } catch (error) {
+          console.warn('Failed to generate pre-call prep', error);
+        } finally {
+          if (!cancelled) {
+            setLoadingTrend(false);
+          }
+        }
+      }
+
+      setTrendAnalysis(null);
+      setLoadingTrend(false);
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, api, mode]);
+
+  if (mode === 'interview' && !activeInterview) {
+    return null;
+  }
+  if (mode === 'meeting' && !activeMeeting) {
+    return null;
+  }
+
+  const sortedSessions = [...activeSessions].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const latestSession = sortedSessions[0];
+  const meetingActionGroups = normalizeActionItemGroups(latestSession?.notes?.actionItems || []);
+  const interviewFallbackSummary = latestSession?.notes?.summary || 'No summary available yet.';
+  const preCallPrep = trendAnalysis?.pre_call_prep || null;
+  const hasPreCallPrep = Boolean(
+    preCallPrep
+    && ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'questions_to_ask']
+      .every((key) => Array.isArray(preCallPrep[key]) && preCallPrep[key].length === 3)
+  );
+  const nextInterviewEvent = mode === 'interview'
+    ? [...calendarEvents]
+      .filter((event) => {
+        const eventTime = new Date(event?.date).getTime();
+        return event?.entityId === activeInterview?.id
+          && Number.isFinite(eventTime) && eventTime >= nowMs;
+      })
+      .sort((a, b) => new Date(a.date) - new Date(b.date))[0]
+    : null;
+  const interviewSummaryParsed = parseEvaluationText(interviewFallbackSummary);
+  const meetingSummaryParsed = parseEvaluationText(latestSession?.notes?.summary || '');
 
   return (
     <aside className="context-panel">
-      <div className="tabs">
-        {['prep', 'review', 'privacy'].map((tab) => (
-          <button className={activeTab === tab ? 'active' : ''} key={tab} type="button" onClick={() => onTab(tab)}>
-            {tab}
-          </button>
-        ))}
-      </div>
+      <div className="context-section">
+        <h3>Pre-call prep</h3>
 
-      {activeTab === 'prep' ? (
-        <div className="context-section">
-          <h3>Pre-call prep</h3>
-          {prepItems.map(([label, value]) => (
-            <div className="info-row" key={label}>
-              <span>{label}</span>
-              <strong>{value}</strong>
+        {mode === 'interview' ? (
+          <>
+            <div className="info-row">
+              <span>Company</span>
+              <strong>{activeInterview.name || 'Not set'}</strong>
             </div>
-          ))}
-          <div className="suggestion-box">
-            <strong>Likely topics</strong>
-            <p>{mode === 'interview' ? 'Project depth, role fit, constraints, and measurable outcomes.' : 'Decisions, owners, blockers, and follow-up dates.'}</p>
-          </div>
-        </div>
-      ) : null}
+            <div className="info-row">
+              <span>Role</span>
+              <strong>{activeInterview.role || settings.currentRole || 'Not set'}</strong>
+            </div>
 
-      {activeTab === 'review' ? (
-        <div className="context-section">
-          <h3>Post-call review</h3>
-          <div className="info-row">
-            <span>Transcript</span>
-            <strong>{transcriptText ? `${transcriptText.length.toLocaleString()} characters` : 'No transcript'}</strong>
-          </div>
-          <div className="info-row">
-            <span>Assistant cards</span>
-            <strong>{cards.length}</strong>
-          </div>
-          <div className="suggestion-box">
-            <strong>Editable follow-up draft</strong>
-            <p>{buildFollowUpDraft(mode, settings, cards)}</p>
-          </div>
-        </div>
-      ) : null}
+            {activeSessions.length >= 2 ? (
+              <>
+                {nextInterviewEvent ? (
+                  <div className="suggestion-box">
+                    <strong>Next session</strong>
+                    <p style={{ marginTop: '8px' }}>
+                      <strong>{nextInterviewEvent.title || 'Scheduled interview'}</strong><br />
+                      {formatEventDateTime(nextInterviewEvent.date)}
+                    </p>
+                    {nextInterviewEvent.description ? <p>{nextInterviewEvent.description}</p> : null}
+                  </div>
+                ) : null}
 
-      {activeTab === 'privacy' ? (
-        <div className="context-section">
-          <h3>Privacy controls</h3>
-          <div className="info-row">
-            <span>Provider path</span>
-            <strong>{settings.llmProvider === 'local' ? 'Local model' : `${settings.llmProvider} API`}</strong>
-          </div>
-          <div className="info-row">
-            <span>Overlay</span>
-            <strong>{settings.screenShareHidden ? 'Screen-share safe' : 'Visible'}</strong>
-          </div>
-          <div className="hotkeys">
-            <span>Ctrl+Shift+A Assist</span>
-            <span>Ctrl+Shift+R Recap</span>
-            <span>Ctrl+Shift+S Save note</span>
-          </div>
-        </div>
-      ) : null}
+                {loadingTrend && !hasPreCallPrep ? (
+                  <div className="suggestion-box">
+                    <strong>Pre-call analysis</strong>
+                    <p>Generating AI prep from the saved interviews...</p>
+                  </div>
+                ) : null}
+
+                {hasPreCallPrep ? (
+                  <>
+                    <div className="suggestion-box">
+                      <strong>Phase-by-Phase Breakdown</strong>
+                      <ul className="action-list">
+                        {preCallPrep.cumulative_phase_summary.map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="suggestion-box">
+                      <strong>Probable focus for next round</strong>
+                      <ul className="action-list">
+                        {preCallPrep.probable_focus.map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="suggestion-box">
+                      <strong>Previous interviewer question patterns</strong>
+                      <ul className="action-list">
+                        {preCallPrep.interviewer_question_patterns.map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="suggestion-box">
+                      <strong>Questions you can ask</strong>
+                      <ul className="action-list">
+                        {preCallPrep.questions_to_ask.map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
+                ) : !loadingTrend ? (
+                  <div className="suggestion-box">
+                    <strong>Pre-call analysis</strong>
+                    <p>No AI prep available yet.</p>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="suggestion-box">
+                <strong>Latest session summary</strong>
+                {interviewSummaryParsed.overview ? <p>{interviewSummaryParsed.overview}</p> : null}
+                {interviewSummaryParsed.sections.length ? (
+                  <div className="evaluation-sections" style={{ marginTop: '8px' }}>
+                    {interviewSummaryParsed.sections.map((section, index) => (
+                      <div className="evaluation-section" key={`${section.title}-${index}`}>
+                        {section.title ? <h4>{section.title}</h4> : null}
+                        {section.body ? <p>{section.body}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {!interviewSummaryParsed.overview && !interviewSummaryParsed.sections.length ? (
+                  <p>No summary available yet.</p>
+                ) : null}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="info-row">
+              <span>Meeting</span>
+              <strong>{activeMeeting.name || 'Not set'}</strong>
+            </div>
+            <div className="info-row">
+              <span>Attendees</span>
+              <strong>{attendeeSummary(activeMeeting.attendees) || attendeeSummary(settings.meetingAttendees) || 'Not set'}</strong>
+            </div>
+            <div className="suggestion-box">
+              <strong>Last meeting summary</strong>
+              {meetingSummaryParsed.overview ? <p>{meetingSummaryParsed.overview}</p> : null}
+              {meetingSummaryParsed.sections.length ? (
+                <div className="evaluation-sections" style={{ marginTop: '8px' }}>
+                  {meetingSummaryParsed.sections.map((section, index) => (
+                    <div className="evaluation-section" key={`${section.title}-${index}`}>
+                      {section.title ? <h4>{section.title}</h4> : null}
+                      {section.body ? <p>{section.body}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {!meetingSummaryParsed.overview && !meetingSummaryParsed.sections.length ? (
+                <p>No meeting summary available yet.</p>
+              ) : null}
+            </div>
+            <div className="suggestion-box">
+              <strong>Action items</strong>
+              {meetingActionGroups.length ? (
+                <div className="evaluation-action-items" style={{ marginTop: '8px' }}>
+                  <div className="action-item-groups">
+                    {meetingActionGroups.map((group, index) => (
+                      <section className="action-item-group" key={`${group.attendee || 'unassigned'}-${index}`}>
+                        <strong>{group.attendee || 'Unassigned'}</strong>
+                        <ul className="action-item-list">
+                        {group.items.map((item, itemIndex) => (
+                          <li key={`${item}-${itemIndex}`}>{item}</li>
+                        ))}
+                      </ul>
+                      </section>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p>No action items available yet.</p>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </aside>
   );
 }
 
-function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting }) {
+function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeMeetingId = mode === 'meeting'
     ? entities.find((entity) => entity.id === settings?.meetingTitle || entity.name === settings?.meetingTitle)?.id || ''
     : '';
   const [hasJd, setHasJd] = useState(false);
   const api = window.electronAPI;
+  const nowMs = useNowMs();
+  
+  const entityEvents = (calendarEvents || [])
+    .filter((event) => {
+      const eventTime = new Date(event?.date).getTime();
+      return event?.entityId === selectedEntity
+        && Number.isFinite(eventTime) && eventTime >= nowMs;
+    })
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
 
   useEffect(() => {
     if (selected && api?.getCompanyJobDescription) {
@@ -1932,6 +3710,9 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNew
           </div>
           {selected && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button type="button" className="primary-action" onClick={() => window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: selected }))}>
+                + Add Event
+              </button>
               {mode === 'interview' && (
                 <button type="button" onClick={() => onEditEntity(selected)}>
                   Edit details
@@ -1953,6 +3734,26 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNew
             </div>
           )}
         </div>
+        
+        {selected && entityEvents.length > 0 && (
+          <div className="upcoming-events-section" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px', marginBottom: '20px', margin: '0 20px 20px 20px' }}>
+            <h4 style={{ margin: '0 0 15px 0', color: 'var(--text)', fontWeight: 500 }}>Upcoming Events</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {entityEvents.map(evt => (
+                <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px', borderLeft: `4px solid ${evt.color || 'var(--cyan)'}` }}>
+                  <div>
+                    <strong style={{ display: 'block', color: 'var(--text)', fontSize: '0.95rem' }}>{evt.title}</strong>
+                    <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{new Date(evt.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                  </div>
+                  <button type="button" className="small-action" onClick={() => window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: { entity: selected, evt } }))}>
+                    Edit
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="session-list">
           {sessions.length ? sessions.map((session) => (
             <SessionBlock
@@ -1969,6 +3770,8 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNew
 }
 
 function SessionBlock({ session, onDelete, onEdit }) {
+  const transcriptRating = getTranscriptRating(session.grading);
+
   return (
     <article className="session-block">
       <div className="session-head">
@@ -1988,9 +3791,22 @@ function SessionBlock({ session, onDelete, onEdit }) {
           </div>
           <p>{new Date(session.date).toLocaleString()}</p>
         </div>
-        {session.grading?.grade ? <span className="grade-pill">{session.grading.grade}</span> : <span className="grade-pill muted">{session.mode}</span>}
+        <div className="session-grade-stack">
+          {session.mode === 'interview' && transcriptRating !== null ? (
+            <div className="session-rating" title={`Transcript rating ${transcriptRating} out of 5`}>
+              <span>Transcript rating</span>
+              <StarRating rating={transcriptRating} />
+            </div>
+          ) : (
+            <span className="grade-pill muted">{session.mode === 'interview' ? 'Transcript rating pending' : session.mode}</span>
+          )}
+        </div>
       </div>
-      <EvaluationNotes summary={session.notes?.summary} examples={session.mode === 'interview' ? (session.grading?.examples || []) : (session.notes?.actionItems || [])} />
+      <EvaluationNotes
+        mode={session.mode}
+        summary={session.notes?.summary}
+        examples={session.mode === 'interview' ? (session.grading?.examples || []) : (session.notes?.actionItems || [])}
+      />
       <details>
         <summary>Transcript</summary>
         <div className="session-transcript">
@@ -2005,17 +3821,19 @@ function SessionBlock({ session, onDelete, onEdit }) {
   );
 }
 
-function EvaluationNotes({ summary, examples = [] }) {
+function EvaluationNotes({ mode = 'interview', summary, examples = [] }) {
   const evaluation = parseEvaluationText(summary);
   const hasSummary = Boolean(evaluation.overview || evaluation.sections.length);
-  const cleanExamples = examples.map(cleanEvaluationText).filter(Boolean);
+  const actionGroups = mode === 'meeting'
+    ? normalizeActionItemGroups(examples)
+    : examples.map(cleanEvaluationText).filter(Boolean);
 
-  if (!hasSummary && !cleanExamples.length) {
+  if (!hasSummary && !actionGroups.length) {
     return null;
   }
 
   return (
-    <section className="evaluation-notes" aria-label="Interview evaluation">
+    <section className="evaluation-notes" aria-label={mode === 'meeting' ? 'Meeting notes' : 'Interview evaluation'}>
       {evaluation.overview ? <p className="session-summary">{evaluation.overview}</p> : null}
       {evaluation.sections.length ? (
         <div className="evaluation-sections">
@@ -2027,10 +3845,28 @@ function EvaluationNotes({ summary, examples = [] }) {
           ))}
         </div>
       ) : null}
-      {cleanExamples.length ? (
-        <ul className="action-list evaluation-examples">
-          {cleanExamples.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
-        </ul>
+      {actionGroups.length ? (
+        mode === 'meeting' ? (
+          <div className="evaluation-action-items">
+            <h4>Action items</h4>
+            <div className="action-item-groups">
+              {actionGroups.map((group, groupIndex) => (
+                <section className="action-item-group" key={`${group.attendee || 'unassigned'}-${groupIndex}`}>
+                  <strong>{group.attendee || 'Unassigned'}</strong>
+                  <ul className="action-item-list">
+                    {group.items.map((item, itemIndex) => (
+                      <li key={`${item}-${itemIndex}`}>{item}</li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <ul className="action-list evaluation-examples">
+            {actionGroups.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+          </ul>
+        )
       ) : null}
     </section>
   );
@@ -2068,6 +3904,16 @@ function SetupFields({ compact = false, mode, onSave, settings }) {
     setDraft({ ...settings });
   }, [settings]);
 
+  useEffect(() => {
+    applyUiOpacityToRoot(draft.uiOpacity);
+  }, [draft.uiOpacity]);
+
+  useEffect(() => {
+    return () => {
+      applyUiOpacityToRoot(settings.uiOpacity);
+    };
+  }, [settings.uiOpacity]);
+
   function update(key, value) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
@@ -2098,6 +3944,18 @@ function SetupFields({ compact = false, mode, onSave, settings }) {
 
       {activeTab === 'context' && (
         <>
+          <label className="wide-field" style={{ marginTop: '15px' }}>
+            App opacity: {clampUiOpacity(draft.uiOpacity)}%
+            <input
+              type="range"
+              min="35"
+              max="200"
+              step="1"
+              value={clampUiOpacity(draft.uiOpacity)}
+              onChange={(event) => update('uiOpacity', Number(event.target.value))}
+            />
+            <small style={{ color: 'var(--muted)' }}>Left is more translucent. Right is fully opaque.</small>
+          </label>
           <label className="wide-field" style={{ marginTop: '15px' }}>
             {mode === 'interview' ? 'Resume / background' : 'Long term memory'}
             <textarea
@@ -2194,14 +4052,6 @@ function SetupFields({ compact = false, mode, onSave, settings }) {
       )}
 
       <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        <label className="toggle-row">
-          <input
-            type="checkbox"
-            checked={Boolean(draft.screenShareHidden)}
-            onChange={(event) => update('screenShareHidden', event.target.checked)}
-          />
-          Screen-share safe overlay state
-        </label>
         <button type="submit" className="primary-action">Save setup</button>
       </div>
     </form>
@@ -2263,50 +4113,6 @@ function labelForCard(type) {
   }[type] || 'Note';
 }
 
-function makeLocalCommandCard(command, transcript, settings) {
-  const summary = summarizeTranscript(transcript);
-
-  if (command === 'recap') {
-    return {
-      id: `recap-${Date.now()}`,
-      type: 'recap',
-      title: 'Recap',
-      body: summary || 'No transcript yet.'
-    };
-  }
-
-  if (command === 'follow_up') {
-    return {
-      id: `follow-up-${Date.now()}`,
-      type: 'follow_up',
-      title: 'Follow-up',
-      body: settings.appMode === 'meeting'
-        ? 'Can we confirm the owner, deadline, and next check-in for this item?'
-        : 'Can you tell me what success looks like for this role in the first 90 days?'
-    };
-  }
-
-  if (command === 'summary') {
-    return {
-      id: `summary-${Date.now()}`,
-      type: 'note',
-      title: 'Last segment',
-      body: summary || 'No recent transcript to summarize.'
-    };
-  }
-
-  if (command === 'note') {
-    return {
-      id: `note-${Date.now()}`,
-      type: 'note',
-      title: 'Saved note',
-      body: 'Marked this moment for post-call review.'
-    };
-  }
-
-  return null;
-}
-
 function summarizeTranscript(transcript) {
   const lastTurns = transcript.slice(-4);
   if (!lastTurns.length) {
@@ -2360,6 +4166,140 @@ function attendeeLines(attendees) {
   }
 
   return attendees.map((attendee) => attendee.role ? `${attendee.name}: ${attendee.role}` : attendee.name).join(', ');
+}
+
+function getMeetingTranscriptFallback(session) {
+  const transcript = Array.isArray(session?.transcript) ? session.transcript : [];
+  const summary = String(session?.notes?.summary || '').trim();
+
+  if (session?.mode === 'meeting' && transcript.length === 0 && looksLikeTranscriptText(summary)) {
+    return {
+      summary: '',
+      transcriptText: summary
+    };
+  }
+
+  return {
+    summary,
+    transcriptText: transcriptToText(transcript)
+  };
+}
+
+function normalizeActionItemGroups(items = []) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const groups = new Map();
+
+  for (const item of items) {
+    if (!item) {
+      continue;
+    }
+
+    if (typeof item === 'string') {
+      const text = cleanEvaluationText(item);
+      if (!text) {
+        continue;
+      }
+
+      const existing = groups.get('Unassigned') || { attendee: 'Unassigned', items: [] };
+      existing.items.push(text);
+      groups.set('Unassigned', existing);
+      continue;
+    }
+
+    const attendee = cleanEvaluationText(item.attendee || item.owner || item.name || '') || 'Unassigned';
+    const values = Array.isArray(item.items)
+      ? item.items.map(cleanEvaluationText).filter(Boolean)
+      : [cleanEvaluationText(item.text || item.body || item.action || item.note || '')].filter(Boolean);
+
+    if (!values.length) {
+      continue;
+    }
+
+    const existing = groups.get(attendee) || { attendee, items: [] };
+    existing.items.push(...values);
+    groups.set(attendee, existing);
+  }
+
+  return Array.from(groups.values());
+}
+
+function formatActionItemsForEditor(items = []) {
+  return normalizeActionItemGroups(items)
+    .flatMap((group) => group.items.map((item) => group.attendee && group.attendee !== 'Unassigned' ? `${group.attendee}: ${item}` : item))
+    .join('\n');
+}
+
+function parseMeetingTranscriptInput(data = {}) {
+  const rawTranscript = String(data.transcriptText || '').trim();
+  if (rawTranscript) {
+    return parseRawTranscript(rawTranscript);
+  }
+
+  const memoryText = String(data.memory || '').trim();
+  if (looksLikeTranscriptText(memoryText)) {
+    return parseRawTranscript(memoryText);
+  }
+
+  return [];
+}
+
+function looksLikeTranscriptText(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return false;
+  }
+
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) {
+    return false;
+  }
+
+  let speakerLines = 0;
+  for (const line of lines) {
+    if (/^[^:]{2,40}:\s+\S+/.test(line)) {
+      speakerLines += 1;
+    }
+  }
+
+  return speakerLines >= 2 || /^(Transcript|Meeting Transcript|Meeting notes)[:\s]/i.test(lines[0]);
+}
+
+function parseActionItemsText(value) {
+  const groups = new Map();
+  const lines = String(value || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const match = line.match(/^([^:]+):\s*(.+)$/);
+    if (match) {
+      const attendee = cleanEvaluationText(match[1]) || 'Unassigned';
+      const item = cleanEvaluationText(match[2]);
+      if (!item) {
+        continue;
+      }
+
+      const existing = groups.get(attendee) || { attendee, items: [] };
+      existing.items.push(item);
+      groups.set(attendee, existing);
+      continue;
+    }
+
+    const existing = groups.get('Unassigned') || { attendee: 'Unassigned', items: [] };
+    existing.items.push(cleanEvaluationText(line));
+    groups.set('Unassigned', existing);
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      attendee: group.attendee || 'Unassigned',
+      items: group.items.filter(Boolean)
+    }))
+    .filter((group) => group.items.length);
 }
 
 function parseAttendees(value) {
