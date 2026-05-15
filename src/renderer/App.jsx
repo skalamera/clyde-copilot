@@ -3193,7 +3193,7 @@ function LivePanel(props) {
           <button data-testid="startBtn" type="button" onClick={onStart} disabled={isStreaming}>Start</button>
           <button data-testid="stopBtn" type="button" onClick={onStop} disabled={!isStreaming}>Stop</button>
           <button data-testid="saveBtn" type="button" onClick={onSave} disabled={isStreaming || transcript.length === 0}>Save</button>
-          <button type="button" className="icon-button" onClick={onReset} title="Reset session">Reset</button>
+          <button type="button" onClick={onReset} title="Reset session">Reset</button>
         </div>
       </div>
 
