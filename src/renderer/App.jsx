@@ -2528,6 +2528,8 @@ function App() {
     <div className={`app-shell ${activeCapture ? 'app-shell-active' : ''}`}>
       {activeCapture ? null : (
       <TitleBar
+        isStreaming={isStreaming}
+        onStartCapture={startCapture}
         entities={entities}
         mode={mode}
         onModeChange={chooseMode}
@@ -2564,6 +2566,7 @@ function App() {
             onReset={resetSession}
             settings={settings}
             captureProtectionEnabled={settings?.captureProtectionEnabled}
+            liveLevels={liveLevels}
             onToggleCaptureProtection={toggleCaptureProtection}
           />
         ) : (
@@ -2640,7 +2643,7 @@ function App() {
               mode={mode}
               provider={settings.llmProvider}
               status={status}
-              startCapture={startCapture}
+              
             />
 
           {setupOpen ? (
@@ -2654,27 +2657,14 @@ function App() {
             />
           ) : null}
 
-          <section className="live-grid">
-            <LivePanel
-              cards={filteredCards}
-              context={context}
-              isStreaming={isStreaming}
-              liveLevels={liveLevels}
-              onCommand={runCommand}
-              onReset={resetSession}
-              onSave={saveCurrentSession}
-              onStart={startCapture}
-              onStop={stopCapture}
-              status={status}
-              transcript={transcript}
-            />
-            <ContextPanel
-              mode={mode}
-              settings={settings}
-              entities={entities}
-              calendarEvents={calendarEvents}
-            />
-          </section>
+          <section className="context-full-width">
+              <ContextPanel
+                mode={mode}
+                settings={settings}
+                entities={entities}
+                calendarEvents={calendarEvents}
+              />
+            </section>
         </>}
         </>
         )}
@@ -2808,7 +2798,8 @@ function App() {
   );
 }
 
-function TitleBar({ entities, mode, onModeChange, onSettings, settings, onToggleCaptureProtection, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
+function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, onSettings, settings, onToggleCaptureProtection,
+  onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
   const isInterview = mode === 'interview';
   const api = window.electronAPI;
   const captureProtectionEnabled = settings.captureProtectionEnabled !== false;
@@ -2837,6 +2828,8 @@ function TitleBar({ entities, mode, onModeChange, onSettings, settings, onToggle
       </div>
 
       <div className="title-context">
+        {!isStreaming && <button className="primary-action" type="button" onClick={onStartCapture} style={{ padding: '6px 20px', minHeight: '34px', fontSize: '0.9rem' }}>Start</button>}
+        
         {isInterview ? (
           <>
             <span className="title-context-label">Active Interview:</span>
@@ -2980,7 +2973,7 @@ function ModeToggle({ mode, onChange }) {
   );
 }
 
-function StatusStrip({ health, isStreaming, mode, provider, status, startCapture }) {
+function StatusStrip({ health, isStreaming, mode, provider, status }) {
   return (
     <div className="status-strip">
       <div className="status-line" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
@@ -2988,9 +2981,7 @@ function StatusStrip({ health, isStreaming, mode, provider, status, startCapture
               <span className={`pulse ${isStreaming ? 'live' : ''}`} />
               <strong>{status}</strong>
             </div>
-            {!isStreaming && (
-              <button className="primary-action" type="button" onClick={startCapture} style={{ padding: '4px 16px', minHeight: '30px' }}>Start</button>
-            )}
+            
           </div>
       <div className="status-pills">
         <span>{provider === 'local' ? 'Local LLM' : `${provider} cloud`}</span>
@@ -3027,7 +3018,7 @@ function SetupPanel({ mode, onClose, onSave, onValidate, serviceChecking, settin
   );
 }
 
-function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onShow, onStop, onReset, settings, captureProtectionEnabled, onToggleCaptureProtection }) {
+function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onShow, onStop, onReset, settings, captureProtectionEnabled, onToggleCaptureProtection, liveLevels }) {
   const [prompt, setPrompt] = useState('');
   const [promptType, setPromptType] = useState(null);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
@@ -3183,6 +3174,27 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
             </div>
           ) : null}
           
+          <div className="meters" data-testid="liveVoiceMeters" style={{ gridTemplateColumns: '1fr', margin: '0' }}>
+            {liveLevels?.length ? liveLevels.map((source) => (
+              <div className={meter } key={source.id || source.label} style={{ padding: '8px' }}>
+                <div style={{ marginBottom: '4px' }}>
+                  <strong style={{ fontSize: '0.8rem' }}>{source.label || 'Audio'}</strong>
+                  <span style={{ fontSize: '0.7rem' }}>{Math.round(source.rms || 0)} RMS</span>
+                </div>
+                <div className="meter-track" style={{ height: '4px' }}>
+                  <span style={{ width: String(Math.max(0, Math.min(100, source.level || 0))) + "%" }} />
+                </div>
+              </div>
+            )) : (
+              <div className="meter empty" style={{ padding: '8px' }}>
+                <div style={{ marginBottom: '4px' }}>
+                  <strong style={{ fontSize: '0.8rem' }}>Audio levels</strong>
+                  <span style={{ fontSize: '0.7rem' }}>Start capture to monitor sources</span>
+                </div>
+                <div className="meter-track" style={{ height: '4px' }}><span /></div>
+              </div>
+            )}
+          </div>
           <AssistantCards cards={cards} variant="active" />
         </div>
       ) : null}
@@ -4270,7 +4282,7 @@ function looksLikeTranscriptText(value) {
 
   let speakerLines = 0;
   for (const line of lines) {
-    if (/^[^:]{2,40}:\s+\S+/.test(line)) {
+    if (new RegExp('^[^:]{2,40}:\\s+\\S+').test(line)) {
       speakerLines += 1;
     }
   }
