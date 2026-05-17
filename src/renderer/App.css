@@ -1724,14 +1724,15 @@ h1 {
     flex-shrink: 0;
   }
 
-    .entity-list,
-    .session-list {
-      display: grid;
-      gap: 10px;
-      overflow-y: auto;
-      min-height: 0;
-      flex: 1;
-    }
+      .entity-list,
+      .session-list {
+        display: grid;
+        gap: 10px;
+        overflow-y: auto;
+        min-height: 0;
+        flex: 1;
+        padding-bottom: 20px;
+      }
 
 .entity-list .opportunity-row > button:first-child {
   display: grid;
@@ -2253,12 +2254,13 @@ label {
     }
 
     .timeline-rail {
-        border-right: 0;
-        border-bottom: 1px solid var(--line);
-        height: 35vh;
-        min-height: 250px;
-        max-height: none;
-      }
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          height: 35vh;
+          min-height: 250px;
+          max-height: none;
+          padding-bottom: 30px;
+        }
 
     .timeline-rail-resizer {
       display: none;
