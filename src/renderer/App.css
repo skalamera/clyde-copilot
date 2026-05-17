@@ -1684,9 +1684,6 @@ h1 {
     min-width: 0;
     overflow: auto;
     padding: 16px;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
   }
 
 .timeline-rail-resizer {
@@ -1729,9 +1726,6 @@ h1 {
   .session-list {
     display: grid;
     gap: 10px;
-    min-height: 0;
-    flex: 1;
-    overflow-y: auto;
   }
 
 .entity-list .opportunity-row > button:first-child {
@@ -2256,8 +2250,7 @@ label {
     .timeline-rail {
       border-right: 0;
       border-bottom: 1px solid var(--line);
-      max-height: 40vh;
-      flex: 0 0 auto;
+      max-height: 35vh;
     }
 
     .timeline-rail-resizer {
