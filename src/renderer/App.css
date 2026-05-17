@@ -1679,12 +1679,15 @@ h1 {
   overflow: hidden;
 }
 
-.timeline-rail {
-  border-right: 1px solid var(--line);
-  min-width: 0;
-  overflow: auto;
-  padding: 16px;
-}
+  .timeline-rail {
+    border-right: 1px solid var(--line);
+    min-width: 0;
+    overflow: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
 
 .timeline-rail-resizer {
   align-self: stretch;
@@ -1717,15 +1720,19 @@ h1 {
   padding: 16px;
 }
 
-.timeline-heading {
-  margin-bottom: 12px;
-}
+  .timeline-heading {
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
 
-.entity-list,
-.session-list {
-  display: grid;
-  gap: 10px;
-}
+  .entity-list,
+  .session-list {
+    display: grid;
+    gap: 10px;
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+  }
 
 .entity-list .opportunity-row > button:first-child {
   display: grid;
@@ -2211,13 +2218,14 @@ label {
   color: var(--text);
 }
 
-@media (max-width: 1120px) {
-  .live-grid,
-  .timeline-view {
-    grid-template-columns: 1fr;
-  }
+  @media (max-width: 1120px) {
+    .live-grid,
+    .timeline-view {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+    }
 
-  .workspace-nav {
+    .workspace-nav {
     grid-template-columns: 1fr;
   }
 
@@ -2241,18 +2249,20 @@ label {
     grid-column: span 2;
   }
 
-  .context-panel {
-    order: -1;
-  }
+    .context-panel {
+      order: -1;
+    }
 
-  .timeline-rail {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
+    .timeline-rail {
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+      max-height: 40vh;
+      flex: 0 0 auto;
+    }
 
-  .timeline-rail-resizer {
-    display: none;
-  }
+    .timeline-rail-resizer {
+      display: none;
+    }
 
   .brand-mark {
     height: 78px;
