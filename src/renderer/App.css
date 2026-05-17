@@ -1724,15 +1724,14 @@ h1 {
     flex-shrink: 0;
   }
 
-      .entity-list,
-      .session-list {
-        display: grid;
-        gap: 10px;
-        overflow-y: auto;
-        min-height: 0;
-        flex: 1;
-        padding-bottom: 20px;
-      }
+        .entity-list,
+        .session-list {
+          display: grid;
+          gap: 10px;
+          overflow-y: auto;
+          min-height: 0;
+          flex: 1;
+        }
 
 .entity-list .opportunity-row > button:first-child {
   display: grid;
@@ -1907,6 +1906,10 @@ h1 {
 .opportunity-section-list {
   display: grid;
   gap: 10px;
+}
+
+.opportunity-section:last-child {
+  padding-bottom: 20px;
 }
 
 .confidence-pill {
@@ -2254,12 +2257,21 @@ label {
     }
 
     .timeline-rail {
-          border-right: 0;
-          border-bottom: 1px solid var(--line);
-          height: 35vh;
-          min-height: 250px;
-          max-height: none;
-          padding-bottom: 30px;
+            border-right: 0;
+            border-bottom: 1px solid var(--line);
+            height: 35vh;
+            min-height: 250px;
+            max-height: none;
+          }
+
+        .entity-list,
+        .session-list {
+          display: grid;
+          gap: 10px;
+          overflow-y: auto;
+          min-height: 0;
+          flex: 1;
+          padding-bottom: 20px;
         }
 
     .timeline-rail-resizer {
