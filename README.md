@@ -9,14 +9,15 @@ Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Bu
 ### 🎙️ Real-Time Audio Capture & Transcription
 *   **Multi-channel Capture**: Records both your microphone ("You") and system audio ("Others") using `native-audio-node`.
 *   **Live Transcription**: Streams audio chunks to a local Whisper server or OpenAI's Cloud API to generate a continuous transcript.
-*   **Visual Audio Meters**: Features a compact, ghost-themed HUD that provides live audio levels (RMS) and speaking indicators for local and remote participants.
+*   **Visual Audio Meters**: Integrated directly into the sidebar to provide live audio levels (RMS) and speaking indicators for local and remote participants without obscuring your view.
 
 ### 🤖 Live AI Assistant (Active Capture)
-*   **Compact Floating HUD**: A draggable, unobtrusive overlay that stays on top of your screen during calls.
+*   **Sidebar & Top Control Bar**: A streamlined top control bar and sidebar layout that sits nicely alongside your video calls.
+*   **Calendar Integration**: Quickly launch active capture for upcoming meetings via the integrated start button and calendar modal actions.
 *   **Contextual Nudges**: Click the "Nudge" button to get immediate AI suggestions on what to say next based on the live transcript.
 *   **Screenshot Awareness**: Capture your current screen context alongside your prompt to get help with code, presentations, or technical questions.
 *   **Custom Prompts**: Query the AI manually at any time during the meeting.
-*   **Capture Protection**: Privacy toggle that prevents Clyde's HUD from showing up in your own screen shares.
+*   **Capture Protection**: Privacy toggle that prevents Clyde's overlay from showing up in your own screen shares.
 
 ### 💼 Interview & Meeting Modes
 *   **Interview Mode**: Track opportunities by Company and Role. Paste in Job Descriptions to give Clyde deep context for tailoring interview answers.
@@ -24,7 +25,8 @@ Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Bu
 
 ### 📈 Pre-Call Prep & Post-Call Analytics
 *   **Automated Grading**: Clyde automatically grades your interview performance (0-5 stars) evaluating clarity, technical accuracy, and conciseness.
-*   **Trend Analysis**: Plots your transcript ratings over time using interactive charts (`Recharts`). Computes confidence scores (0-100%) and overall momentum (Up, Down, Sideways).
+*   **Trend Analysis**: Plots your transcript ratings over time using interactive charts (`Recharts`). Computes confidence scores (0-100%) and overall momentum (Up, Down, Sideways), utilizing session signature generation to accurately map topics across multiple sessions.
+*   **Outcome-Labeled Opportunity Learning**: Clyde uses explicitly labeled past interview outcomes (e.g., advanced, offer, rejected) to automatically calibrate its advice, leaning on successful past answers to guide you better in future rounds.
 *   **Pre-Call Prep**: Analyzes past interviews for the same company to generate cumulative summaries, probable focus areas, interviewer question patterns, and questions you should ask.
 
 ### 🧠 Long-Term Memory & RAG
@@ -55,8 +57,8 @@ Clyde follows a standard Electron multi-process architecture, heavily relying on
 |          |            Electron Renderer Process        |              |
 |                                                                       |
 |  +----------------+   +-----------------+   +----------------------+  |
-|  |  Active HUD    |   |  Timeline View  |   | Trend & Prep Panels  |  |
-|  | (Ghost Meters) |   | (Transcript UI) |   | (Recharts, Stats)    |  |
+|  | Active Sidebar |   |  Timeline View  |   | Trend & Prep Panels  |  |
+|  | (Control Bar)  |   | (Transcript UI) |   | (Recharts, Stats)    |  |
 |  +----------------+   +-----------------+   +----------------------+  |
 |                                                                       |
 |                       React + Vite + CSS Modules                      |
