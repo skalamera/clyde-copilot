@@ -938,9 +938,10 @@ h1 {
 .timeline-heading,
 .timeline-title,
 .drawer-head {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: flex-start;
   gap: 12px;
 }
 
@@ -1767,6 +1768,13 @@ h1 {
   margin-bottom: 6px;
 }
 
+.timeline-title-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .calibration-note {
   color: #c4a1ff;
   font-size: 0.78rem;
@@ -1781,7 +1789,7 @@ h1 {
   align-items: center;
   gap: 6px;
   font-weight: 500;
-  white-space: nowrap;
+  white-space: wrap;
   width: fit-content;
 }
 

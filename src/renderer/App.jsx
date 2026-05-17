@@ -4840,11 +4840,11 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
               <p>{sessions.length} saved sessions</p>
               {mode === 'interview' && selected ? <OutcomeBadge outcome={selected.outcome} /> : null}
             </div>
-            {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
-          </div>
-          {selected && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button type="button" className="primary-action" onClick={() => window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: selected }))}>
+              {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
+            </div>
+            {selected && (
+              <div className="timeline-title-actions">
+                <button type="button" className="primary-action" onClick={() => window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: selected }))}>
                 + Add Event
               </button>
               {mode === 'interview' && (
