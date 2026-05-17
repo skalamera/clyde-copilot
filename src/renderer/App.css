@@ -1682,7 +1682,7 @@ h1 {
   .timeline-rail {
     border-right: 1px solid var(--line);
     min-width: 0;
-    overflow: auto;
+    overflow: hidden;
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -1724,11 +1724,14 @@ h1 {
     flex-shrink: 0;
   }
 
-  .entity-list,
-  .session-list {
-    display: grid;
-    gap: 10px;
-  }
+    .entity-list,
+    .session-list {
+      display: grid;
+      gap: 10px;
+      overflow-y: auto;
+      min-height: 0;
+      flex: 1;
+    }
 
 .entity-list .opportunity-row > button:first-child {
   display: grid;
@@ -2218,7 +2221,7 @@ label {
     .live-grid,
     .timeline-view {
       grid-template-columns: 1fr;
-      grid-template-rows: min-content 1fr;
+      grid-template-rows: auto 1fr;
     }
 
     .workspace-nav {
@@ -2250,12 +2253,12 @@ label {
     }
 
     .timeline-rail {
-      border-right: 0;
-      border-bottom: 1px solid var(--line);
-      height: 35vh;
-      max-height: 400px;
-      min-height: 250px;
-    }
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        height: 35vh;
+        min-height: 250px;
+        max-height: none;
+      }
 
     .timeline-rail-resizer {
       display: none;
