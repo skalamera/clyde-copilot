@@ -1768,10 +1768,22 @@ h1 {
 }
 
 .calibration-note {
-  color: var(--muted);
+  color: #c4a1ff;
   font-size: 0.78rem;
   line-height: 1.35;
-  margin-top: 7px;
+  margin-top: 10px;
+  background: rgba(142, 68, 255, 0.1);
+  border: 1px solid rgba(142, 68, 255, 0.4);
+  padding: 4px 12px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.calibration-note-icon {
+  font-size: 0.85rem;
 }
 
 .opportunity-row {

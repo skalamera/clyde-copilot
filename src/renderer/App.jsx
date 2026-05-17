@@ -206,9 +206,10 @@ function OutcomeCalibrationNote({ summary }) {
   }
 
   return (
-    <p className="calibration-note">
+    <div className="calibration-note">
+      <span className="calibration-note-icon">⚖️</span>
       {formatOutcomeCalibrationSummary(summary)}
-    </p>
+    </div>
   );
 }
 
