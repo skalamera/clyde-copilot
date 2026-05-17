@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const axios = require('axios');
@@ -33,6 +33,11 @@ const { buildTrendAnalysisSessionSignature, isTrendAnalysisComplete, normalizeTr
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
 
 let mainWindow;
+let normalBounds = null;
+let activeCaptureWindow = false;
+let activeCaptureMinimized = false;
+let suppressActiveBoundsSave = false;
+let capturePaused = false;
 let audioCaptures;
 let audioLevelCaptures;
 let transcriptionProcessors;
@@ -45,6 +50,16 @@ let liveAudioLevels;
 let healthCheckTimer;
 
 let fullSessionTranscript = [];
+
+const ACTIVE_CAPTURE_DEFAULT_WIDTH = 460;
+const ACTIVE_CAPTURE_MAX_HEIGHT = 760;
+const ACTIVE_CAPTURE_MARGIN = 20;
+const ACTIVE_CAPTURE_MIN_WIDTH = 72;
+const ACTIVE_CAPTURE_MIN_HEIGHT = 72;
+const ACTIVE_CAPTURE_FULL_MIN_WIDTH = 360;
+const ACTIVE_CAPTURE_FULL_MIN_HEIGHT = 160;
+const ACTIVE_CAPTURE_MINIMIZED_SIZE = 112;
+const ACTIVE_CAPTURE_MINIMIZED_MARGIN = 10;
 
 const healthState = {
     audio: { state: 'unknown', label: 'Audio', detail: 'Not checked yet.' },
@@ -85,7 +100,8 @@ function loadSettings() {
         meetingAttendees: store.get('meetingAttendees', []),
         meetingMemory: store.get('meetingMemory', ''),
         captureProtectionEnabled: store.get('captureProtectionEnabled', true),
-        uiOpacity: store.get('uiOpacity', 100)
+        uiOpacity: store.get('uiOpacity', 100),
+        activeCaptureBounds: store.get('activeCaptureBounds', null)
     };
 
     // Fallbacks from env if settings aren't populated
@@ -179,6 +195,216 @@ function applyCaptureProtection(settings = {}) {
     } catch (error) {
         console.warn('Failed to apply screen capture protection:', error);
     }
+}
+
+function getSettingsStore() {
+    const Store = require('electron-store').default || require('electron-store');
+    return new Store();
+}
+
+function normalizeWindowBounds(bounds) {
+    if (!bounds || typeof bounds !== 'object') {
+        return null;
+    }
+
+    const normalized = {
+        x: Number(bounds.x),
+        y: Number(bounds.y),
+        width: Number(bounds.width),
+        height: Number(bounds.height)
+    };
+
+    return Object.values(normalized).every(Number.isFinite) ? normalized : null;
+}
+
+function clampBoundsToDisplay(bounds, display) {
+    const workArea = display.workArea;
+    const width = Math.max(
+        ACTIVE_CAPTURE_MIN_WIDTH,
+        Math.min(Math.round(bounds.width), workArea.width)
+    );
+    const height = Math.max(
+        ACTIVE_CAPTURE_MIN_HEIGHT,
+        Math.min(Math.round(bounds.height), workArea.height)
+    );
+    const x = Math.max(
+        workArea.x,
+        Math.min(Math.round(bounds.x), workArea.x + workArea.width - width)
+    );
+    const y = Math.max(
+        workArea.y,
+        Math.min(Math.round(bounds.y), workArea.y + workArea.height - height)
+    );
+
+    return { x, y, width, height };
+}
+
+function defaultActiveCaptureBounds(sourceBounds) {
+    const display = screen.getDisplayMatching(sourceBounds);
+    const workArea = display.workArea;
+    const width = Math.min(ACTIVE_CAPTURE_DEFAULT_WIDTH, workArea.width);
+    const height = Math.min(ACTIVE_CAPTURE_MAX_HEIGHT, workArea.height - ACTIVE_CAPTURE_MARGIN * 2);
+
+    return {
+        x: Math.round(workArea.x + workArea.width - width - ACTIVE_CAPTURE_MARGIN),
+        y: Math.round(workArea.y + Math.max(ACTIVE_CAPTURE_MARGIN, (workArea.height - height) / 2)),
+        width: Math.round(width),
+        height: Math.round(Math.max(ACTIVE_CAPTURE_MIN_HEIGHT, height))
+    };
+}
+
+function getSavedActiveCaptureBounds() {
+    const saved = normalizeWindowBounds(getSettingsStore().get('activeCaptureBounds', null));
+    if (!saved || saved.width < ACTIVE_CAPTURE_FULL_MIN_WIDTH || saved.height < ACTIVE_CAPTURE_FULL_MIN_HEIGHT) {
+        return null;
+    }
+
+    return saved;
+}
+
+function saveActiveCaptureBounds(bounds) {
+    const normalized = normalizeWindowBounds(bounds);
+    if (!normalized) {
+        return;
+    }
+
+    getSettingsStore().set('activeCaptureBounds', normalized);
+}
+
+function enterActiveCaptureWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    const currentBounds = mainWindow.getBounds();
+    if (!activeCaptureWindow) {
+        normalBounds = currentBounds;
+    }
+
+    const display = screen.getDisplayMatching(currentBounds);
+    const savedBounds = getSavedActiveCaptureBounds();
+    const nextBounds = clampBoundsToDisplay(savedBounds || defaultActiveCaptureBounds(currentBounds), display);
+
+    activeCaptureWindow = true;
+    activeCaptureMinimized = false;
+    suppressActiveBoundsSave = true;
+    if (typeof mainWindow.setMinimumSize === 'function') {
+        mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
+    }
+    mainWindow.setResizable(true);
+    mainWindow.setBounds(nextBounds);
+    setTimeout(() => {
+        suppressActiveBoundsSave = false;
+        saveActiveCaptureBounds(mainWindow.getBounds());
+    }, 250);
+
+    mainWindow.setIgnoreMouseEvents(false);
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    if (typeof mainWindow.setHasShadow === 'function') {
+        mainWindow.setHasShadow(false);
+    }
+    if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+    }
+    if (!mainWindow.isVisible()) {
+        mainWindow.show();
+    }
+    mainWindow.focus();
+}
+
+function restoreNormalWindowBounds() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    if (activeCaptureWindow && !activeCaptureMinimized) {
+        saveActiveCaptureBounds(mainWindow.getBounds());
+    }
+
+    activeCaptureWindow = false;
+    activeCaptureMinimized = false;
+    suppressActiveBoundsSave = true;
+    if (typeof mainWindow.setMinimumSize === 'function') {
+        mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
+    }
+    mainWindow.setResizable(true);
+    if (normalBounds) {
+        mainWindow.setBounds(normalBounds);
+        normalBounds = null;
+    }
+    setTimeout(() => {
+        suppressActiveBoundsSave = false;
+    }, 250);
+
+    mainWindow.setIgnoreMouseEvents(false);
+    mainWindow.setAlwaysOnTop(false);
+    if (typeof mainWindow.setHasShadow === 'function') {
+        mainWindow.setHasShadow(true);
+    }
+}
+
+function resizeActiveCaptureWindowToContent(size = {}) {
+    if (!activeCaptureWindow || !mainWindow || mainWindow.isDestroyed()) {
+        return false;
+    }
+
+    const currentBounds = mainWindow.getBounds();
+    const display = screen.getDisplayMatching(currentBounds);
+    const workArea = display.workArea;
+    const minimized = Boolean(size.minimized);
+    const restore = Boolean(size.restore);
+    const width = Number.isFinite(Number(size.width))
+        ? Number(size.width)
+        : currentBounds.width;
+    const height = Number.isFinite(Number(size.height))
+        ? Number(size.height)
+        : currentBounds.height;
+    const nextWidth = minimized
+        ? ACTIVE_CAPTURE_MINIMIZED_SIZE
+        : Math.min(width, ACTIVE_CAPTURE_DEFAULT_WIDTH);
+    const nextHeight = minimized
+        ? ACTIVE_CAPTURE_MINIMIZED_SIZE
+        : Math.min(height, workArea.height - ACTIVE_CAPTURE_MARGIN);
+    const nextX = minimized
+        ? workArea.x + ACTIVE_CAPTURE_MINIMIZED_MARGIN
+        : restore
+            ? workArea.x + Math.round((workArea.width - nextWidth) / 2)
+            : currentBounds.x;
+    const nextY = minimized
+        ? workArea.y + workArea.height - nextHeight - ACTIVE_CAPTURE_MINIMIZED_MARGIN
+        : restore
+            ? workArea.y + ACTIVE_CAPTURE_MARGIN
+            : currentBounds.y;
+
+    activeCaptureMinimized = minimized ? true : false;
+    if (typeof mainWindow.setMinimumSize === 'function') {
+        const minSize = minimized ? ACTIVE_CAPTURE_MINIMIZED_SIZE : ACTIVE_CAPTURE_MIN_WIDTH;
+        mainWindow.setMinimumSize(minSize, minSize);
+    }
+    mainWindow.setResizable(true);
+    const nextBounds = clampBoundsToDisplay({
+        x: nextX,
+        y: nextY,
+        width: nextWidth,
+        height: nextHeight
+    }, display);
+
+    if (Math.abs(nextBounds.width - currentBounds.width) < 4
+        && Math.abs(nextBounds.height - currentBounds.height) < 4
+        && nextBounds.x === currentBounds.x
+        && nextBounds.y === currentBounds.y) {
+        mainWindow.setResizable(!minimized);
+        return true;
+    }
+
+    suppressActiveBoundsSave = true;
+    mainWindow.setBounds(nextBounds);
+    mainWindow.setResizable(!minimized);
+    setTimeout(() => {
+        suppressActiveBoundsSave = false;
+    }, 250);
+
+    return true;
 }
 
 /**
@@ -679,27 +905,43 @@ function rmsToMeterLevel(rms) {
 }
 
 function createWindow () {
+  log.info('🪟 createWindow() - Creating BrowserWindow');
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     transparent: true,
     backgroundColor: '#00000000',
     frame: false,
+    show: true,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true
     }
   });
+  log.info(`✅ BrowserWindow created. Visible: ${mainWindow.isVisible()}`);
 
   const settings = loadSettings();
   applyCaptureProtection(settings);
 
   const rendererIndex = path.join(__dirname, 'src', 'renderer-dist', 'index.html');
   const legacyRendererIndex = path.join(__dirname, 'src', 'index.html');
-  mainWindow.loadFile(fs.existsSync(rendererIndex) ? rendererIndex : legacyRendererIndex);
+  const filePath = fs.existsSync(rendererIndex) ? rendererIndex : legacyRendererIndex;
+  log.info(`📄 Loading renderer from: ${filePath}`);
+  mainWindow.loadFile(filePath);
 
   mainWindow.webContents.on('did-finish-load', () => {
+      log.info(`🔄 did-finish-load event. Window visible: ${mainWindow.isVisible()}`);
+      if (!mainWindow.isVisible()) {
+          log.info('📢 Window not visible, calling show()');
+          mainWindow.show();
+          log.info(`✅ show() called. Now visible: ${mainWindow.isVisible()}`);
+      }
+      
+      // Enable DevTools for debugging
+      log.info('🔧 Opening DevTools for debugging...');
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+      
       sendAudioStatus({ state: 'idle', message: 'Ready. Press Start to begin.' });
       checkServiceHealth(loadSettings());
       healthCheckTimer = setInterval(() => checkServiceHealth(loadSettings()), Number(process.env.CLYDE_HEALTH_INTERVAL_MS || 10000));
@@ -718,13 +960,17 @@ function createWindow () {
 
   // Setup IPC communication for start/stop transcription
   ipcMain.on('start-audio-capture', (event) => {
+      log.info('🎤 IPC: start-audio-capture received');
+      log.info(`   Window state - Visible: ${mainWindow?.isVisible()}, Destroyed: ${mainWindow?.isDestroyed()}`);
       fullSessionTranscript = []; // Reset full session transcript on new start
+      capturePaused = false;
       getMeetingAssistant(); // ensure initialized
       startLiveAudioLevels();
       const results = initializeAudioCaptures().map((capture) => capture.start());
       const failed = results.find((result) => !result.ok);
 
       if (failed) {
+          log.error(`❌ Audio capture failed: ${failed.message}`);
           stopLiveAudioLevels();
           sendAudioStatus({ state: 'error', message: failed.message });
       } else {
@@ -732,24 +978,54 @@ function createWindow () {
           const message = sourceNames
               ? `Capturing audio from ${sourceNames}.`
               : 'Capturing audio.';
+          log.info(`✅ Audio capture started: ${message}`);
 
           sendAudioStatus({ state: 'capturing', message });
-            if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.setIgnoreMouseEvents(true, { forward: true }); }
+          enterActiveCaptureWindow();
           updateHealth('capture', { state: 'ready', detail: message });
       }
   });
 
   ipcMain.on('stop-audio-capture', () => {
+      capturePaused = false;
       if (audioCaptures) {
           stopAudioCaptures();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
-            if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.setIgnoreMouseEvents(false); }
+          restoreNormalWindowBounds();
           updateHealth('capture', { state: 'idle', detail: 'Stopped.' });
       } else {
           stopLiveAudioLevels();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
-            if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.setIgnoreMouseEvents(false); }
+          restoreNormalWindowBounds();
       }
+  });
+
+  ipcMain.handle('toggle-pause-capture', async () => {
+      if (!audioCaptures) {
+          capturePaused = false;
+          sendAudioStatus({ state: 'idle', message: 'Audio capture is not running.' });
+          return { paused: false };
+      }
+
+      capturePaused = !capturePaused;
+      const results = initializeAudioCaptures().map((capture) => (
+          capturePaused && typeof capture.pause === 'function'
+              ? capture.pause()
+              : typeof capture.resume === 'function'
+                  ? capture.resume()
+                  : capture.start()
+      ));
+      const failed = results.find((result) => !result.ok);
+
+      if (failed) {
+          sendAudioStatus({ state: 'error', message: failed.message || 'Audio capture pause failed.' });
+          return { paused: capturePaused, ok: false };
+      }
+
+      const message = capturePaused ? 'Audio capture paused.' : 'Audio capture resumed.';
+      sendAudioStatus({ state: capturePaused ? 'paused' : 'capturing', message });
+      updateHealth('capture', { state: capturePaused ? 'warning' : 'ready', detail: capturePaused ? 'Paused.' : 'Capturing audio.' });
+      return { paused: capturePaused, ok: true };
   });
 
   ipcMain.on('reset-session', () => {
@@ -757,7 +1033,8 @@ function createWindow () {
       if (meetingAssistant) {
           meetingAssistant.resetTranscript();
       }
-      sendAudioStatus({ state: 'idle', message: 'Session reset.' });
+      const state = audioCaptures ? 'capturing' : 'idle';
+      sendAudioStatus({ state, message: 'Session reset.' });
       if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('session-reset');
       }
@@ -786,7 +1063,8 @@ function createWindow () {
       return getMeetingAssistant().requestSuggestion({
           prompt: payload && payload.prompt,
           screenshot,
-          screenshotWarning
+          screenshotWarning,
+          sources: payload && payload.sources
       });
   });
 
@@ -1498,6 +1776,18 @@ ${jobDescription}`;
       }
   });
 
+  mainWindow.on('resized', () => {
+      if (activeCaptureWindow && !activeCaptureMinimized && !suppressActiveBoundsSave && mainWindow) {
+          saveActiveCaptureBounds(mainWindow.getBounds());
+      }
+  });
+
+  mainWindow.on('moved', () => {
+      if (activeCaptureWindow && !activeCaptureMinimized && !suppressActiveBoundsSave && mainWindow) {
+          saveActiveCaptureBounds(mainWindow.getBounds());
+      }
+  });
+
   mainWindow.on('closed', () => {
     if (healthCheckTimer) {
         clearInterval(healthCheckTimer);
@@ -1549,5 +1839,62 @@ ipcMain.handle('hide-app', async () => {
             mainWindow.minimize();
         }
     }
+    return true;
+});
+
+ipcMain.handle('show-app', async () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+        if (!mainWindow.isVisible()) {
+            mainWindow.show();
+        }
+        mainWindow.focus();
+    }
+    return true;
+});
+
+ipcMain.handle('resize-active-capture-window', async (event, bounds = {}) => {
+    return resizeActiveCaptureWindowToContent(bounds);
+});
+
+ipcMain.handle('get-active-capture-window-bounds', async () => {
+    if (!activeCaptureWindow || !mainWindow || mainWindow.isDestroyed()) {
+        return null;
+    }
+
+    return mainWindow.getBounds();
+});
+
+ipcMain.handle('move-active-capture-window', async (event, bounds = {}) => {
+    if (!activeCaptureWindow || !mainWindow || mainWindow.isDestroyed()) {
+        return false;
+    }
+
+    const currentBounds = mainWindow.getBounds();
+    const width = activeCaptureMinimized ? ACTIVE_CAPTURE_MINIMIZED_SIZE : currentBounds.width;
+    const height = activeCaptureMinimized ? ACTIVE_CAPTURE_MINIMIZED_SIZE : currentBounds.height;
+    const targetPoint = {
+        x: Number.isFinite(Number(bounds.x)) ? Number(bounds.x) + Math.round(width / 2) : currentBounds.x + Math.round(width / 2),
+        y: Number.isFinite(Number(bounds.y)) ? Number(bounds.y) + Math.round(height / 2) : currentBounds.y + Math.round(height / 2)
+    };
+    const display = screen.getDisplayNearestPoint(targetPoint);
+    const nextBounds = clampBoundsToDisplay({
+        x: Number.isFinite(Number(bounds.x)) ? Number(bounds.x) : currentBounds.x,
+        y: Number.isFinite(Number(bounds.y)) ? Number(bounds.y) : currentBounds.y,
+        width,
+        height
+    }, display);
+
+    suppressActiveBoundsSave = true;
+    mainWindow.setBounds(nextBounds);
+    if (activeCaptureMinimized) {
+        mainWindow.setResizable(false);
+    }
+    setTimeout(() => {
+        suppressActiveBoundsSave = false;
+    }, 120);
+
     return true;
 });

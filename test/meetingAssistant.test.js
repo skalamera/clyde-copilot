@@ -85,6 +85,130 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
   assert.deepEqual(updates[0].cards[0].bullets, ['A']);
 });
 
+test('manual Ask Clyde request includes prompt and screenshot in assistant call', async () => {
+  const requests = [];
+  const updates = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'vision-model'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"suggestions": [{"text":"Mention the pricing slide."}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you explain what is on this slide?' });
+  requests.length = 0;
+  updates.length = 0;
+
+  const result = await assistant.requestSuggestion({
+    prompt: 'What should I say about this slide?',
+    screenshot: { mimeType: 'image/png', data: 'abc123' }
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(requests[0].data.messages[0].content, /Current command: manual_question/);
+  assert.match(requests[0].data.messages[1].content[0].text, /User question:\nWhat should I say about this slide\?/);
+  assert.equal(requests[0].data.messages[1].content[1].type, 'image_url');
+  assert.equal(updates[0].cards[0].type, 'answer');
+  assert.equal(updates[0].cards[0].title, 'Answer');
+  assert.equal(updates[0].cards[0].body, 'Mention the pricing slide.');
+});
+
+test('say-next request keeps interview suggestion card styling', async () => {
+  const requests = [];
+  const updates = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'text-model'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"suggestions": [{"text":"Lead with the support operations example."}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  const result = await assistant.requestSuggestion({
+    prompt: 'What should I say next?',
+    intent: 'say_next'
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(requests[0].data.messages[0].content, /Current command: suggestion/);
+  assert.equal(updates[0].cards[0].type, 'suggestion');
+  assert.equal(updates[0].cards[0].title, 'Say next');
+  assert.equal(updates[0].cards[0].body, 'Lead with the support operations example.');
+});
+
+test('manual Ask Clyde retries without screenshot when local vision request fails', async () => {
+  const requests = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'text-model'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        if (requests.length === 1) {
+          const error = new Error('image input rejected');
+          error.response = { status: 400 };
+          error.config = { url };
+          throw error;
+        }
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"suggestions": [{"text":"Answer from transcript context."}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1
+  });
+
+  const result = await assistant.requestSuggestion({
+    prompt: 'What should I say?',
+    screenshot: { mimeType: 'image/png', data: 'abc123' }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 2);
+  assert.equal(Array.isArray(requests[0].data.messages[1].content), true);
+  assert.equal(typeof requests[1].data.messages[1].content, 'string');
+  assert.match(result.cards[0].detail, /Screenshot was unavailable/);
+});
+
 test('does not call LM Studio when only the user speaks', async () => {
   const requests = [];
 

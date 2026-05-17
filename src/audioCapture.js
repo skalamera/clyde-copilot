@@ -164,9 +164,31 @@ function createAudioCapture(options = {}) {
     return { ok: true };
   }
 
+  function pause() {
+    isStreaming = false;
+    setStatus('paused', 'Audio capture paused.');
+
+    return { ok: true };
+  }
+
+  function resume() {
+    const result = initialize();
+
+    if (!result.ok) {
+      return result;
+    }
+
+    isStreaming = true;
+    setStatus('capturing', 'Audio capture resumed.');
+
+    return { ok: true };
+  }
+
   return {
     initialize,
     start,
+    pause,
+    resume,
     stop,
     getStatus: () => lastStatus,
     isStreaming: () => isStreaming

@@ -60,6 +60,30 @@ function buildAssistantPrompt(options = {}) {
 function getAssistantSchema(mode = 'interview', command = 'assist') {
   const normalizedMode = normalizeMode(mode);
 
+  if (command === 'manual_question') {
+    return {
+      suggestions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string' },
+            why: { type: 'string' }
+          },
+          required: ['text']
+        }
+      },
+      notes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { text: { type: 'string' } },
+          required: ['text']
+        }
+      }
+    };
+  }
+
   if (normalizedMode === 'meeting') {
     return {
       recaps: {
@@ -128,6 +152,7 @@ function getAssistantSchema(mode = 'interview', command = 'assist') {
       }
     };
   }
+
 
   return {
     answers: {

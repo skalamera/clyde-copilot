@@ -12,9 +12,23 @@ test('preload exposes mode-aware session APIs', () => {
     'deleteSession',
     'deleteSessionEntity',
     'updateSessionEntity',
+    'generateTrendAnalysis',
     'setActiveSessionContext',
-    'validateServices'
+    'validateServices',
+    'hideApp',
+    'resizeActiveCaptureWindow',
+    'togglePauseCapture',
+    'getActiveCaptureWindowBounds',
+    'moveActiveCaptureWindow'
   ]) {
     assert.match(source, new RegExp(`${api}:`));
   }
+
+  assert.match(source, /requestSuggestion:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('request-suggestion', payload\)/);
+  assert.match(source, /generateTrendAnalysis:\s*\(companyId,\s*options\)\s*=>\s*ipcRenderer\.invoke\('generate-trend-analysis', companyId, options\)/);
+  assert.match(source, /hideApp:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('hide-app'\)/);
+  assert.match(source, /resizeActiveCaptureWindow:\s*\(bounds\)\s*=>\s*ipcRenderer\.invoke\('resize-active-capture-window', bounds\)/);
+  assert.match(source, /togglePauseCapture:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('toggle-pause-capture'\)/);
+  assert.match(source, /getActiveCaptureWindowBounds:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-active-capture-window-bounds'\)/);
+  assert.match(source, /moveActiveCaptureWindow:\s*\(bounds\)\s*=>\s*ipcRenderer\.invoke\('move-active-capture-window', bounds\)/);
 });

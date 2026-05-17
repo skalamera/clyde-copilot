@@ -83,8 +83,15 @@ function createMeetingAssistant(options = {}) {
 
   }
 
-  async function maybeRun(force = false, isSuggestionRequest = false) {
+  async function maybeRun(force = false, isSuggestionRequest = false, requestOptions = {}) {
     const mode = normalizeMode(currentContext.mode || settings.appMode || settings.mode || 'interview');
+    const manualPrompt = cleanText(requestOptions.prompt);
+    const screenshot = requestOptions.screenshot && requestOptions.screenshot.data ? requestOptions.screenshot : null;
+    const screenshotWarning = cleanText(requestOptions.screenshotWarning);
+    const selectedSources = normalizeSelectedSources(requestOptions.sources, settings);
+    const requestIntent = cleanText(requestOptions.intent);
+    const isSayNextRequest = requestIntent === 'say_next';
+    const isManualQuestion = !isSayNextRequest && Boolean(manualPrompt || screenshot || screenshotWarning);
 
     if (!model && provider === 'local') {
       return { ok: true, skipped: 'not-configured' };
@@ -171,7 +178,7 @@ function createMeetingAssistant(options = {}) {
       lastRunAt = now;
       lastDigest = digest;
 
-      const command = isSuggestionRequest ? 'suggestion' : 'assist';
+      const command = isSayNextRequest ? 'suggestion' : (isManualQuestion ? 'manual_question' : (isSuggestionRequest ? 'suggestion' : 'assist'));
       const jsonSchemaProperties = getAssistantSchema(mode, command);
       const systemPrompt = buildAssistantPrompt({
         mode,
@@ -181,7 +188,14 @@ function createMeetingAssistant(options = {}) {
         ragContext
       });
 
-      const responseText = await generateChat({
+      const userPrompt = buildUserPrompt({
+        digest,
+        manualPrompt,
+        screenshot,
+        screenshotWarning,
+        selectedSources
+      });
+      const request = {
         provider,
         apiKey,
         model,
@@ -205,24 +219,56 @@ function createMeetingAssistant(options = {}) {
               systemPrompt,
               outputShapeFor(mode, command),
               'Include only items that are useful right now. Do not include markdown fences.',
-              'Use at most 3 total cards. Keep every value concise. Empty arrays are allowed. Do not mention that you are an AI.'
+              command === 'assist' && mode === 'interview' ? 'Return one answer card for automatic interview assistance.' : 'Use at most 3 total cards. Keep every value concise. Empty arrays are allowed.',
+              'Do not mention that you are an AI.'
             ].filter(Boolean).join(' ')
           },
           {
             role: 'user',
-            content: `Transcript:\n${digest}\n\nCreate cards that help me respond to the other people.`
+            content: userPrompt
           }
-        ]
-      });
+        ],
+        images: screenshot ? [screenshot] : []
+      };
+
+      let responseText;
+      let imageFallbackWarning = '';
+
+      try {
+        responseText = await generateChat(request);
+      } catch (error) {
+        if (!screenshot) {
+          throw error;
+        }
+
+        imageFallbackWarning = 'Screenshot was unavailable to the selected model, so Clyde answered from transcript and saved context.';
+        responseText = await generateChat({
+          ...request,
+          images: [],
+          messages: [
+            request.messages[0],
+            {
+              role: 'user',
+              content: `${userPrompt}\n\n${imageFallbackWarning}`
+            }
+          ]
+        });
+      }
 
       const text = extractAssistantText(responseText);
-      const cards = parseAssistantCards(text);
+      const parsedCards = parseAssistantCards(text);
+      const cards = command === 'assist' && mode === 'interview'
+        ? condenseAutomaticInterviewCards(parsedCards, targetQuestion)
+        : command === 'manual_question'
+          ? normalizeManualQuestionCards(parsedCards)
+          : parsedCards;
+      const renderedCards = addWarningToCards(cards, screenshotWarning || imageFallbackWarning);
 
-      if (cards.length) {
+      if (renderedCards.length) {
         sendUpdate({
           title: 'Live help',
           text,
-          cards
+          cards: renderedCards
         });
         
         // CLEAR the transcript buffer of the current digest so we don't accidentally re-answer these old questions!
@@ -245,7 +291,7 @@ function createMeetingAssistant(options = {}) {
         });
       }
 
-      return { ok: true, text, cards };
+      return { ok: true, text, cards: renderedCards };
     } catch (error) {
       const message = describeAssistantError(error);
       logger.error('Meeting assistant failed:', message);
@@ -257,8 +303,8 @@ function createMeetingAssistant(options = {}) {
     }
   }
 
-  function requestSuggestion() {
-    return maybeRun(true, true);
+  function requestSuggestion(options = {}) {
+    return maybeRun(true, true, options);
   }
 
   function resetTranscript() {
@@ -414,10 +460,78 @@ function parseAssistantCards(text) {
     }
   }
 
+  for (const item of toArray(parsed.notes)) {
+    const textValue = cleanText(item.text || item.note);
+
+    if (textValue) {
+      cards.push({
+        type: 'note',
+        title: 'Note',
+        body: textValue
+      });
+    }
+  }
+
   return cards.slice(0, 4);
 }
 
+function condenseAutomaticInterviewCards(cards, targetQuestion = '') {
+  const answerCards = cards.filter((card) => card.type === 'answer');
+  const sourceCards = answerCards.length ? answerCards : cards;
+
+  if (!sourceCards.length) {
+    return [];
+  }
+
+  const first = sourceCards[0];
+  const question = cleanText(first.question || targetQuestion);
+  const bullets = sourceCards
+    .flatMap((card) => {
+      if (Array.isArray(card.bullets) && card.bullets.length) {
+        return card.bullets;
+      }
+
+      return [card.body, card.detail];
+    })
+    .map(cleanText)
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (!question && !bullets.length) {
+    return [];
+  }
+
+  return [{
+    ...first,
+    id: Buffer.from(question || bullets.join(' ')).toString('base64'),
+    type: 'answer',
+    title: 'Say next',
+    question,
+    body: '',
+    detail: '',
+    bullets
+  }];
+}
+
+function normalizeManualQuestionCards(cards) {
+  return cards.map((card) => {
+    if (card.type === 'suggestion' || card.type === 'note') {
+      return {
+        ...card,
+        type: 'answer',
+        title: 'Answer'
+      };
+    }
+
+    return card;
+  });
+}
+
 function outputShapeFor(mode, command) {
+  if (command === 'manual_question') {
+    return 'Schema: {"suggestions":[{"text":"...","why":"..."}],"notes":[{"text":"..."}]}.';
+  }
+
   if (mode === 'meeting') {
     return 'Schema: {"recaps":[{"text":"..."}],"actions":[{"text":"..."}],"follow_up":[{"text":"...","why":"..."}],"suggestions":[{"text":"..."}],"notes":[{"text":"..."}]}.';
   }
@@ -427,6 +541,64 @@ function outputShapeFor(mode, command) {
   }
 
   return 'Schema: {"answers":[{"question":"...","bullets":["..."]}]}.';
+}
+
+function buildUserPrompt({ digest, manualPrompt, screenshot, screenshotWarning, selectedSources = [] }) {
+  const lines = [
+    `Transcript:\n${digest || 'No transcript turns captured yet.'}`
+  ];
+
+  if (selectedSources.length) {
+    lines.push(`Selected sources: ${selectedSources.join(', ')}`);
+  }
+
+  if (manualPrompt) {
+    lines.push(`User question:\n${manualPrompt}`);
+  }
+
+  if (screenshot) {
+    lines.push('A current desktop screenshot is attached. Use it only when it helps answer the user question.');
+  }
+
+  if (screenshotWarning) {
+    lines.push(screenshotWarning);
+  }
+
+  lines.push(manualPrompt
+    ? 'Create cards that answer the user question and help me respond right now.'
+    : 'Create cards that help me respond to the other people.');
+
+  return lines.join('\n\n');
+}
+
+function normalizeSelectedSources(sourceOptions = {}, settings = {}) {
+  const sourceMap = {
+    resume: Boolean(sourceOptions.resume),
+    memory: Boolean(sourceOptions.memory),
+    rag: Boolean(sourceOptions.rag) && Boolean(settings.ragEnabled),
+    web: Boolean(sourceOptions.web)
+  };
+
+  const active = Object.keys(sourceMap).filter((key) => sourceMap[key]);
+  if (active.length) {
+    return active;
+  }
+
+  if (settings.ragEnabled) {
+    return ['rag'];
+  }
+
+  return ['resume'];
+}
+
+function addWarningToCards(cards, warning) {
+  if (!warning || !cards.length) {
+    return cards;
+  }
+
+  return cards.map((card, index) => index === 0
+    ? { ...card, detail: [card.detail, warning].filter(Boolean).join(' ') }
+    : card);
 }
 
 function parseJsonObject(text) {

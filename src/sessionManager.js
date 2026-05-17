@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { normalizeTranscriptRating } = require('./trendAnalysis');
 
 function createSessionManager({ appPath }) {
   if (!appPath) {
@@ -140,19 +141,29 @@ function createSessionManager({ appPath }) {
       byId.set(entity.id, { ...(byId.get(entity.id) || {}), ...entity });
     }
 
-    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(byId.values()).sort((a, b) => {
+      if (b.confidence !== a.confidence) {
+        return b.confidence - a.confidence;
+      }
+      return a.name.localeCompare(b.name);
+    });
   }
 
     function writeEntityMeta(mode, entityId, entity) {
       const entityDir = path.join(sessionsDir, normalizeMode(mode), entityId);
+      const metaPath = path.join(entityDir, 'meta.json');
       fs.mkdirSync(entityDir, { recursive: true });
-      fs.writeFileSync(path.join(entityDir, 'meta.json'), JSON.stringify({
+      const existing = readJsonFile(metaPath) || {};
+      const hasEntityConfidence = entity.confidence_score !== undefined || entity.confidence !== undefined;
+      fs.writeFileSync(metaPath, JSON.stringify({
         id: entityId,
         name: entity.name || entityId,
         role: entity.role || '',
         kind: entity.kind || normalizeMode(mode),
-        confidence_score: entity.confidence_score !== undefined ? entity.confidence_score : 0,
-        trend: entity.trend || 'neutral'
+        confidence_score: hasEntityConfidence
+          ? (entity.confidence_score !== undefined ? entity.confidence_score : entity.confidence)
+          : (existing.confidence_score !== undefined ? existing.confidence_score : 0),
+        trend: entity.trend || existing.trend || 'neutral'
       }, null, 2), 'utf8');
     }
 
@@ -356,7 +367,7 @@ function normalizeSessionRecord(record = {}) {
   const entity = record.entity && typeof record.entity === 'object' ? record.entity : {};
   const entityName = clean(entity.name || record.company || record.title || 'General');
   const entityId = sanitizeId(entity.id || entityName || 'general');
-  const grading = record.grading || null;
+  const grading = normalizeGrading(record.grading, mode);
   const notes = normalizeNotes(record.notes, grading, mode);
 
   return {
@@ -378,6 +389,19 @@ function normalizeSessionRecord(record = {}) {
     grading,
     source: clean(record.source || 'native')
   };
+}
+
+function normalizeGrading(grading = null, mode = 'interview') {
+  if (!grading || typeof grading !== 'object') {
+    return grading || null;
+  }
+
+  const next = { ...grading };
+  if (mode === 'interview' && Object.prototype.hasOwnProperty.call(next, 'transcriptRating')) {
+    next.transcriptRating = normalizeTranscriptRating(next.transcriptRating);
+  }
+
+  return next;
 }
 
 function normalizeAttendee(attendee = {}) {
@@ -429,7 +453,7 @@ function normalizeCard(card = {}) {
 function normalizeNotes(notes = {}, grading = {}, mode = 'interview') {
   const gradeInfo = grading && typeof grading === 'object' ? grading : {};
   const summary = clean(notes.summary);
-  const actionItems = Array.isArray(notes.actionItems) ? notes.actionItems.map(clean).filter(Boolean) : [];
+  const actionItems = normalizeActionItems(notes.actionItems);
   const shouldCarryExamples = mode !== 'interview';
   const gradingExamples = shouldCarryExamples && Array.isArray(gradeInfo.examples)
     ? gradeInfo.examples.map(clean).filter(Boolean)
@@ -439,6 +463,39 @@ function normalizeNotes(notes = {}, grading = {}, mode = 'interview') {
     summary: summary || clean(gradeInfo.reasoning),
     actionItems: actionItems.length ? actionItems : gradingExamples
   };
+}
+
+function normalizeActionItems(actionItems = []) {
+  if (!Array.isArray(actionItems)) {
+    return [];
+  }
+
+  return actionItems
+    .map((item) => {
+      if (!item) {
+        return null;
+      }
+
+      if (typeof item === 'string') {
+        const text = clean(item);
+        return text ? { attendee: 'Unassigned', items: [text] } : null;
+      }
+
+      const attendee = clean(item.attendee || item.owner || item.name || '');
+      const items = Array.isArray(item.items)
+        ? item.items.map(clean).filter(Boolean)
+        : [clean(item.text || item.body || item.action || item.note || '')].filter(Boolean);
+
+      if (!items.length) {
+        return null;
+      }
+
+      return {
+        attendee: attendee || 'Unassigned',
+        items
+      };
+    })
+    .filter(Boolean);
 }
 
 function dedupeSessions(sessions) {

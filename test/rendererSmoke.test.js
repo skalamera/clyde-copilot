@@ -16,9 +16,9 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'data-testid="saveBtn"',
     'data-testid="healthGrid"',
     'data-testid="liveVoiceMeters"',
-    'data-testid="commandInput"',
+    'data-testid="aiReplyBtn"',
     'data-testid="sessionTimeline"',
-    'data-testid="timelineNav"',
+    "testId: 'timelineNav'",
     'aria-label="Settings"',
     'confidence-pill',
     'Edit details',
@@ -26,10 +26,148 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'deleteSessionEntity',
     'Active Meeting:',
     '+ Add New Meeting',
-    'onChangeActiveMeeting'
+    'onChangeActiveMeeting',
+    'AI reply'
   ]) {
     assert.match(appSource, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+test('live panel no longer renders canned note controls', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+
+  assert.equal(appSource.includes('data-testid="commandInput"'), false);
+  assert.equal(appSource.includes('className="command-input"'), false);
+  assert.equal(appSource.includes("{ id: 'recap', label: 'Recap' }"), false);
+  assert.equal(appSource.includes("{ id: 'follow_up', label: 'Follow-up questions' }"), false);
+  assert.equal(appSource.includes("{ id: 'resume', label: 'Answer from resume' }"), false);
+  assert.equal(appSource.includes("{ id: 'summary', label: 'Summarize last 2 minutes' }"), false);
+  assert.equal(appSource.includes("{ id: 'note', label: 'Save note' }"), false);
+});
+
+test('active capture view replaces the full live workspace while streaming', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const activeStart = appSource.indexOf('function ActiveCaptureView');
+  const activeEnd = appSource.indexOf('function LivePanel', activeStart);
+  const activeSource = appSource.slice(activeStart, activeEnd);
+
+  assert.match(appSource, /const activeCapture = workspaceView === 'live' && isStreaming/);
+  assert.match(appSource, /activeCapture \? null : \(\s*<TitleBar/);
+  assert.match(appSource, /activeCapture \? \(/);
+  assert.match(activeSource, /Ask about the screen/);
+  assert.match(activeSource, /ghost-toggle/);
+  assert.match(activeSource, /active-capture-icon ghost-emoji-icon/);
+  assert.match(activeSource, />👻<\/span>/);
+  assert.match(activeSource, /Custom Prompt/);
+  assert.match(activeSource, /active-source-button/);
+  assert.match(activeSource, /Minimize Clyde/);
+  assert.match(activeSource, /handleMinimizedPointerDown/);
+  assert.match(activeSource, /handleControlBarPointerDown/);
+  assert.match(activeSource, /handleControlBarClickCapture/);
+  assert.match(activeSource, /window\.addEventListener\('pointermove', moveWindow/);
+  assert.equal(activeSource.includes('controlBarTarget.setPointerCapture'), false);
+  assert.match(activeSource, /intent: 'say_next'/);
+  assert.match(activeSource, /getActiveCaptureWindowBounds/);
+  assert.match(activeSource, /moveActiveCaptureWindow/);
+  assert.match(activeSource, /resizeActiveCaptureWindow\?\.\(\{ width: 112, height: 112, minimized: true \}\)/);
+  assert.match(activeSource, /Pause Capture/);
+  assert.match(activeSource, /Show Live Transcription/);
+  assert.match(activeSource, /ActiveTranscriptPanel/);
+  assert.match(appSource, /Include screenshot/);
+  assert.match(activeSource, /data-testid="stopBtn"/);
+  assert.match(activeSource, /Type a custom prompt/);
+  assert.match(activeSource, /includeScreenshot/);
+  assert.equal(activeSource.includes('Ask Clyde or wait for suggestions.'), false);
+  assert.equal(activeSource.includes('Live help will appear here during the call.'), false);
+  assert.match(activeSource, /panelRef = useRef\(null\)/);
+  assert.match(activeSource, /ResizeObserver/);
+  assert.match(activeSource, /resizeActiveCaptureWindow/);
+  assert.match(activeSource, /contentWidth/);
+  assert.match(appSource, /slice\(-18\)/);
+  assert.equal(activeSource.includes('<Transcript'), false);
+  assert.equal(activeSource.includes('<StatusStrip'), false);
+  assert.equal(activeSource.includes('<ContextPanel'), false);
+  assert.equal(activeSource.includes('liveVoiceMeters'), false);
+  assert.match(cssSource, /\.active-capture-shell/);
+  assert.match(cssSource, /\.active-capture-bar/);
+  assert.match(cssSource, /\.active-capture-bar[\s\S]*cursor: grab/);
+  assert.match(cssSource, /\.active-assistant-panel/);
+  assert.match(cssSource, /\.active-source-menu[\s\S]*top: 34px/);
+  assert.match(cssSource, /\.active-source-menu[\s\S]*z-index: 180/);
+  assert.match(cssSource, /\.assistant-pane-active\s*\{[\s\S]*flex: 0 0 auto/);
+  assert.match(cssSource, /\.assistant-pane-active \.scroll-area\s*\{[\s\S]*overflow-y: auto/);
+  assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*overflow-y: auto/);
+  assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*min-height: clamp\(220px, 34vh, 340px\)/);
+  assert.match(cssSource, /\.assistant-pane-active \.assistant-card:only-child\s*\{[\s\S]*min-height: clamp\(320px, 58vh, 560px\)/);
+  assert.match(cssSource, /\.active-restore-chip[\s\S]*border-radius: 50%/);
+  assert.match(cssSource, /\.active-restore-chip[\s\S]*width: 84px/);
+  assert.match(cssSource, /\.active-restore-chip[\s\S]*height: 84px/);
+  assert.match(cssSource, /\.active-restore-chip[\s\S]*box-shadow: none/);
+  assert.match(cssSource, /\.active-capture-shell-minimized[\s\S]*height: 112px/);
+  assert.match(cssSource, /\.active-capture-shell-minimized[\s\S]*width: 112px/);
+  assert.match(cssSource, /\.active-assistant-panel\s*\{[\s\S]*overflow: visible/);
+  assert.match(cssSource, /\.active-transcript-panel\s*\{[\s\S]*min-height: 220px/);
+  assert.match(appSource, /\[\.\.\.transcript\.slice\(-18\)\]\.reverse\(\)/);
+});
+
+test('active capture UI uses compact icon buttons and new ghost meters', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const activeStart = appSource.indexOf('function ActiveCaptureView');
+  const activeEnd = appSource.indexOf('function LivePanel', activeStart);
+  const activeSource = appSource.slice(activeStart, activeEnd);
+
+  // Assert sources/send are icon buttons (not text)
+  assert.match(activeSource, /active-icon-btn active-source-button/);
+  assert.match(activeSource, /camera-btn/);
+  assert.match(activeSource, /transcript-toggle-btn/);
+  assert.match(activeSource, /pause-btn/);
+  assert.match(activeSource, /minimize-btn/);
+  assert.match(activeSource, /aria-label="Send"/);
+  assert.equal(activeSource.includes('>Sources</button>'), false);
+
+  // Assert ghost meters
+  assert.match(appSource, /function ActiveGhostMeters/);
+  assert.match(appSource, /ghost-label">You/);
+  assert.match(appSource, /ghost-label">Others/);
+
+  // Pre-call prep padding
+  assert.match(cssSource, /\.context-section {\s*display: grid;\s*gap: 12px;\s*padding: 18px;/);
+  assert.match(cssSource, /\.context-section h3/);
+  
+  // Card dismiss
+  assert.match(appSource, /onDismissCard=\{/);
+  assert.match(appSource, /className="card-dismiss-btn"/);
+  assert.match(cssSource, /\.active-icon-btn\.camera-btn/);
+  assert.match(cssSource, /\.active-icon-btn\.pause-btn/);
+  assert.match(cssSource, /\.active-icon-btn\.ghost-toggle \.active-capture-icon[\s\S]*font-size: 23px/);
+  assert.match(cssSource, /\.active-transcript-panel/);
+  assert.match(cssSource, /\.active-capture-bar\s*\{[\s\S]*width: max-content/);
+  assert.match(cssSource, /\.active-capture-bar\s*\{[\s\S]*box-shadow: none/);
+});
+
+test('active assistant cards avoid duplicate label titles', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const assistantStart = appSource.indexOf('function AssistantCards');
+  const assistantEnd = appSource.indexOf('function ContextPanel', assistantStart);
+  const assistantSource = appSource.slice(assistantStart, assistantEnd);
+
+  assert.match(assistantSource, /const cardLabel = labelForCard\(card\.type\)/);
+  assert.match(assistantSource, /const showCardTitle = cardTitle && cardTitle\.toLowerCase\(\) !== cardLabel\.toLowerCase\(\)/);
+  assert.match(assistantSource, /showCardTitle \? <h4>\{cardTitle\}<\/h4> : null/);
+});
+
+test('transcript rating chart renders oldest sessions first', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const trendsStart = appSource.indexOf('function TrendsView');
+  const trendsEnd = appSource.indexOf('function TrendChart', trendsStart);
+  const trendsSource = appSource.slice(trendsStart, trendsEnd);
+
+  assert.match(trendsSource, /const chronologicalSessions = useMemo/);
+  assert.match(trendsSource, /new Date\(a\.date\) - new Date\(b\.date\)/);
+  assert.match(trendsSource, /const sortedSessions = chronologicalSessions/);
+  assert.equal(trendsSource.includes('[...chronologicalSessions].reverse()'), false);
 });
 
 test('timeline replaces the live workspace when opened', () => {
@@ -41,16 +179,60 @@ test('timeline replaces the live workspace when opened', () => {
   assert.match(renderBlock, /workspace-timeline/);
   assert.ok(renderBlock.indexOf('<BrandMasthead') < renderBlock.indexOf('<WorkspaceNav'));
   assert.ok(renderBlock.indexOf('<TimelineView') < renderBlock.indexOf('<StatusStrip'));
-  assert.ok(renderBlock.indexOf('<StatusStrip') < renderBlock.indexOf('className="live-grid"'));
+  assert.ok(renderBlock.indexOf('<StatusStrip') < renderBlock.indexOf('<ContextPanel'));
+});
+
+test('interview timeline shows transcript star ratings', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+
+  assert.match(appSource, /function StarRating/);
+  assert.match(appSource, /Transcript rating/);
+  assert.match(appSource, /Array\.from\(\{ length: 5 \}/);
+  assert.match(appSource, /className=\{`star-icon/);
+  assert.match(cssSource, /\.star-rating/);
+  assert.match(cssSource, /\.star-icon\.filled/);
+  assert.equal(appSource.includes('session-confidence-pill'), false);
+  assert.equal(appSource.includes('trendConfidenceScores'), false);
+  assert.equal(appSource.includes('Interview confidence'), false);
+});
+
+test('pre-call prep and trend breakdown omit per-phase confidence scores', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+
+  assert.equal(appSource.includes('Interview confidence by phase:'), false);
+  assert.equal(appSource.includes('phase-confidence-row'), false);
+  assert.equal(appSource.includes('phase-confidence-pill'), false);
+  assert.equal(appSource.includes('confidence_scores'), false);
+});
+
+test('pre-call prep renders saved AI prep sections with 3 bullets each', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const contextStart = appSource.indexOf('function ContextPanel');
+  const contextEnd = appSource.indexOf('function TimelineView', contextStart);
+  const contextSource = appSource.slice(contextStart, contextEnd);
+
+  assert.match(contextSource, /const preCallPrep = trendAnalysis\?\.pre_call_prep/);
+  assert.equal(contextSource.includes('buildInterviewPrepSuggestions'), false);
+  assert.match(contextSource, /preCallPrep\.probable_focus\.map/);
+  assert.match(contextSource, /preCallPrep\.interviewer_question_patterns\.map/);
+  assert.match(contextSource, /preCallPrep\.questions_to_ask\.map/);
+  assert.match(contextSource, /preCallPrep\.cumulative_phase_summary\.map/);
+  assert.match(contextSource, /Previous interviewer question patterns/);
 });
 
 test('mode tabs live in the title bar', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
   const titleBarStart = appSource.indexOf('function TitleBar');
   const titleBarEnd = appSource.indexOf('function BrandMasthead', titleBarStart);
   const titleBarSource = appSource.slice(titleBarStart, titleBarEnd);
 
   assert.match(titleBarSource, /<ModeToggle/);
+  assert.match(titleBarSource, /capture-protection-toggle/);
+  assert.match(titleBarSource, /className="ghost-emoji-icon"/);
+  assert.match(titleBarSource, />👻<\/span>/);
+  assert.match(cssSource, /\.capture-protection-toggle \.ghost-emoji-icon[\s\S]*font-size: 20px/);
   assert.equal(titleBarSource.includes('Command center'), false);
   assert.equal(titleBarSource.includes('mode-chip'), false);
 });
@@ -74,6 +256,9 @@ test('post-session save prompt supports interview and meeting destinations', () 
   assert.match(appSource, /Save meeting transcript/);
   assert.match(appSource, /Existing company/);
   assert.match(appSource, /New company/);
+  assert.match(appSource, /Paste job description/i);
+  assert.match(appSource, /jobDescription/);
+  assert.match(appSource, /setCompanyJobDescription/);
   assert.match(appSource, /Interview phase/);
   assert.match(appSource, /Interviewer/);
   assert.match(appSource, /Existing meeting/);
@@ -99,6 +284,33 @@ test('session creation flows expose date time pickers and save dates', () => {
 
   assert.match(appSource, /date:\s*fromDateTimeLocal\(data\.date/);
   assert.match(appSource, /date:\s*fromDateTimeLocal\(payload\?\.date/);
+});
+
+test('editing an interview transcript clears stale grading and restarts grading', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const start = appSource.indexOf('async function saveSessionEdits');
+  const end = appSource.indexOf('return (', start);
+  const source = appSource.slice(start, end);
+  const promptStart = appSource.indexOf('function PostSessionSaveModal');
+  const promptEnd = appSource.indexOf('function JobDescriptionModal', promptStart);
+  const promptSource = appSource.slice(promptStart, promptEnd);
+
+  assert.match(source, /transcriptTextsMatch/);
+  assert.match(source, /record\.grading = \{ status: 'pending' \}/);
+  assert.match(source, /summary: ''/);
+  assert.match(promptSource, /window\.scrollTo\(0, 0\)/);
+});
+
+test('new meeting drawer accepts transcript text directly', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const start = appSource.indexOf('function NewMeetingModal');
+  const end = appSource.indexOf('function PostSessionSaveModal', start);
+  const source = appSource.slice(start, end);
+
+  assert.match(source, /Transcript/);
+  assert.match(source, /Meeting memory/);
+  assert.match(source, /transcriptText/);
+  assert.match(source, /Create Meeting/);
 });
 
 test('meeting settings use long term memory naming', () => {
@@ -132,6 +344,86 @@ test('select option menus have readable dark colors', () => {
   assert.match(cssSource, /color:\s*#f5fbff/);
 });
 
+test('drawer prompts open at the top of the viewport', () => {
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+
+  assert.match(cssSource, /\.drawer-backdrop\s*\{/);
+  assert.match(cssSource, /align-items:\s*flex-start/);
+});
+
+test('workspace nav shows the next upcoming event next to calendar', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const navStart = appSource.indexOf('function WorkspaceNav');
+  const navEnd = appSource.indexOf('function ModeToggle', navStart);
+  const navSource = appSource.slice(navStart, navEnd);
+
+  assert.match(navSource, /nextUpcomingEvent/);
+  assert.match(navSource, /workspace-nav-event/);
+  assert.match(navSource, /Next up/);
+  assert.match(navSource, /formatEventDateTime\(nextUpcomingEvent\.date\)/);
+  assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
+  assert.equal(navSource.includes('style={{ display: \'flex\''), false);
+  assert.match(cssSource, /\.workspace-nav-inner/);
+  assert.match(cssSource, /\.workspace-nav-event/);
+  assert.match(cssSource, /\.workspace-nav-empty/);
+});
+
+test('trend analysis cache is keyed by the session signature', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const clientSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'trendAnalysisClient.js'), 'utf8');
+
+  assert.match(appSource, /from '\.\/trendAnalysisClient\.js'/);
+  assert.equal(appSource.includes("from '../trendAnalysis.js'"), false);
+  assert.match(clientSource, /export function buildTrendAnalysisSessionSignature/);
+  assert.match(clientSource, /export function isTrendAnalysisComplete/);
+  assert.match(appSource, /buildTrendAnalysisSessionSignature/);
+  assert.match(appSource, /isTrendAnalysisComplete/);
+  assert.match(appSource, /sessionsSignature/);
+  assert.match(appSource, /getTrendAnalysis/);
+  assert.match(appSource, /sessionsMatchSelected/);
+  assert.match(appSource, /sort\(\(a, b\) => new Date\(a\.date\) - new Date\(b\.date\)\)/);
+});
+
+test('trend analysis view loads saved analysis without auto-regenerating on navigation', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const trendsStart = appSource.indexOf('function TrendsView');
+  const trendsEnd = appSource.indexOf('function TrendChart', trendsStart);
+  const trendsSource = appSource.slice(trendsStart, trendsEnd);
+
+  assert.match(trendsSource, /getTrendAnalysis/);
+  assert.match(trendsSource, /Generate Analysis/);
+  assert.match(trendsSource, /generateTrendAnalysis\?\.\(selected\.id, \{ force: true \}\)/);
+  assert.equal(trendsSource.includes('setAnalysis(null);\n      generateAnalysis();'), false);
+});
+
+test('upcoming event lists hide events after their scheduled date time passes', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const timelineStart = appSource.indexOf('function TimelineView');
+  const timelineEnd = appSource.indexOf('function SessionBlock', timelineStart);
+  const timelineSource = appSource.slice(timelineStart, timelineEnd);
+  const contextStart = appSource.indexOf('function ContextPanel');
+  const contextEnd = appSource.indexOf('function TimelineView', contextStart);
+  const contextSource = appSource.slice(contextStart, contextEnd);
+
+  assert.match(appSource, /function useNowMs/);
+  assert.match(appSource, /setInterval\(\(\) => setNowMs\(Date\.now\(\)\), 30000\)/);
+  assert.match(timelineSource, /const nowMs = useNowMs\(\)/);
+  assert.match(timelineSource, /Number\.isFinite\(eventTime\) && eventTime >= nowMs/);
+  assert.match(contextSource, /const nowMs = useNowMs\(\)/);
+  assert.match(contextSource, /Number\.isFinite\(eventTime\) && eventTime >= nowMs/);
+});
+
+test('calendar event modal submit resolves a valid color before saving', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const modalStart = appSource.indexOf('function CalendarEventModal');
+  const modalEnd = appSource.indexOf('function App()', modalStart);
+  const modalSource = appSource.slice(modalStart, modalEnd);
+
+  assert.match(modalSource, /const resolvedColor = associationMode === 'opportunity'/);
+  assert.match(modalSource, /color:\s*resolvedColor/);
+});
+
 test('timeline renders evaluation notes as structured content', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
@@ -139,11 +431,14 @@ test('timeline renders evaluation notes as structured content', () => {
   assert.match(appSource, /function EvaluationNotes/);
   assert.match(appSource, /parseEvaluationText/);
   assert.match(appSource, /evaluation-section/);
+  assert.match(appSource, /evaluation-action-items/);
   assert.match(appSource, /evaluation-examples/);
   assert.match(appSource, /function buildNotes\(transcript, cards, mode = 'interview'\)/);
   assert.match(appSource, /summary: ''/);
   assert.match(appSource, /actionItems: \[\]/);
-  assert.match(appSource, /session\?.mode === 'interview' \? 'Examples' : 'Action items'/);
+  assert.match(appSource, /session\?\.mode === 'meeting' \? 'Meeting notes' : 'Summary'/);
+  assert.match(appSource, /session\?\.mode === 'interview' \? 'Examples' : 'Action items by attendee'/);
   assert.match(cssSource, /\.evaluation-notes/);
   assert.match(cssSource, /\.evaluation-section h4/);
+  assert.match(cssSource, /\.evaluation-action-items/);
 });

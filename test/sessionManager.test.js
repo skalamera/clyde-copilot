@@ -32,7 +32,7 @@ test('session manager saves and reads interview and meeting sessions', () => {
     title: 'Platform weekly sync',
     attendees: [{ name: 'Morgan', role: 'PM' }],
     transcript: [{ speaker: 'Morgan', text: 'We need a release owner.' }],
-    notes: { summary: 'Release ownership was discussed.', actionItems: ['Assign owner'] },
+    notes: { summary: 'Release ownership was discussed.', actionItems: [{ attendee: 'Morgan', items: ['Assign owner'] }] },
     cards: [{ type: 'recap', title: 'Recap', body: 'Release owner needed.' }],
     grading: null
   });
@@ -60,7 +60,7 @@ test('session manager saves and reads interview and meeting sessions', () => {
 
   assert.equal(meetings.length, 1);
   assert.equal(meetings[0].mode, 'meeting');
-  assert.deepEqual(meetings[0].notes.actionItems, ['Assign owner']);
+  assert.deepEqual(meetings[0].notes.actionItems, [{ attendee: 'Morgan', items: ['Assign owner'] }]);
 
   assert.equal(manager.deleteEntity('meeting', 'platform-weekly'), true);
   assert.deepEqual(manager.getSessionEntities('meeting'), []);
@@ -203,14 +203,70 @@ test('saving a generated-id session twice updates the original record', () => {
   };
 
   const firstId = manager.saveSession(record);
-  record.grading = { status: 'complete', grade: 'A' };
+  record.grading = { status: 'complete', transcriptRating: 5 };
   const secondId = manager.saveSession(record);
 
   const sessions = manager.getSessions({ mode: 'interview', entityId: 'apollo' });
 
   assert.equal(secondId, firstId);
   assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].grading.grade, 'A');
+  assert.equal(sessions[0].grading.transcriptRating, 5);
+});
+
+test('session manager normalizes and preserves transcript star ratings', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-session-stars-'));
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Recruiter Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Walk me through your background.' }],
+    grading: {
+      status: 'complete',
+      transcriptRating: 4.6,
+      reasoning: 'Strong support tooling examples.',
+      examples: ['Explained ticket QA process.']
+    }
+  });
+
+  const [session] = manager.getSessions({ mode: 'interview', entityId: 'apollo' });
+
+  assert.equal(session.grading.transcriptRating, 5);
+  assert.equal(session.grading.reasoning, 'Strong support tooling examples.');
+  assert.deepEqual(session.grading.examples, ['Explained ticket QA process.']);
+});
+
+test('saving a session preserves existing overall confidence when no new score is supplied', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-confidence-preserve-'));
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Recruiter Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Tell me about yourself.' }]
+  });
+  manager.updateEntityConfidence('apollo', 87, 'up');
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Technical Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Describe your workflow.' }]
+  });
+
+  const [entity] = manager.getSessionEntities('interview');
+
+  assert.equal(entity.confidence, 87);
+  assert.equal(entity.trend, 'up');
 });
 
 test('graded interview sessions expose evaluation text as notes without action items', () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildTrendAnalysisSessionSignature,
   getTranscriptRating,
@@ -1054,7 +1054,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
     }
   }
 
-  const sortedSessions = [...chronologicalSessions].reverse();
+  const sortedSessions = chronologicalSessions;
 
   return (
     <section className="timeline-view" data-testid="trendsTimeline">
@@ -1206,7 +1206,8 @@ function TrendChart({ sessions }) {
       session,
       rating: getTranscriptRating(session.grading)
     }))
-    .filter((item) => item.rating !== null);
+    .filter((item) => item.rating !== null)
+    .sort((a, b) => a.session.createdAt - b.session.createdAt);
   
   if (validSessions.length < 2) {
     return <div className="chart-empty" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--muted)' }}>Not enough rated sessions to chart.</div>;
@@ -1964,6 +1965,7 @@ function App() {
   const [assistantCards, setAssistantCards] = useState([]);
   const [askPending, setAskPending] = useState(false);
   const [overlayHidden, setOverlayHidden] = useState(false);
+  const [capturePaused, setCapturePaused] = useState(false);
   const [health, setHealth] = useState(DEFAULT_HEALTH);
   const [liveLevels, setLiveLevels] = useState([]);
   const [workspaceView, setWorkspaceView] = useState('live');
@@ -2026,10 +2028,24 @@ function App() {
     window.addEventListener('open-calendar-modal', handleAddEvent);
     window.addEventListener('open-jd-modal', handleJd);
     window.addEventListener('open-manual-transcript-modal', handleManual);
+    const handleStartEvent = async (e) => {
+      const { entity, evt } = e.detail;
+      setWorkspaceView('live');
+      if (mode === 'interview') {
+        const nextSettings = await api?.setActiveSessionContext?.({ mode: 'interview', company: entity.id, role: entity.role || '' });
+        if (nextSettings) setSettings(nextSettings);
+      } else {
+        await setActiveMeeting(entity.id);
+      }
+      startCapture();
+    };
+    window.addEventListener('start-from-event', handleStartEvent);
+
     return () => {
       window.removeEventListener('open-calendar-modal', handleAddEvent);
       window.removeEventListener('open-jd-modal', handleJd);
       window.removeEventListener('open-manual-transcript-modal', handleManual);
+      window.removeEventListener('start-from-event', handleStartEvent);
     };
   }, []);
 
@@ -2118,9 +2134,15 @@ function App() {
       setStatus(nextStatus.message);
       if (nextStatus.state === 'capturing') {
         setIsStreaming(true);
+        setCapturePaused(false);
+      }
+      if (nextStatus.state === 'paused') {
+        setIsStreaming(true);
+        setCapturePaused(true);
       }
       if (nextStatus.state === 'idle' || nextStatus.state === 'error') {
         setIsStreaming(false);
+        setCapturePaused(false);
       }
     });
 
@@ -2250,30 +2272,58 @@ function App() {
   }
 
   function startCapture() {
+    console.log('🎬 startCapture() called');
+    console.log(`   Current state - isStreaming: ${isStreaming}, workspaceView: ${workspaceView}`);
     setTranscript([]);
     setAssistantCards([]);
     setAskPending(false);
     setOverlayHidden(false);
+    setCapturePaused(false);
     setStatus('Starting audio capture...');
+    console.log('📢 About to call setIsStreaming(true)');
     setIsStreaming(true);
+    console.log('📢 About to call api?.showApp?()');
+    api?.showApp?.();
+    console.log('📢 About to call api?.startTranscription?()');
     api?.startTranscription?.();
+    console.log('✅ startCapture() completed');
   }
 
   function stopCapture() {
     api?.stopTranscription?.();
     setIsStreaming(false);
     setOverlayHidden(false);
+    setCapturePaused(false);
     setStatus('Capture stopped. Choose where to save the transcript.');
     setPostSessionPromptOpen(true);
   }
+
+  useEffect(() => {
+    console.log(`📊 useEffect [isStreaming] triggered. isStreaming: ${isStreaming}`);
+    if (isStreaming) {
+      console.log('🔄 isStreaming is true - setting overlayHidden to false and calling showApp');
+      setOverlayHidden(false);
+      api?.showApp?.();
+    }
+  }, [isStreaming]);
 
   function resetSession() {
     api?.resetSession?.();
     setTranscript([]);
     setAssistantCards([]);
-    setLiveLevels([]);
     setAskPending(false);
     setOverlayHidden(false);
+  }
+
+  async function togglePauseCapture() {
+    try {
+      const result = await api?.togglePauseCapture?.();
+      if (result && Object.prototype.hasOwnProperty.call(result, 'paused')) {
+        setCapturePaused(Boolean(result.paused));
+      }
+    } catch (error) {
+      setStatus(`Pause failed: ${error.message}`);
+    }
   }
 
   async function saveCurrentSession() {
@@ -2528,6 +2578,21 @@ function App() {
   }
 
   const activeCapture = workspaceView === 'live' && isStreaming;
+  
+  // Log state changes
+  useEffect(() => {
+    console.log(`🎨 Render state changed: activeCapture=${activeCapture}, isStreaming=${isStreaming}, workspaceView=${workspaceView}, overlayHidden=${overlayHidden}`);
+    if (activeCapture) {
+      console.log('⚠️  ACTIVE CAPTURE MODE - app-shell-active class will be applied');
+      const shellElement = document.querySelector('.app-shell');
+      if (shellElement) {
+        console.log(`   app-shell found. Classes: ${shellElement.className}`);
+        console.log(`   Computed style - display: ${window.getComputedStyle(shellElement).display}, opacity: ${window.getComputedStyle(shellElement).opacity}, visibility: ${window.getComputedStyle(shellElement).visibility}`);
+      } else {
+        console.log('   ⚠️  app-shell element NOT found in DOM!');
+      }
+    }
+  }, [activeCapture, isStreaming, workspaceView, overlayHidden]);
 
   return (
     <div className={`app-shell ${activeCapture ? 'app-shell-active' : ''}`}>
@@ -2562,32 +2627,41 @@ function App() {
           <ActiveCaptureView
             cards={filteredCards}
             isAsking={askPending}
+            isPaused={capturePaused}
             mode={mode}
             onAsk={runCommand}
             hidden={overlayHidden}
             onHide={() => setOverlayHidden(true)}
-            onShow={() => setOverlayHidden(false)}
+            onShow={() => {
+              setOverlayHidden(false);
+              api?.resizeActiveCaptureWindow?.({ width: 460, height: 320, restore: true });
+            }}
             onStop={stopCapture}
+            onPauseToggle={togglePauseCapture}
             onReset={resetSession}
+            onDismissCard={(cardId) => setAssistantCards((prev) => prev.filter((card) => card.id !== cardId))}
             settings={settings}
             captureProtectionEnabled={settings?.captureProtectionEnabled}
             liveLevels={liveLevels}
+            transcript={transcript}
             onToggleCaptureProtection={toggleCaptureProtection}
           />
         ) : (
         <>
         <WorkspaceNav
-          mode={mode}
-          onViewChange={setWorkspaceView}
-          nextUpcomingEvent={nextUpcomingEvent}
-          view={workspaceView}
-        />
+            mode={mode}
+            onViewChange={setWorkspaceView}
+            nextUpcomingEvent={nextUpcomingEvent}
+            view={workspaceView}
+            onStartCapture={startCapture}
+          />
 
         {workspaceView === 'timeline' ? (
           <TimelineView
-            entities={entities}
-            mode={mode}
-            onRefresh={() => reloadSessions(mode, selectedEntity)}
+              entities={entities}
+              mode={mode}
+              onStartCapture={startCapture}
+              onRefresh={() => reloadSessions(mode, selectedEntity)}
             onAddNewOpportunity={() => setNewOpportunityOpen(true)}
             onAddNewMeeting={() => setNewMeetingOpen(true)}
             onEditEntity={(entity) => setEditEntityTarget(entity)}
@@ -2809,6 +2883,7 @@ function App() {
                 await chooseMode('meeting');
                 await setActiveMeeting(id);
               }
+              setWorkspaceView('live');
               startCapture();
             }}
           />
@@ -2842,12 +2917,12 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
           aria-pressed={captureProtectionEnabled}
           title={captureProtectionEnabled ? 'Screen capture protection enabled' : 'Screen capture protection disabled'}
         >
-          <img src={ghostUrl} alt="" />
+          <span className="ghost-emoji-icon" aria-hidden="true">👻</span>
         </button>
       </div>
 
       <div className="title-context">
-        {!isStreaming && <button className="primary-action" type="button" onClick={onStartCapture} style={{ padding: '6px 20px', minHeight: '34px', fontSize: '0.9rem' }}>Start</button>}
+        {!isStreaming && <button className="primary-action" type="button" data-testid="startBtn" onClick={onStartCapture} style={{ padding: '6px 20px', minHeight: '34px', fontSize: '0.9rem' }}>Start</button>}
         
         {isInterview ? (
           <>
@@ -3037,11 +3112,133 @@ function SetupPanel({ mode, onClose, onSave, onValidate, serviceChecking, settin
   );
 }
 
-function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onShow, onStop, onReset, settings, captureProtectionEnabled, onToggleCaptureProtection, liveLevels }) {
+function ActiveGhostMeters({ liveLevels }) {
+  const youLevels = [];
+  const othersLevels = [];
+
+  (liveLevels || []).forEach((source) => {
+    const label = (source.label || '').toLowerCase();
+    if (label.includes('you') || label.includes('mic') || label.includes('microphone')) {
+      youLevels.push(source.level || 0);
+    } else {
+      othersLevels.push(source.level || 0);
+    }
+  });
+
+  const youLevel = youLevels.length ? Math.max(...youLevels) : 0;
+  const othersLevel = othersLevels.length ? Math.max(...othersLevels) : 0;
+  const currentSpeaker = youLevel >= othersLevel ? 'you' : 'others';
+
+  const renderMeterLights = (level, active) => {
+    const lights = [];
+    const numLights = 5;
+    for (let i = 0; i < numLights; i++) {
+      const threshold = (i + 1) * (100 / numLights);
+      const isActive = active && level >= threshold - (100 / numLights) / 2;
+      let colorClass = 'cyan';
+      if (i === 2 || i === 3) colorClass = 'yellow';
+      if (i === 4) colorClass = 'red';
+      if (i === 1) colorClass = 'green';
+      lights.push(
+        <div key={i} className={`meter-light ${colorClass} ${isActive ? 'active' : ''}`} />
+      );
+    }
+    return lights;
+  };
+
+  return (
+    <div className="active-ghost-meters-container">
+      <div className={`ghost-meter ${currentSpeaker === 'you' && youLevel > 2 ? 'speaking' : ''}`}>
+        <div className="ghost-icon-wrapper">
+          <span className="ghost-label">You</span>
+        </div>
+        <div className="ghost-lights">{renderMeterLights(youLevel, currentSpeaker === 'you')}</div>
+      </div>
+      <div className={`ghost-meter ${currentSpeaker === 'others' && othersLevel > 2 ? 'speaking' : ''}`}>
+        <div className="ghost-icon-wrapper">
+          <span className="ghost-label">Others</span>
+        </div>
+        <div className="ghost-lights">{renderMeterLights(othersLevel, currentSpeaker === 'others')}</div>
+      </div>
+    </div>
+  );
+}
+
+function ActiveSourceMenu({ includeScreenshot, setIncludeScreenshot, setSources, settings, sources }) {
+  return (
+    <div className="active-source-menu">
+      <label>
+        <input
+          type="checkbox"
+          checked={sources.resume}
+          onChange={(event) => setSources((current) => ({ ...current, resume: event.target.checked }))}
+        />
+        Resume / background
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={sources.memory}
+          onChange={(event) => setSources((current) => ({ ...current, memory: event.target.checked }))}
+        />
+        Longterm memory
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={sources.rag}
+          disabled={!settings?.ragEnabled}
+          onChange={(event) => setSources((current) => ({ ...current, rag: event.target.checked }))}
+        />
+        RAG (Pinecone)
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={sources.web}
+          onChange={(event) => setSources((current) => ({ ...current, web: event.target.checked }))}
+        />
+        Web Search
+      </label>
+      <label className="active-screenshot-toggle">
+        <input
+          type="checkbox"
+          checked={includeScreenshot}
+          onChange={(event) => setIncludeScreenshot(event.target.checked)}
+        />
+        Include screenshot
+      </label>
+    </div>
+  );
+}
+
+function ActiveCaptureView({
+  cards,
+  hidden,
+  isAsking,
+  isPaused,
+  mode,
+  onAsk,
+  onHide,
+  onShow,
+  onStop,
+  onPauseToggle,
+  onReset,
+  onDismissCard,
+  settings,
+  captureProtectionEnabled,
+  onToggleCaptureProtection,
+  liveLevels,
+  transcript
+}) {
   const [prompt, setPrompt] = useState('');
   const [promptType, setPromptType] = useState(null);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const panelRef = useRef(null);
+  const controlBarDragRef = useRef({ moved: false });
+  const suppressControlBarClickRef = useRef(false);
   const [sources, setSources] = useState(() => ({
     resume: !settings?.ragEnabled,
     memory: false,
@@ -3057,6 +3254,55 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
       web: current.web
     }));
   }, [settings?.ragEnabled]);
+
+  useEffect(() => {
+    if (hidden) {
+      window.electronAPI?.resizeActiveCaptureWindow?.({ width: 112, height: 112, minimized: true });
+    }
+  }, [hidden]);
+
+  useEffect(() => {
+    if (hidden || !panelRef.current) {
+      return undefined;
+    }
+
+    const panel = panelRef.current;
+    let frame = 0;
+
+    function reportSize() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const panelRect = panel.getBoundingClientRect();
+        const children = Array.from(panel.children);
+        const contentBounds = children.reduce((bounds, child) => {
+          const rect = child.getBoundingClientRect();
+          return {
+            bottom: Math.max(bounds.bottom, rect.bottom - panelRect.top),
+            left: Math.min(bounds.left, rect.left - panelRect.left),
+            right: Math.max(bounds.right, rect.right - panelRect.left)
+          };
+        }, { bottom: 0, left: 0, right: 0 });
+        const contentWidth = Math.max(panel.scrollWidth, contentBounds.right - contentBounds.left);
+        const width = Math.ceil(Math.max(360, contentWidth + 20));
+        const height = Math.ceil(Math.max(160, contentBounds.bottom + 12));
+
+        window.electronAPI?.resizeActiveCaptureWindow?.({ width, height });
+      });
+    }
+
+    const resizeObserver = new ResizeObserver(reportSize);
+    const mutationObserver = new MutationObserver(reportSize);
+    resizeObserver.observe(panel);
+    Array.from(panel.children).forEach((child) => resizeObserver.observe(child));
+    mutationObserver.observe(panel, { childList: true, subtree: true, characterData: true });
+    reportSize();
+
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [cards, hidden, includeScreenshot, isAsking, promptType, sourceMenuOpen, showTranscript, transcript?.length]);
 
   async function submitAsk(event) {
     event?.preventDefault?.();
@@ -3078,26 +3324,183 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
   function handleNudge() {
     onAsk({
       prompt: 'What should I say next?',
+      intent: 'say_next',
       includeScreenshot: false,
       sources: { resume: false, memory: false, rag: false, web: false },
       mode
     });
   }
 
+  async function handleMinimizedPointerDown(event) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.screenX;
+    const startY = event.screenY;
+    await window.electronAPI?.resizeActiveCaptureWindow?.({ width: 112, height: 112, minimized: true });
+    const bounds = await window.electronAPI?.getActiveCaptureWindowBounds?.();
+    if (!bounds) {
+      onShow();
+      return;
+    }
+
+    let moved = false;
+    target.setPointerCapture?.(pointerId);
+
+    function moveWindow(moveEvent) {
+      const dx = moveEvent.screenX - startX;
+      const dy = moveEvent.screenY - startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        moved = true;
+      }
+
+      if (moved) {
+        window.electronAPI?.moveActiveCaptureWindow?.({
+          x: Math.round(bounds.x + dx),
+          y: Math.round(bounds.y + dy)
+        });
+      }
+    }
+
+    function finishDrag() {
+      target.releasePointerCapture?.(pointerId);
+      target.removeEventListener('pointermove', moveWindow);
+      target.removeEventListener('pointerup', finishDrag);
+      target.removeEventListener('pointercancel', finishDrag);
+
+      if (!moved) {
+        onShow();
+      }
+    }
+
+    target.addEventListener('pointermove', moveWindow);
+    target.addEventListener('pointerup', finishDrag);
+    target.addEventListener('pointercancel', finishDrag);
+  }
+
+  async function handleControlBarPointerDown(event) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const startX = event.screenX;
+    const startY = event.screenY;
+    let bounds = null;
+    let moved = false;
+    let latestMove = null;
+    controlBarDragRef.current = { moved: false };
+
+    function moveWindow(moveEvent) {
+      latestMove = {
+        screenX: moveEvent.screenX,
+        screenY: moveEvent.screenY
+      };
+      const dx = latestMove.screenX - startX;
+      const dy = latestMove.screenY - startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        moved = true;
+        controlBarDragRef.current = { moved: true };
+        suppressControlBarClickRef.current = true;
+      }
+
+      if (moved && bounds) {
+        moveEvent.preventDefault?.();
+        window.electronAPI?.moveActiveCaptureWindow?.({
+          x: Math.round(bounds.x + dx),
+          y: Math.round(bounds.y + dy)
+        });
+      }
+    }
+
+    function finishDrag() {
+      window.removeEventListener('pointermove', moveWindow, true);
+      window.removeEventListener('pointerup', finishDrag, true);
+      window.removeEventListener('pointercancel', finishDrag, true);
+
+      if (moved) {
+        window.setTimeout(() => {
+          suppressControlBarClickRef.current = false;
+          controlBarDragRef.current = { moved: false };
+        }, 120);
+      } else {
+        suppressControlBarClickRef.current = false;
+        controlBarDragRef.current = { moved: false };
+      }
+    }
+
+    window.addEventListener('pointermove', moveWindow, true);
+    window.addEventListener('pointerup', finishDrag, true);
+    window.addEventListener('pointercancel', finishDrag, true);
+
+    const nextBounds = await window.electronAPI?.getActiveCaptureWindowBounds?.();
+    if (!nextBounds) {
+      finishDrag();
+      return;
+    }
+
+    bounds = nextBounds;
+    if (latestMove) {
+      moveWindow({
+        ...latestMove,
+        preventDefault: () => {}
+      });
+    }
+  }
+
+  function handleControlBarClickCapture(event) {
+    if (!suppressControlBarClickRef.current && !controlBarDragRef.current.moved) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    suppressControlBarClickRef.current = false;
+    controlBarDragRef.current = { moved: false };
+  }
+
   return (
-    <section className="active-capture-shell" aria-label="Active capture assistant">
+    <section className={`active-capture-shell ${hidden ? 'active-capture-shell-minimized' : ''}`} aria-label="Active capture assistant">
       {hidden ? (
-        <button type="button" className="active-restore-chip" onClick={onShow}>
-          <img src={ghostUrl} alt="" className="active-capture-icon" />
-          Show Clyde
+        <button
+          type="button"
+          className="active-restore-chip"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onShow();
+            }
+          }}
+          onPointerDown={handleMinimizedPointerDown}
+          aria-label="Show Clyde"
+          title="Drag Clyde or click to restore"
+        >
+          <img src={ghostUrl} alt="" />
         </button>
       ) : null}
       {!hidden ? (
-        <div className="active-assistant-panel">
+        <div className="active-assistant-panel" ref={panelRef}>
           <div style={{ width: '100%', height: '24px', WebkitAppRegion: 'drag', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'grab', marginBottom: '-4px' }}>
             <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px' }} />
           </div>
-          <div className="active-capture-bar">
+          {sourceMenuOpen && promptType === 'custom' ? (
+            <ActiveSourceMenu
+              includeScreenshot={includeScreenshot}
+              setIncludeScreenshot={setIncludeScreenshot}
+              setSources={setSources}
+              settings={settings}
+              sources={sources}
+            />
+          ) : null}
+          <ActiveGhostMeters liveLevels={liveLevels} />
+          <div
+            className="active-capture-bar"
+            onClickCapture={handleControlBarClickCapture}
+            onPointerDownCapture={handleControlBarPointerDown}
+          >
             <button 
               type="button"
               className={`active-icon-btn ghost-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
@@ -3106,22 +3509,35 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
               title="Toggle Capture Protection"
               style={{ filter: captureProtectionEnabled ? 'none' : 'grayscale(1) opacity(0.5)' }}
             >
-              <img src={ghostUrl} alt="" className="active-capture-icon" style={{width:'38px', height:'38px', objectFit:'contain'}} />
+              <span className="active-capture-icon ghost-emoji-icon" aria-hidden="true">👻</span>
             </button>
-            <button type="button" className={`active-icon-btn ${promptType === 'camera' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'camera' ? null : 'camera'); setSourceMenuOpen(false); }} aria-label="Screenshot Prompt" title="Ask with Screenshot">
-              <span style={{fontSize: "22px"}}>📸</span><span style={{position: "absolute", top: "8px", right: "8px", fontSize: "12px"}}>✨</span>
+            <button type="button" className={`active-icon-btn camera-btn ${promptType === 'camera' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'camera' ? null : 'camera'); setSourceMenuOpen(false); }} aria-label="Screenshot Prompt" title="Ask with Screenshot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
             </button>
             <button type="button" className="active-icon-btn nudge-btn" onClick={handleNudge} aria-label="Nudge AI" title="What should I say next?">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path><path d="M22 10l-2 -2m0 6l2 -2" stroke="var(--amber)" strokeWidth="2"></path></svg>
             </button>
-            <button type="button" className={`active-icon-btn ${promptType === 'custom' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'custom' ? null : 'custom'); setSourceMenuOpen(false); }} aria-label="Custom Prompt" title="Custom Prompt">
+            <button type="button" className={`active-icon-btn custom-prompt-btn ${promptType === 'custom' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'custom' ? null : 'custom'); setSourceMenuOpen(false); }} aria-label="Custom Prompt" title="Custom Prompt">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M14 6l4 4"></path><path d="M5 21v-4L15.5 6.5a2.828 2.828 0 1 1 4 4L9 21H5z"></path><path d="M3 10h5M3 14h5" strokeDasharray="2 2"></path></svg>
+            </button>
+            <button type="button" className={`active-icon-btn transcript-toggle-btn ${showTranscript ? 'active' : ''}`} onClick={() => setShowTranscript((value) => !value)} aria-label={showTranscript ? 'Hide live transcription' : 'Show live transcription'} title={showTranscript ? 'Hide Live Transcription' : 'Show Live Transcription'}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16"></path><path d="M4 10h10"></path><path d="M4 15h16"></path><path d="M4 20h9"></path></svg>
             </button>
             <button type="button" className="active-icon-btn reset-btn" onClick={() => { setPromptType(null); onReset(); }} aria-label="Reset session" title="Reset Session">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '20px', height: '20px'}}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
             </button>
-            <button type="button" className="active-icon-btn stop-btn" onClick={() => { setPromptType(null); onStop(); }} aria-label="Stop capture" title="Stop Capture">
+            <button type="button" className={`active-icon-btn pause-btn ${isPaused ? 'active' : ''}`} onClick={onPauseToggle} aria-label={isPaused ? 'Resume capture' : 'Pause capture'} title={isPaused ? 'Resume Capture' : 'Pause Capture'}>
+              {isPaused ? (
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"></path></svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
+              )}
+            </button>
+            <button type="button" data-testid="stopBtn" className="active-icon-btn stop-btn" onClick={() => { setPromptType(null); onStop(); }} aria-label="Stop capture" title="Stop Capture">
               <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect></svg>
+            </button>
+            <button type="button" className="active-icon-btn minimize-btn" onClick={() => { setPromptType(null); setSourceMenuOpen(false); onHide(); }} aria-label="Minimize Clyde" title="Minimize Clyde">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M7 12h10"></path></svg>
             </button>
           </div>
           
@@ -3136,85 +3552,26 @@ function ActiveCaptureView({ cards, hidden, isAsking, mode, onAsk, onHide, onSho
                   autoFocus
                 />
                 {promptType === 'custom' && (
-                  <button type="button" className="active-source-button" onClick={() => setSourceMenuOpen((value) => !value)}>
-                    Sources
+                  <button type="button" className="active-icon-btn active-source-button" onClick={() => setSourceMenuOpen((value) => !value)} aria-label="Sources" title="Sources">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}>
+                      <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                      <polyline points="2 12 12 17 22 12"></polyline>
+                      <polyline points="2 17 12 22 22 17"></polyline>
+                    </svg>
                   </button>
                 )}
-                <button type="submit" disabled={isAsking || !prompt.trim()}>
-                  {isAsking ? 'Asking...' : 'Send'}
+                <button type="submit" className="active-icon-btn active-send-button" disabled={isAsking || !prompt.trim()} aria-label="Send" title="Send">
+                  {isAsking ? (
+                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin-icon" style={{width: '18px', height: '18px'}}><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+                  ) : (
+                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  )}
                 </button>
               </form>
-              
-              {sourceMenuOpen && promptType === 'custom' && (
-                <div className="active-source-menu">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={sources.resume}
-                      onChange={(event) => setSources((current) => ({ ...current, resume: event.target.checked }))}
-                    />
-                    Resume / background
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={sources.memory}
-                      onChange={(event) => setSources((current) => ({ ...current, memory: event.target.checked }))}
-                    />
-                    Longterm memory
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={sources.rag}
-                      disabled={!settings?.ragEnabled}
-                      onChange={(event) => setSources((current) => ({ ...current, rag: event.target.checked }))}
-                    />
-                    RAG (Pinecone)
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={sources.web}
-                      onChange={(event) => setSources((current) => ({ ...current, web: event.target.checked }))}
-                    />
-                    Web Search
-                  </label>
-                  <label className="active-screenshot-toggle">
-                    <input
-                      type="checkbox"
-                      checked={includeScreenshot}
-                      onChange={(event) => setIncludeScreenshot(event.target.checked)}
-                    />
-                    Include screenshot
-                  </label>
-                </div>
-              )}
             </div>
           ) : null}
-          
-          <div className="meters" data-testid="liveVoiceMeters" style={{ gridTemplateColumns: '1fr', margin: '0' }}>
-            {liveLevels?.length ? liveLevels.map((source) => (
-              <div className={meter } key={source.id || source.label} style={{ padding: '8px' }}>
-                <div style={{ marginBottom: '4px' }}>
-                  <strong style={{ fontSize: '0.8rem' }}>{source.label || 'Audio'}</strong>
-                  <span style={{ fontSize: '0.7rem' }}>{Math.round(source.rms || 0)} RMS</span>
-                </div>
-                <div className="meter-track" style={{ height: '4px' }}>
-                  <span style={{ width: String(Math.max(0, Math.min(100, source.level || 0))) + "%" }} />
-                </div>
-              </div>
-            )) : (
-              <div className="meter empty" style={{ padding: '8px' }}>
-                <div style={{ marginBottom: '4px' }}>
-                  <strong style={{ fontSize: '0.8rem' }}>Audio levels</strong>
-                  <span style={{ fontSize: '0.7rem' }}>Start capture to monitor sources</span>
-                </div>
-                <div className="meter-track" style={{ height: '4px' }}><span /></div>
-              </div>
-            )}
-          </div>
-          <AssistantCards cards={cards} variant="active" />
+          {showTranscript ? <ActiveTranscriptPanel transcript={transcript} /> : null}
+          <AssistantCards cards={cards} variant="active" onDismissCard={onDismissCard} />
         </div>
       ) : null}
     </section>
@@ -3277,6 +3634,28 @@ function LivePanel(props) {
   );
 }
 
+function ActiveTranscriptPanel({ transcript = [] }) {
+  const recentTurns = Array.isArray(transcript) ? [...transcript.slice(-18)].reverse() : [];
+
+  return (
+    <section className="active-transcript-panel" aria-label="Live transcription">
+      <div className="active-transcript-header">
+        <strong>Live transcription</strong>
+        <span>{recentTurns.length} recent turns</span>
+      </div>
+      <div className="active-transcript-turns">
+        {recentTurns.length ? recentTurns.map((turn, index) => (
+          <p key={`${turn.speaker || 'Speaker'}-${index}`}>
+            <strong>{turn.speaker || 'Speaker'}:</strong> {turn.text}
+          </p>
+        )) : (
+          <p className="active-transcript-empty">Waiting for speech.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Transcript({ transcript }) {
   return (
     <div className="transcript-pane">
@@ -3298,8 +3677,9 @@ function Transcript({ transcript }) {
   );
 }
 
-function AssistantCards({ cards, variant = 'default' }) {
+function AssistantCards({ cards, variant = 'default', onDismissCard }) {
   const active = variant === 'active';
+  const identifiedQuestion = cards.find(c => c.question)?.question;
 
   return (
     <div className={active ? 'assistant-pane assistant-pane-active' : 'assistant-pane'}>
@@ -3308,22 +3688,44 @@ function AssistantCards({ cards, variant = 'default' }) {
         <span>{cards.length} cards</span>
       </div>}
       <div className="scroll-area card-stack">
-        {cards.length ? cards.map((card, index) => (
-          <article className={`assistant-card ${card.type || 'note'}`} key={card.id || `${card.title}-${index}`}>
-            <div className="card-kicker">{labelForCard(card.type)}</div>
-            {card.question ? <h4>{card.question}</h4> : <h4>{card.title || labelForCard(card.type)}</h4>}
-            {card.body ? <p>{card.body}</p> : null}
-            {card.bullets?.length ? (
-              <ul>
-                {card.bullets.map((bullet, bulletIndex) => <li key={`${bullet}-${bulletIndex}`}>{bullet}</li>)}
-              </ul>
-            ) : null}
-            {card.detail ? <small>{card.detail}</small> : null}
-          </article>
-        )) : (
+        {identifiedQuestion ? (
+          <div className="card-identified-question">
+            <strong>Question:</strong> {identifiedQuestion}
+          </div>
+        ) : null}
+        {cards.length ? cards.map((card, index) => {
+          const cardLabel = labelForCard(card.type);
+          const cardTitle = String(card.title || '').trim();
+          const showCardTitle = cardTitle && cardTitle.toLowerCase() !== cardLabel.toLowerCase();
+
+          return (
+            <article className={`assistant-card ${card.type || 'note'}`} key={card.id || `${card.title}-${index}`}>
+              {onDismissCard && (
+                <button 
+                  type="button" 
+                  className="card-dismiss-btn" 
+                  onClick={() => onDismissCard(card.id)}
+                  aria-label="Dismiss card"
+                  title="Dismiss"
+                >
+                  &times;
+                </button>
+              )}
+              <div className="card-kicker">{cardLabel}</div>
+              {showCardTitle ? <h4>{cardTitle}</h4> : null}
+              {card.body ? <p>{card.body}</p> : null}
+              {card.bullets?.length ? (
+                <ul>
+                  {card.bullets.map((bullet, bulletIndex) => <li key={`${bullet}-${bulletIndex}`}>{bullet}</li>)}
+                </ul>
+              ) : null}
+              {card.detail ? <small>{card.detail}</small> : null}
+            </article>
+          );
+        }) : active ? null : (
           <EmptyState
-            title={active ? 'Ask Clyde or wait for suggestions.' : 'No assistant cards yet'}
-            body={active ? 'Live help will appear here during the call.' : 'Clyde will add answers, recaps, risks, and follow-ups here.'}
+            title="No assistant cards yet"
+            body="Clyde will add answers, recaps, risks, and follow-ups here."
           />
         )}
       </div>
@@ -3475,14 +3877,14 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
 
         {mode === 'interview' ? (
           <>
-            <div className="info-row">
-              <span>Company</span>
-              <strong>{activeInterview.name || 'Not set'}</strong>
-            </div>
-            <div className="info-row">
-              <span>Role</span>
-              <strong>{activeInterview.role || settings.currentRole || 'Not set'}</strong>
-            </div>
+            <div className="prep-card">
+                <strong className="prep-label">Company</strong>
+                <div className="prep-value">{activeInterview.name || 'Not set'}</div>
+              </div>
+            <div className="prep-card">
+                <strong className="prep-label">Role</strong>
+                <div className="prep-value">{activeInterview.role || settings.currentRole || 'Not set'}</div>
+              </div>
 
             {activeSessions.length >= 2 ? (
               <>
@@ -3570,14 +3972,14 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
           </>
         ) : (
           <>
-            <div className="info-row">
-              <span>Meeting</span>
-              <strong>{activeMeeting.name || 'Not set'}</strong>
-            </div>
-            <div className="info-row">
-              <span>Attendees</span>
-              <strong>{attendeeSummary(activeMeeting.attendees) || attendeeSummary(settings.meetingAttendees) || 'Not set'}</strong>
-            </div>
+            <div className="prep-card">
+                <strong className="prep-label">Meeting</strong>
+                <div className="prep-value">{activeMeeting.name || 'Not set'}</div>
+              </div>
+            <div className="prep-card">
+                <strong className="prep-label">Attendees</strong>
+                <div className="prep-value">{attendeeSummary(activeMeeting.attendees) || attendeeSummary(settings.meetingAttendees) || 'Not set'}</div>
+              </div>
             <div className="suggestion-box">
               <strong>Last meeting summary</strong>
               {meetingSummaryParsed.overview ? <p>{meetingSummaryParsed.overview}</p> : null}
@@ -3623,7 +4025,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
   );
 }
 
-function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
+function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeMeetingId = mode === 'meeting'
     ? entities.find((entity) => entity.id === settings?.meetingTitle || entity.name === settings?.meetingTitle)?.id || ''
@@ -3786,9 +4188,8 @@ function TimelineView({ entities, mode, onRefresh, onAddNewOpportunity, onAddNew
                     <strong style={{ display: 'block', color: 'var(--text)', fontSize: '0.95rem' }}>{evt.title}</strong>
                     <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{new Date(evt.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
                   </div>
-                  <button type="button" className="small-action" onClick={() => window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: { entity: selected, evt } }))}>
-                    Edit
-                  </button>
+                  <button type="button" className="primary-action" style={{ marginRight: '8px' }} onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('start-from-event', { detail: { entity: selected, evt } })); }}>Start</button>
+
                 </div>
               ))}
             </div>
@@ -4093,7 +4494,7 @@ function SetupFields({ compact = false, mode, onSave, settings }) {
       )}
 
       <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        <button type="submit" className="primary-action">Save setup</button>
+        <button type="submit" data-testid="saveBtn" className="primary-action">Save setup</button>
       </div>
     </form>
   );

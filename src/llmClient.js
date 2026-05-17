@@ -1,25 +1,106 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-async function generateChat({ provider, apiKey, model, messages, jsonSchema, temperature = 0.2, maxTokens = 800, axiosClient, localUrl }) {
+async function generateChat({ provider, apiKey, model, messages, jsonSchema, temperature = 0.2, maxTokens = 800, axiosClient, localUrl, images = [] }) {
     if (provider === 'gemini') {
-        return generateGemini({ apiKey, model, messages, jsonSchema, temperature, maxTokens });
+        return generateGemini({ apiKey, model, messages, jsonSchema, temperature, maxTokens, images });
     } else if (provider === 'anthropic') {
-        return generateAnthropic({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient });
+        return generateAnthropic({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, images });
     } else if (provider === 'openai') {
-        return generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions' });
+        return generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions', images });
     } else {
         // default to local (LM Studio / OpenAI compatible)
         const url = localUrl || process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions';
-        return generateOpenAI({ apiKey: apiKey || 'lm-studio', model, messages, jsonSchema, temperature, maxTokens, axiosClient, url });
+        return generateOpenAI({ apiKey: apiKey || 'lm-studio', model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images });
     }
 }
 
-async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url }) {
+function normalizeImages(images = []) {
+    return (Array.isArray(images) ? images : [images])
+        .filter((image) => image && image.data)
+        .map((image) => ({
+            mimeType: image.mimeType || 'image/png',
+            data: image.data
+        }));
+}
+
+function buildOpenAIMessageContent(text, image) {
+    const content = [{ type: 'text', text: String(text || '') }];
+    const normalized = normalizeImages(image)[0];
+
+    if (normalized) {
+        content.push({
+            type: 'image_url',
+            image_url: {
+                url: `data:${normalized.mimeType};base64,${normalized.data}`
+            }
+        });
+    }
+
+    return content;
+}
+
+function mapToGeminiParts(text, image) {
+    const parts = [{ text: String(text || '') }];
+    const normalized = normalizeImages(image)[0];
+
+    if (normalized) {
+        parts.push({
+            inlineData: {
+                mimeType: normalized.mimeType,
+                data: normalized.data
+            }
+        });
+    }
+
+    return parts;
+}
+
+function buildAnthropicMessageContent(text, image) {
+    const content = [{ type: 'text', text: String(text || '') }];
+    const normalized = normalizeImages(image)[0];
+
+    if (normalized) {
+        content.push({
+            type: 'image',
+            source: {
+                type: 'base64',
+                media_type: normalized.mimeType,
+                data: normalized.data
+            }
+        });
+    }
+
+    return content;
+}
+
+function attachImagesToLastUserMessage(messages = [], images = [], mapper) {
+    const normalized = normalizeImages(images);
+
+    if (!normalized.length) {
+        return messages;
+    }
+
+    let attached = false;
+    const mapped = [...messages].reverse().map((message) => {
+        if (!attached && message.role !== 'system' && message.role !== 'assistant') {
+            attached = true;
+            return {
+                ...message,
+                content: mapper(message.content, normalized[0])
+            };
+        }
+        return message;
+    }).reverse();
+
+    return mapped;
+}
+
+async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images }) {
     const payload = {
         model,
         temperature,
         max_tokens: maxTokens,
-        messages
+        messages: attachImagesToLastUserMessage(messages, images, buildOpenAIMessageContent)
     };
 
     if (jsonSchema) {
@@ -44,12 +125,14 @@ async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature
     return response.data?.choices?.[0]?.message?.content || '';
 }
 
-async function generateAnthropic({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient }) {
+async function generateAnthropic({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, images }) {
     // Anthropic separates system message
     let systemMessage = '';
     const anthropicMessages = [];
 
-    for (const msg of messages) {
+    const mappedMessages = attachImagesToLastUserMessage(messages, images, buildAnthropicMessageContent);
+
+    for (const msg of mappedMessages) {
         if (msg.role === 'system') {
             systemMessage += msg.content + '\n';
         } else {
@@ -100,20 +183,31 @@ async function generateAnthropic({ apiKey, model, messages, jsonSchema, temperat
     return textContent ? textContent.text : '';
 }
 
-async function generateGemini({ apiKey, model, messages, jsonSchema, temperature, maxTokens }) {
+async function generateGemini({ apiKey, model, messages, jsonSchema, temperature, maxTokens, images }) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const geminiModel = genAI.getGenerativeModel({ model });
 
     let systemInstruction = undefined;
     const geminiContents = [];
 
-    for (const msg of messages) {
+    const normalizedImages = normalizeImages(images);
+    let imageAttached = false;
+
+    for (let index = 0; index < messages.length; index++) {
+        const msg = messages[index];
         if (msg.role === 'system') {
             systemInstruction = msg.content;
         } else {
+            const isLastNonSystem = !imageAttached
+                && normalizedImages.length
+                && !messages.slice(index + 1).some((next) => next.role !== 'system' && next.role !== 'assistant');
+            const parts = isLastNonSystem
+                ? mapToGeminiParts(msg.content, normalizedImages[0])
+                : [{ text: msg.content }];
+            imageAttached = imageAttached || isLastNonSystem;
             geminiContents.push({
                 role: msg.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: msg.content }]
+                parts
             });
         }
     }
@@ -197,6 +291,8 @@ function mapToGeminiSchema(schema) {
 }
 
 module.exports = {
+    buildOpenAIMessageContent,
     generateChat,
+    mapToGeminiParts,
     mapToGeminiSchema
 };

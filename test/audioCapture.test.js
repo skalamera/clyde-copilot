@@ -79,6 +79,38 @@ test('uses the recorder stream and handles child process errors', () => {
   assert.equal(stopped, true);
 });
 
+test('pause suppresses audio chunks until capture resumes', () => {
+  const stream = new EventEmitter();
+  const chunks = [];
+  const statuses = [];
+
+  const capture = createAudioCapture({
+    env: { Path: 'C:\\Tools' },
+    pathExists: (candidate) => candidate === 'C:\\Tools\\sox.exe',
+    record: {
+      record: () => ({
+        process: new EventEmitter(),
+        stream: () => stream,
+        stop: () => {}
+      })
+    },
+    processAudioChunk: (chunk) => chunks.push(chunk),
+    onStatus: (status) => statuses.push(status),
+    logger: { log() {}, warn() {}, error() {} },
+    platform: 'win32'
+  });
+
+  capture.start();
+  stream.emit('data', Buffer.from('first'));
+  capture.pause();
+  stream.emit('data', Buffer.from('paused'));
+  capture.resume();
+  stream.emit('data', Buffer.from('second'));
+
+  assert.deepEqual(chunks.map((chunk) => chunk.toString()), ['first', 'second']);
+  assert.equal(statuses.some((status) => status.state === 'paused'), true);
+});
+
 test('includes SoX stderr in stream error status', () => {
   const stream = new EventEmitter();
   const childProcess = new EventEmitter();

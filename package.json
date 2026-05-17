@@ -4,7 +4,8 @@
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
-    "start": "npm run renderer:build && electron .",
+    "prestart": "node ./scripts/cleanup-electron-cache.js",
+    "start": "npm run renderer:build && node ./scripts/start-electron.js",
     "renderer:build": "vite build",
     "renderer:dev": "vite --host 127.0.0.1",
     "prepack": "npm run renderer:build",
@@ -23,6 +24,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@pinecone-database/pinecone": "^7.2.0",
+    "@playwright/mcp": "^0.0.75",
     "axios": "^1.16.0",
     "dotenv": "^17.4.2",
     "electron-log": "^5.4.3",
@@ -32,8 +34,10 @@
     "native-audio-node": "^0.3.5",
     "node-record-lpcm16": "^1.0.1",
     "pdf-parse": "^1.1.1",
+    "playwright": "^1.61.0-alpha-1778188671000",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",
