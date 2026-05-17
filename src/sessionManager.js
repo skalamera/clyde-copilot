@@ -2,6 +2,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { normalizeTranscriptRating } = require('./trendAnalysis');
 
+const OPPORTUNITY_OUTCOMES = new Set(['active', 'advanced', 'rejected', 'offer']);
+
 function createSessionManager({ appPath }) {
   if (!appPath) {
     throw new Error('appPath is required.');
@@ -37,7 +39,13 @@ function createSessionManager({ appPath }) {
       'utf8'
     );
 
-    writeEntityMeta(session.mode, entityId, session.entity);
+    writeEntityMeta(session.mode, entityId, {
+      ...session.entity,
+      outcome: record?.entity?.outcome,
+      outcomeReason: record?.entity?.outcomeReason,
+      outcomeDate: record?.entity?.outcomeDate,
+      outcomeUpdatedAt: record?.entity?.outcomeUpdatedAt
+    });
     return session.id;
   }
 
@@ -92,13 +100,22 @@ function createSessionManager({ appPath }) {
     }
 
     const existing = readJsonFile(path.join(sessionsDir, normalizedMode, normalizedEntityId, 'meta.json')) || {};
+    const outcomeChanged = patch.outcome !== undefined
+      || patch.outcomeReason !== undefined
+      || patch.outcomeDate !== undefined;
     const nextEntity = {
       id: normalizedEntityId,
       name: clean(patch.name || existing.name || entityId),
       role: clean(patch.role !== undefined ? patch.role : existing.role),
       kind: clean(existing.kind || normalizedMode),
       confidence_score: existing.confidence_score !== undefined ? existing.confidence_score : 0,
-      trend: existing.trend || 'neutral'
+      trend: existing.trend || 'neutral',
+      outcome: normalizeOutcome(patch.outcome !== undefined ? patch.outcome : existing.outcome),
+      outcomeReason: clean(patch.outcomeReason !== undefined ? patch.outcomeReason : existing.outcomeReason),
+      outcomeDate: clean(patch.outcomeDate !== undefined ? patch.outcomeDate : existing.outcomeDate),
+      outcomeUpdatedAt: outcomeChanged
+        ? new Date().toISOString()
+        : clean(existing.outcomeUpdatedAt)
     };
 
     writeEntityMeta(normalizedMode, normalizedEntityId, nextEntity);
@@ -127,7 +144,11 @@ function createSessionManager({ appPath }) {
       role: nextEntity.role,
       kind: nextEntity.kind,
       confidence: nextEntity.confidence_score,
-      trend: nextEntity.trend
+      trend: nextEntity.trend,
+      outcome: nextEntity.outcome,
+      outcomeReason: nextEntity.outcomeReason,
+      outcomeDate: nextEntity.outcomeDate,
+      outcomeUpdatedAt: nextEntity.outcomeUpdatedAt
     };
   }
 
@@ -155,6 +176,10 @@ function createSessionManager({ appPath }) {
       fs.mkdirSync(entityDir, { recursive: true });
       const existing = readJsonFile(metaPath) || {};
       const hasEntityConfidence = entity.confidence_score !== undefined || entity.confidence !== undefined;
+      const hasOutcome = entity.outcome !== undefined;
+      const hasOutcomeReason = entity.outcomeReason !== undefined;
+      const hasOutcomeDate = entity.outcomeDate !== undefined;
+      const hasOutcomeUpdatedAt = entity.outcomeUpdatedAt !== undefined;
       fs.writeFileSync(metaPath, JSON.stringify({
         id: entityId,
         name: entity.name || entityId,
@@ -163,7 +188,11 @@ function createSessionManager({ appPath }) {
         confidence_score: hasEntityConfidence
           ? (entity.confidence_score !== undefined ? entity.confidence_score : entity.confidence)
           : (existing.confidence_score !== undefined ? existing.confidence_score : 0),
-        trend: entity.trend || existing.trend || 'neutral'
+        trend: entity.trend || existing.trend || 'neutral',
+        outcome: hasOutcome ? normalizeOutcome(entity.outcome) : normalizeOutcome(existing.outcome),
+        outcomeReason: hasOutcomeReason ? clean(entity.outcomeReason) : clean(existing.outcomeReason),
+        outcomeDate: hasOutcomeDate ? clean(entity.outcomeDate) : clean(existing.outcomeDate),
+        outcomeUpdatedAt: hasOutcomeUpdatedAt ? clean(entity.outcomeUpdatedAt) : clean(existing.outcomeUpdatedAt)
       }, null, 2), 'utf8');
     }
 
@@ -227,7 +256,11 @@ function createSessionManager({ appPath }) {
             role: meta.role || '',
             kind: meta.kind || mode,
             confidence: meta.confidence_score || 0,
-            trend: meta.trend || 'neutral'
+            trend: meta.trend || 'neutral',
+            outcome: normalizeOutcome(meta.outcome),
+            outcomeReason: clean(meta.outcomeReason),
+            outcomeDate: clean(meta.outcomeDate),
+            outcomeUpdatedAt: clean(meta.outcomeUpdatedAt)
           };
         });
     }
@@ -248,7 +281,11 @@ function createSessionManager({ appPath }) {
             role: meta.role || '',
             kind: 'interview',
             confidence: meta.confidence_score || 0,
-            trend: meta.trend || 'neutral'
+            trend: meta.trend || 'neutral',
+            outcome: normalizeOutcome(meta.outcome),
+            outcomeReason: clean(meta.outcomeReason),
+            outcomeDate: clean(meta.outcomeDate),
+            outcomeUpdatedAt: clean(meta.outcomeUpdatedAt)
           };
         });
     }
@@ -529,6 +566,11 @@ function normalizeMode(mode) {
   return mode === 'meeting' ? 'meeting' : 'interview';
 }
 
+function normalizeOutcome(value) {
+  const outcome = clean(value).toLowerCase();
+  return OPPORTUNITY_OUTCOMES.has(outcome) ? outcome : 'active';
+}
+
 function sanitizeId(value) {
   return clean(value).replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'general';
 }
@@ -540,5 +582,6 @@ function clean(value) {
 module.exports = {
   createSessionManager,
   normalizeSessionRecord,
+  normalizeOutcome,
   sanitizeId
 };

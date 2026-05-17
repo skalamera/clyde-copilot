@@ -6,6 +6,7 @@ const {
   calculatePcmRms,
   createTranscriptionProcessor,
   describeHttpError,
+  normalizeTranscriptText,
   isLikelyQuietHallucination
 } = require('../src/transcriptionClient');
 
@@ -40,6 +41,7 @@ test('posts audio to the configured transcription API URL', async () => {
   const calls = [];
   const transcripts = [];
   const appendedFields = [];
+  const appendedValues = new Map();
   let postedAudio;
   const processor = createTranscriptionProcessor({
     settings: {
@@ -54,6 +56,7 @@ test('posts audio to the configured transcription API URL', async () => {
       post: async (url, body, config) => {
         for (const entry of body.entries()) {
           appendedFields.push(entry[0]);
+          appendedValues.set(entry[0], entry[1]);
         }
 
         postedAudio = Buffer.from(await Array.from(body.entries())[0][1].arrayBuffer());
@@ -75,7 +78,8 @@ test('posts audio to the configured transcription API URL', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://localhost:8000/v1/audio/transcriptions');
   assert.equal(calls[0].config.timeout, 10000);
-  assert.deepEqual(appendedFields, ['file', 'model']);
+  assert.deepEqual(appendedFields, ['file', 'model', 'prompt']);
+  assert.match(String(appendedValues.get('prompt')), /clyde_unclear_audio/);
   assert.equal(postedAudio.subarray(0, 4).toString('ascii'), 'RIFF');
   assert.equal(postedAudio.subarray(8, 12).toString('ascii'), 'WAVE');
   assert.deepEqual(transcripts[0], {
@@ -83,6 +87,83 @@ test('posts audio to the configured transcription API URL', async () => {
     speaker: 'Speaker 1',
     speakerColor: '#d8bfd8'
   });
+});
+
+test('filters unclear audio sentinel even when the segment is not quiet', async () => {
+  const transcripts = [];
+  const loudPcm = Buffer.alloc(20);
+  for (let index = 0; index < loudPcm.length; index += 2) {
+    loudPcm.writeInt16LE(1000, index);
+  }
+
+  const processor = createTranscriptionProcessor({
+    settings: {
+        transcriptionProvider: 'local',
+        localTranscriptionUrl: 'http://localhost:8000/v1/audio/transcriptions',
+        llmModel: 'tiny'
+    },
+    minSegmentBytes: 1,
+    minRms: 0,
+    hallucinationRms: 350,
+    minIntervalMs: 0,
+    axiosClient: {
+      post: async () => ({
+        data: {
+          text: 'clyde_unclear_audio'
+        }
+      })
+    },
+    sendTranscript: (transcript) => transcripts.push(transcript),
+    logger: { log() {}, warn() {}, error() {} }
+  });
+
+  const result = await processor.processAudioChunk(loudPcm);
+
+  assert.equal(result.skipped, 'unclear-audio');
+  assert.equal(result.rms, 1000);
+  assert.equal(result.text, 'clyde_unclear_audio');
+  assert.deepEqual(transcripts, []);
+});
+
+test('corrects obvious first-person transcript fragments before sending turns', async () => {
+  const transcripts = [];
+  const processor = createTranscriptionProcessor({
+    settings: {
+        transcriptionProvider: 'local',
+        localTranscriptionUrl: 'http://localhost:8000/v1/audio/transcriptions',
+        llmModel: 'tiny'
+    },
+    minSegmentBytes: 1,
+    minRms: 0,
+    minIntervalMs: 0,
+    axiosClient: {
+      post: async () => ({
+        data: {
+          text: 'The most proud of Judana AI. This AI-powered customer support analytics suite was built specifically for Freshdesk.',
+          speaker: 'You'
+        }
+      })
+    },
+    sendTranscript: (transcript) => transcripts.push(transcript),
+    logger: { log() {}, warn() {}, error() {} }
+  });
+
+  await processor.processAudioChunk(Buffer.from('audio'));
+
+  assert.equal(
+    transcripts[0].text,
+    "I'm most proud of Judana AI. This AI-powered customer support analytics suite was built specifically for Freshdesk."
+  );
+});
+
+test('normalizes common most-proud fragments without changing valid sentences', () => {
+  assert.equal(normalizeTranscriptText('Most proud of the support analytics suite.'), "I'm most proud of the support analytics suite.");
+  assert.equal(normalizeTranscriptText("I'm most proud of the support analytics suite."), "I'm most proud of the support analytics suite.");
+  assert.equal(
+    normalizeTranscriptText('The most proud of the support analytics suite.', { speaker: 'System Audio' }),
+    'The most proud of the support analytics suite.'
+  );
+  assert.equal(normalizeTranscriptText('The dashboard is ready.'), 'The dashboard is ready.');
 });
 
 test('formats Axios network and HTTP errors with useful details', () => {

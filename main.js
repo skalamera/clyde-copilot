@@ -31,12 +31,19 @@ const { startAutoUpdater } = require('./src/autoUpdater');
 const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
 const { buildTrendAnalysisSessionSignature, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
+const {
+    buildOutcomeCalibrationExamples,
+    formatOutcomeCalibrationExamples
+} = require('./src/outcomeLearning');
 
 let mainWindow;
 let normalBounds = null;
+let appWindowMinimized = false;
+let appWindowNormalBounds = null;
 let activeCaptureWindow = false;
 let activeCaptureMinimized = false;
 let suppressActiveBoundsSave = false;
+let suppressAppBoundsSave = false;
 let capturePaused = false;
 let audioCaptures;
 let audioLevelCaptures;
@@ -60,6 +67,8 @@ const ACTIVE_CAPTURE_FULL_MIN_WIDTH = 360;
 const ACTIVE_CAPTURE_FULL_MIN_HEIGHT = 160;
 const ACTIVE_CAPTURE_MINIMIZED_SIZE = 112;
 const ACTIVE_CAPTURE_MINIMIZED_MARGIN = 10;
+const APP_WINDOW_MINIMIZED_SIZE = 96;
+const APP_WINDOW_MINIMIZED_MARGIN = 12;
 
 const healthState = {
     audio: { state: 'unknown', label: 'Audio', detail: 'Not checked yet.' },
@@ -197,6 +206,23 @@ function applyCaptureProtection(settings = {}) {
     }
 }
 
+function buildOutcomeCalibrationSection(entity = {}) {
+    try {
+        const examples = buildOutcomeCalibrationExamples({
+            sessionManager,
+            currentEntityId: entity.id || entity.name || '',
+            role: entity.role || '',
+            limit: 4
+        });
+
+        return formatOutcomeCalibrationExamples(examples)
+            || 'Real outcome calibration examples:\nNone available yet. Use the standard rubric without local calibration.';
+    } catch (error) {
+        console.warn('Failed to build outcome calibration examples:', error);
+        return 'Real outcome calibration examples:\nNone available yet. Use the standard rubric without local calibration.';
+    }
+}
+
 function getSettingsStore() {
     const Store = require('electron-store').default || require('electron-store');
     return new Store();
@@ -312,6 +338,81 @@ function enterActiveCaptureWindow() {
     mainWindow.focus();
 }
 
+function getAppMinimizedBounds(currentBounds) {
+    const display = screen.getDisplayMatching(currentBounds);
+    const workArea = display.workArea;
+    return clampBoundsToDisplay({
+        x: workArea.x + APP_WINDOW_MINIMIZED_MARGIN,
+        y: workArea.y + workArea.height - APP_WINDOW_MINIMIZED_SIZE - APP_WINDOW_MINIMIZED_MARGIN,
+        width: APP_WINDOW_MINIMIZED_SIZE,
+        height: APP_WINDOW_MINIMIZED_SIZE
+    }, display);
+}
+
+function minimizeAppWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return false;
+    }
+
+    const currentBounds = mainWindow.getBounds();
+    if (!appWindowMinimized) {
+        appWindowNormalBounds = currentBounds;
+    }
+
+    const nextBounds = getAppMinimizedBounds(currentBounds);
+    appWindowMinimized = true;
+    suppressAppBoundsSave = true;
+    if (typeof mainWindow.setMinimumSize === 'function') {
+        mainWindow.setMinimumSize(APP_WINDOW_MINIMIZED_SIZE, APP_WINDOW_MINIMIZED_SIZE);
+    }
+    mainWindow.setResizable(false);
+    mainWindow.setBounds(nextBounds);
+    mainWindow.setIgnoreMouseEvents(false);
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    if (typeof mainWindow.setHasShadow === 'function') {
+        mainWindow.setHasShadow(false);
+    }
+    if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+    }
+    if (!mainWindow.isVisible()) {
+        mainWindow.show();
+    }
+    setTimeout(() => {
+        suppressAppBoundsSave = false;
+    }, 250);
+
+    return true;
+}
+
+function restoreAppWindowBounds() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return false;
+    }
+
+    if (appWindowMinimized && appWindowNormalBounds) {
+        suppressAppBoundsSave = true;
+        if (typeof mainWindow.setMinimumSize === 'function') {
+            mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
+        }
+        mainWindow.setResizable(true);
+        mainWindow.setBounds(appWindowNormalBounds);
+        appWindowNormalBounds = null;
+        setTimeout(() => {
+            suppressAppBoundsSave = false;
+        }, 250);
+    }
+
+    appWindowMinimized = false;
+    mainWindow.setIgnoreMouseEvents(false);
+    mainWindow.setAlwaysOnTop(false);
+    if (typeof mainWindow.setHasShadow === 'function') {
+        mainWindow.setHasShadow(true);
+    }
+
+    return true;
+}
+
 function restoreNormalWindowBounds() {
     if (!mainWindow || mainWindow.isDestroyed()) {
         return;
@@ -403,6 +504,38 @@ function resizeActiveCaptureWindowToContent(size = {}) {
     setTimeout(() => {
         suppressActiveBoundsSave = false;
     }, 250);
+
+    return true;
+}
+
+function moveAppWindowTo(bounds = {}) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return false;
+    }
+
+    const currentBounds = mainWindow.getBounds();
+    const width = appWindowMinimized ? APP_WINDOW_MINIMIZED_SIZE : currentBounds.width;
+    const height = appWindowMinimized ? APP_WINDOW_MINIMIZED_SIZE : currentBounds.height;
+    const targetPoint = {
+        x: Number.isFinite(Number(bounds.x)) ? Number(bounds.x) + Math.round(width / 2) : currentBounds.x + Math.round(width / 2),
+        y: Number.isFinite(Number(bounds.y)) ? Number(bounds.y) + Math.round(height / 2) : currentBounds.y + Math.round(height / 2)
+    };
+    const display = screen.getDisplayNearestPoint(targetPoint);
+    const nextBounds = clampBoundsToDisplay({
+        x: Number.isFinite(Number(bounds.x)) ? Number(bounds.x) : currentBounds.x,
+        y: Number.isFinite(Number(bounds.y)) ? Number(bounds.y) : currentBounds.y,
+        width,
+        height
+    }, display);
+
+    suppressAppBoundsSave = true;
+    mainWindow.setBounds(nextBounds);
+    if (appWindowMinimized) {
+        mainWindow.setResizable(false);
+    }
+    setTimeout(() => {
+        suppressAppBoundsSave = false;
+    }, 120);
 
     return true;
 }
@@ -913,6 +1046,7 @@ function createWindow () {
     backgroundColor: '#00000000',
     frame: false,
     show: true,
+    icon: getAppIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'src', 'preload.js'),
       nodeIntegration: false,
@@ -1064,7 +1198,9 @@ function createWindow () {
           prompt: payload && payload.prompt,
           screenshot,
           screenshotWarning,
-          sources: payload && payload.sources
+          sources: payload && payload.sources,
+          intent: payload && payload.intent,
+          mode: payload && payload.mode
       });
   });
 
@@ -1342,6 +1478,7 @@ function createWindow () {
           const roleStr = record.entity.role ? `\nRole/Job Title: ${record.entity.role}` : '';
           const jd = interviewManager.getCompanyJobDescription(record.entity.name) || interviewManager.getCompanyJobDescription(record.entity.id);
           const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+          const outcomeCalibrationSection = buildOutcomeCalibrationSection(record.entity);
           
           const prompt = `You are an expert technical recruiter and hiring manager. Evaluate the candidate ("You") based on the interview transcript.
           Company: ${record.entity.name}${roleStr}${jdStr}
@@ -1349,6 +1486,9 @@ function createWindow () {
           Return transcript_rating as a whole number from 0 to 5 based on this single transcript. 0 means unusable or no evidence. 1 means weak. 2 means below bar. 3 means acceptable. 4 means strong. 5 means excellent. Rate clarity, technical accuracy, conciseness, professionalism, and concrete evidence. Be strict and exact.
           Write a detailed evaluation in exactly 4 short professional sections using markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, and **Outlook:**.
           Use concrete details from the transcript. Do not write a generic one-paragraph summary. Finish every sentence. Keep examples separate from the written evaluation.
+          Real outcome calibration examples are included below when Clyde has labeled local examples. Use them as local hiring-market context. Base this transcript rating on its own evidence.
+
+          ${outcomeCalibrationSection}
           
           Transcript:
           ${transcriptText}`;
@@ -1435,6 +1575,7 @@ function createWindow () {
           const roleStr = entity.role ? `\nRole/Job Title: ${entity.role}` : '';
           const jd = interviewManager.getCompanyJobDescription(entity.name) || interviewManager.getCompanyJobDescription(entity.id);
           const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+          const outcomeCalibrationSection = buildOutcomeCalibrationSection(entity);
 
           const confPrompt = `You are a strict, objective hiring manager evaluating a candidate across all their interviews for a company.
           Company: ${entity.name}${roleStr}${jdStr}
@@ -1443,6 +1584,9 @@ function createWindow () {
           Determine the likelihood of them receiving an offer or moving to the next round, as a percentage from 0 to 100.
           CRITICAL: Be extremely precise and granular with your percentage. Do NOT default to round numbers or multiples of 5 (e.g. avoid exactly 80, 85, 90). Instead, give highly specific numbers based on a detailed analysis of their performance (e.g., 82, 87, 91, 74). Be highly realistic and critical.
           Determine if their trend is "up", "down", or "neutral" compared to previous rounds (if only one round, default to neutral).
+          Real outcome calibration examples are included below when Clyde has labeled local examples. Use them as local context for what has led to rejection, advancement, or offers.
+
+          ${outcomeCalibrationSection}
           
           Transcripts:
           ${combinedTranscripts}`;
@@ -1535,6 +1679,9 @@ function createWindow () {
           if (patch.role !== undefined) {
               try { interviewManager.setCompanyRole(payload.entityId, patch.role); } catch (error) { console.warn(error.message); }
           }
+          if (patch.outcome !== undefined) {
+              processSessionConfidenceInBackground(nextEntity, loadSettings()).catch(console.error);
+          }
       }
 
       return nextEntity;
@@ -1597,6 +1744,11 @@ function createWindow () {
       const roleStr = sortedSessions[0].entity.role ? `\nRole/Job Title: ${sortedSessions[0].entity.role}` : '';
       const jd = interviewManager.getCompanyJobDescription(companyName) || interviewManager.getCompanyJobDescription(companyId);
       const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+      const outcomeCalibrationSection = buildOutcomeCalibrationSection({
+          id: companyId,
+          name: companyName,
+          role: sortedSessions[0].entity.role || ''
+      });
       const sessionsSignature = buildTrendAnalysisSessionSignature(sortedSessions);
       const persistedAnalysis = loadTrendAnalysis(app.getPath('userData'), companyId);
       const forceRegenerate = Boolean(options && options.force);
@@ -1623,6 +1775,9 @@ Review the transcripts of all their interviews in chronological order.
    - probable_focus: likely next-round focus areas based on prior transcripts and the job context.
    - interviewer_question_patterns: actual patterns/themes across previous interviewer questions, not exact question repeats.
    - questions_to_ask: useful questions the candidate can ask in the next round.
+Real outcome calibration examples are included below when Clyde has labeled local examples. Use them when judging whether the trend resembles prior rejected, advanced, or offer outcomes.
+
+${outcomeCalibrationSection}
 
 Transcripts:
 ${combinedTranscripts}`;
@@ -1800,6 +1955,20 @@ ${jobDescription}`;
   });
 }
 
+function getAppIconPath() {
+  const candidates = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, 'icon.png'),
+        path.join(__dirname, 'build', 'icon.png')
+      ]
+    : [
+        path.join(__dirname, 'build', 'icon.png'),
+        path.join(__dirname, 'clyde_ghost.svg')
+      ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate));
+}
+
 app.whenReady().then(() => {
     configureElectronStorage();
     createWindow();
@@ -1831,6 +2000,33 @@ ipcMain.handle('close-app', async () => {
     return true;
 });
 
+ipcMain.handle('minimize-app-window', async () => {
+    return minimizeAppWindow();
+});
+
+ipcMain.handle('maximize-app-window', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return false;
+    }
+
+    if (appWindowMinimized) {
+        restoreAppWindowBounds();
+    }
+    if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+    }
+    if (!mainWindow.isVisible()) {
+        mainWindow.show();
+    }
+    if (typeof mainWindow.setMinimumSize === 'function') {
+        mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
+    }
+    mainWindow.setResizable(true);
+    mainWindow.maximize();
+    mainWindow.focus();
+    return true;
+});
+
 ipcMain.handle('hide-app', async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
         if (typeof mainWindow.hide === 'function') {
@@ -1844,6 +2040,9 @@ ipcMain.handle('hide-app', async () => {
 
 ipcMain.handle('show-app', async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
+        if (appWindowMinimized) {
+            restoreAppWindowBounds();
+        }
         if (mainWindow.isMinimized()) {
             mainWindow.restore();
         }
@@ -1853,6 +2052,18 @@ ipcMain.handle('show-app', async () => {
         mainWindow.focus();
     }
     return true;
+});
+
+ipcMain.handle('get-app-window-bounds', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return null;
+    }
+
+    return mainWindow.getBounds();
+});
+
+ipcMain.handle('move-app-window', async (event, bounds = {}) => {
+    return moveAppWindowTo(bounds);
 });
 
 ipcMain.handle('resize-active-capture-window', async (event, bounds = {}) => {

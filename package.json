@@ -4,17 +4,17 @@
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
-    "prestart": "node ./scripts/cleanup-electron-cache.js",
+    "prestart": "node ./scripts/generate-icon.js && node ./scripts/cleanup-electron-cache.js",
     "start": "npm run renderer:build && node ./scripts/start-electron.js",
     "renderer:build": "vite build",
     "renderer:dev": "vite --host 127.0.0.1",
-    "prepack": "npm run renderer:build",
+    "prepack": "node ./scripts/generate-icon.js && npm run renderer:build",
     "whisper": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1",
     "whisper:cpu": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1 -Runtime cpu",
     "audio:check": "node ./scripts/check-audio-sources.js",
     "test": "node --test",
     "pack": "electron-builder --dir",
-    "predist": "npm run renderer:build",
+    "predist": "node ./scripts/generate-icon.js && npm run renderer:build",
     "dist": "electron-builder"
   },
   "keywords": [],
@@ -48,18 +48,24 @@
   "build": {
     "appId": "com.clyde.app",
     "productName": "Clyde",
+    "icon": "icon.png",
     "directories": {
       "output": "dist"
     },
     "asar": true,
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "icon.png"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
     "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
       "scripts/**/*",
       "voicemeeter_banana_settings.xml"
     ],

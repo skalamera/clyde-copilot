@@ -15,6 +15,8 @@ test('main process request-suggestion forwards prompt and screenshot options', (
   assert.match(source, /getMeetingAssistant\(\)\.requestSuggestion\(\{\s*prompt:/);
   assert.match(source, /screenshot/);
   assert.match(source, /sources: payload && payload\.sources/);
+  assert.match(source, /intent: payload && payload\.intent/);
+  assert.match(source, /mode: payload && payload\.mode/);
 });
 
 test('main process exposes hide-app handler', () => {
@@ -23,6 +25,26 @@ test('main process exposes hide-app handler', () => {
   assert.match(source, /ipcMain\.handle\('hide-app'/);
   assert.match(source, /mainWindow\.hide\(\)/);
   assert.match(source, /mainWindow\.minimize\(\)/);
+});
+
+test('main process exposes app-window minimize and restore handlers', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /ipcMain\.handle\('minimize-app-window'/);
+  assert.match(source, /function minimizeAppWindow/);
+  assert.match(source, /appWindowMinimized = true/);
+  assert.match(source, /ipcMain\.handle\('show-app'/);
+  assert.match(source, /function restoreAppWindowBounds/);
+  assert.match(source, /appWindowMinimized = false/);
+});
+
+test('main process exposes app-window maximize handler', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /ipcMain\.handle\('maximize-app-window'/);
+  assert.match(source, /restoreAppWindowBounds\(\)/);
+  assert.match(source, /mainWindow\.maximize\(\)/);
+  assert.match(source, /mainWindow\.focus\(\)/);
 });
 
 test('main process requests resizing on start-audio-capture', () => {

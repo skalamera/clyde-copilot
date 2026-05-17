@@ -84,13 +84,15 @@ function createMeetingAssistant(options = {}) {
   }
 
   async function maybeRun(force = false, isSuggestionRequest = false, requestOptions = {}) {
-    const mode = normalizeMode(currentContext.mode || settings.appMode || settings.mode || 'interview');
+    const mode = normalizeMode(requestOptions.mode || currentContext.mode || settings.appMode || settings.mode || 'interview');
     const manualPrompt = cleanText(requestOptions.prompt);
     const screenshot = requestOptions.screenshot && requestOptions.screenshot.data ? requestOptions.screenshot : null;
     const screenshotWarning = cleanText(requestOptions.screenshotWarning);
-    const selectedSources = normalizeSelectedSources(requestOptions.sources, settings);
+    const selectedSources = normalizeSelectedSources(requestOptions.sources, settings, mode);
     const requestIntent = cleanText(requestOptions.intent);
     const isSayNextRequest = requestIntent === 'say_next';
+    const isScreenQuestionRequest = requestIntent === 'screen_question';
+    const isCustomPromptRequest = requestIntent === 'custom_prompt';
     const isManualQuestion = !isSayNextRequest && Boolean(manualPrompt || screenshot || screenshotWarning);
 
     if (!model && provider === 'local') {
@@ -131,13 +133,13 @@ function createMeetingAssistant(options = {}) {
       let targetQuestion = '';
       
       const hasPinecone = !!(settings.ragEnabled && process.env.PINECONE_API_KEY && process.env.PINECONE_HOST);
+      const shouldUseRag = selectedSources.includes('rag');
       
       if (isSuggestionRequest) {
         logger.log(`[Intent] Generating suggestion based on recent history...`);
-        // We do a quick RAG search on the absolute last statement just to give it *some* resume context in case the user wants to jump in with a project example
         try {
            const lastTurn = recentHistory[recentHistory.length - 1];
-           if (lastTurn && hasPinecone) {
+           if (lastTurn && hasPinecone && shouldUseRag) {
              const vectors = await searchResumeVectors(lastTurn.text);
              if (vectors && vectors.length > 0) {
                ragContext = "Relevant facts from the user's resume and past projects:\n" + vectors.map(v => `- ${v.text}`).join('\n');
@@ -154,7 +156,7 @@ function createMeetingAssistant(options = {}) {
           if (extractedQuestion) {
              logger.log(`[Intent] Detected interview-related question in transcript: "${extractedQuestion}"`);
              targetQuestion = extractedQuestion;
-             if (hasPinecone) {
+             if (hasPinecone && shouldUseRag) {
                  const vectors = await searchResumeVectors(extractedQuestion);
                  if (vectors && vectors.length > 0) {
                    logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
@@ -178,7 +180,14 @@ function createMeetingAssistant(options = {}) {
       lastRunAt = now;
       lastDigest = digest;
 
-      const command = isSayNextRequest ? 'suggestion' : (isManualQuestion ? 'manual_question' : (isSuggestionRequest ? 'suggestion' : 'assist'));
+      const command = resolveAssistantCommand({
+        mode,
+        isSayNextRequest,
+        isScreenQuestionRequest,
+        isCustomPromptRequest,
+        isManualQuestion,
+        isSuggestionRequest
+      });
       const jsonSchemaProperties = getAssistantSchema(mode, command);
       const systemPrompt = buildAssistantPrompt({
         mode,
@@ -193,7 +202,9 @@ function createMeetingAssistant(options = {}) {
         manualPrompt,
         screenshot,
         screenshotWarning,
-        selectedSources
+        selectedSources,
+        mode,
+        command
       });
       const request = {
         provider,
@@ -356,6 +367,33 @@ function isUserSpeaker(speaker) {
   return String(speaker || '').trim().toLowerCase() === 'you';
 }
 
+function resolveAssistantCommand({
+  mode,
+  isSayNextRequest,
+  isScreenQuestionRequest,
+  isCustomPromptRequest,
+  isManualQuestion,
+  isSuggestionRequest
+}) {
+  if (mode === 'meeting') {
+    if (isScreenQuestionRequest) {
+      return 'meeting_screen_question';
+    }
+
+    if (isSayNextRequest) {
+      return 'meeting_say_next';
+    }
+
+    if (isCustomPromptRequest || isManualQuestion) {
+      return 'meeting_custom_prompt';
+    }
+
+    return isSuggestionRequest ? 'meeting_say_next' : 'assist';
+  }
+
+  return isSayNextRequest ? 'suggestion' : (isManualQuestion ? 'manual_question' : (isSuggestionRequest ? 'suggestion' : 'assist'));
+}
+
 function parseAssistantCards(text) {
   const parsed = parseJsonObject(text);
 
@@ -364,6 +402,18 @@ function parseAssistantCards(text) {
   }
 
   const cards = [];
+
+  for (const item of toArray(parsed.screen_descriptions)) {
+    const textValue = cleanText(item.text || item.description);
+
+    if (textValue) {
+      cards.push({
+        type: 'screen_description',
+        title: 'Screen',
+        body: textValue
+      });
+    }
+  }
 
   for (const item of toArray(parsed.answers)) {
     const question = cleanText(item.question);
@@ -443,6 +493,18 @@ function parseAssistantCards(text) {
       cards.push({
         type: 'action',
         title: 'Action',
+        body: textValue
+      });
+    }
+  }
+
+  for (const item of toArray(parsed.insights)) {
+    const textValue = cleanText(item.text || item.insight);
+
+    if (textValue) {
+      cards.push({
+        type: 'insight',
+        title: 'Insight',
         body: textValue
       });
     }
@@ -528,6 +590,18 @@ function normalizeManualQuestionCards(cards) {
 }
 
 function outputShapeFor(mode, command) {
+  if (mode === 'meeting' && command === 'meeting_screen_question') {
+    return 'Schema: {"screen_descriptions":[{"text":"..."}],"answers":[{"question":"...","bullets":["..."]}]}.';
+  }
+
+  if (mode === 'meeting' && command === 'meeting_say_next') {
+    return 'Schema: {"suggestions":[{"text":"...","why":"..."}],"insights":[{"text":"..."}]}.';
+  }
+
+  if (mode === 'meeting' && command === 'meeting_custom_prompt') {
+    return 'Schema: {"answers":[{"question":"...","bullets":["..."]}],"notes":[{"text":"..."}]}.';
+  }
+
   if (command === 'manual_question') {
     return 'Schema: {"suggestions":[{"text":"...","why":"..."}],"notes":[{"text":"..."}]}.';
   }
@@ -543,7 +617,7 @@ function outputShapeFor(mode, command) {
   return 'Schema: {"answers":[{"question":"...","bullets":["..."]}]}.';
 }
 
-function buildUserPrompt({ digest, manualPrompt, screenshot, screenshotWarning, selectedSources = [] }) {
+function buildUserPrompt({ digest, manualPrompt, screenshot, screenshotWarning, selectedSources = [], mode = 'interview', command = 'assist' }) {
   const lines = [
     `Transcript:\n${digest || 'No transcript turns captured yet.'}`
   ];
@@ -552,29 +626,45 @@ function buildUserPrompt({ digest, manualPrompt, screenshot, screenshotWarning, 
     lines.push(`Selected sources: ${selectedSources.join(', ')}`);
   }
 
-  if (manualPrompt) {
-    lines.push(`User question:\n${manualPrompt}`);
-  }
+  if (mode === 'meeting' && command === 'meeting_screen_question') {
+    lines.push(`Screen question:\n${manualPrompt || 'No written question provided.'}`);
+    if (screenshot) {
+      lines.push('A current desktop screenshot is attached. Describe the attached screen first, then answer or comment on the screen question.');
+    }
+  } else if (mode === 'meeting' && command === 'meeting_say_next') {
+    lines.push('Create one Suggestions card with useful things the user can say next and one Insights card with important context from the transcript.');
+  } else if (mode === 'meeting' && command === 'meeting_custom_prompt') {
+    lines.push(`Custom prompt:\n${manualPrompt}`);
+    if (screenshot) {
+      lines.push('A current desktop screenshot is attached because the user selected Include screenshot.');
+    }
+    lines.push('Follow the custom prompt exactly. Use the selected sources listed above when relevant.');
+  } else {
+    if (manualPrompt) {
+      lines.push(`User question:\n${manualPrompt}`);
+    }
 
-  if (screenshot) {
-    lines.push('A current desktop screenshot is attached. Use it only when it helps answer the user question.');
+    if (screenshot) {
+      lines.push('A current desktop screenshot is attached. Use it only when it helps answer the user question.');
+    }
+
+    lines.push(manualPrompt
+      ? 'Create cards that answer the user question and help me respond right now.'
+      : 'Create cards that help me respond to the other people.');
   }
 
   if (screenshotWarning) {
     lines.push(screenshotWarning);
   }
 
-  lines.push(manualPrompt
-    ? 'Create cards that answer the user question and help me respond right now.'
-    : 'Create cards that help me respond to the other people.');
-
   return lines.join('\n\n');
 }
 
-function normalizeSelectedSources(sourceOptions = {}, settings = {}) {
+function normalizeSelectedSources(sourceOptions = {}, settings = {}, mode = 'interview') {
+  const normalizedMode = normalizeMode(mode);
   const sourceMap = {
-    resume: Boolean(sourceOptions.resume),
-    memory: Boolean(sourceOptions.memory),
+    resume: normalizedMode === 'interview' && Boolean(sourceOptions.resume),
+    memory: normalizedMode === 'meeting' && Boolean(sourceOptions.memory),
     rag: Boolean(sourceOptions.rag) && Boolean(settings.ragEnabled),
     web: Boolean(sourceOptions.web)
   };
@@ -588,7 +678,7 @@ function normalizeSelectedSources(sourceOptions = {}, settings = {}) {
     return ['rag'];
   }
 
-  return ['resume'];
+  return normalizedMode === 'meeting' ? ['memory'] : ['resume'];
 }
 
 function addWarningToCards(cards, warning) {
@@ -659,6 +749,7 @@ module.exports = {
   describeAssistantError,
   extractAssistantText,
   isUserSpeaker,
+  normalizeSelectedSources,
   outputShapeFor,
   parseAssistantCards
 };

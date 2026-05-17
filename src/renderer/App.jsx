@@ -68,6 +68,8 @@ const COMMANDS = [
   { id: 'assist', label: 'AI reply' }
 ];
 
+const MAX_ASSISTANT_CARDS = 12;
+
 function clampUiOpacity(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
@@ -159,6 +161,42 @@ function confidenceBand(value) {
   return 'low';
 }
 
+function normalizeOpportunityOutcome(value) {
+  return ['active', 'advanced', 'rejected', 'offer'].includes(value) ? value : 'active';
+}
+
+function getOutcomeLabel(value) {
+  return {
+    active: 'Active',
+    advanced: 'Advanced',
+    rejected: 'Rejected',
+    offer: 'Offer'
+  }[normalizeOpportunityOutcome(value)];
+}
+
+function OutcomeBadge({ outcome }) {
+  const normalized = normalizeOpportunityOutcome(outcome);
+  return (
+    <span className={`outcome-badge ${normalized}`}>
+      {getOutcomeLabel(normalized)}
+    </span>
+  );
+}
+
+function toDateInput(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text.slice(0, 10);
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
 function StarRating({ rating = 0, label = 'Transcript rating' }) {
   const normalized = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
 
@@ -235,6 +273,53 @@ function formatEventDateTime(value) {
   }
 
   return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function resolveEventEntityLabel(event, entities = []) {
+  if (!event) {
+    return '';
+  }
+
+  const associationMode = event.associationMode || (event.meetingId ? 'meeting' : (event.opportunityId || event.entityId ? 'opportunity' : 'generic'));
+  const entityId = event.entityId || (associationMode === 'meeting' ? event.meetingId : event.opportunityId) || '';
+  const entity = Array.isArray(entities)
+    ? entities.find((item) => item.id === entityId || item.name === entityId)
+    : null;
+  const entityName = event.entityName || entity?.name || entityId;
+
+  if (associationMode === 'meeting') {
+    return entityName ? `Meeting: ${entityName}` : 'Meeting';
+  }
+
+  if (associationMode === 'opportunity') {
+    return entityName ? `Company: ${entityName}` : 'Company';
+  }
+
+  return 'General event';
+}
+
+function getDefaultActiveSources(settings, mode) {
+  if (settings?.ragEnabled) {
+    return { resume: false, memory: false, rag: true, web: false };
+  }
+
+  return {
+    resume: mode !== 'meeting',
+    memory: mode === 'meeting',
+    rag: false,
+    web: false
+  };
+}
+
+function normalizeActiveSourcesForMode(current, settings, mode) {
+  const fallback = getDefaultActiveSources(settings, mode);
+  const normalized = {
+    resume: mode === 'interview' ? Boolean(current?.resume) : false,
+    memory: mode === 'meeting' ? Boolean(current?.memory) : false,
+    rag: settings?.ragEnabled ? Boolean(current?.rag) : false,
+    web: Boolean(current?.web)
+  };
+  return Object.values(normalized).some(Boolean) ? normalized : fallback;
 }
 
 function extractInterviewerQuestions(sessions = []) {
@@ -811,10 +896,16 @@ function ManualTranscriptModal({ entity, onClose, onSave }) {
 function EditEntityModal({ entity, onClose, onSave }) {
   const [name, setName] = useState(entity?.name || '');
   const [role, setRole] = useState(entity?.role || '');
+  const [outcome, setOutcome] = useState(normalizeOpportunityOutcome(entity?.outcome));
+  const [outcomeReason, setOutcomeReason] = useState(entity?.outcomeReason || '');
+  const [outcomeDate, setOutcomeDate] = useState(toDateInput(entity?.outcomeDate));
 
   useEffect(() => {
     setName(entity?.name || '');
     setRole(entity?.role || '');
+    setOutcome(normalizeOpportunityOutcome(entity?.outcome));
+    setOutcomeReason(entity?.outcomeReason || '');
+    setOutcomeDate(toDateInput(entity?.outcomeDate));
   }, [entity]);
 
   return (
@@ -836,12 +927,39 @@ function EditEntityModal({ entity, onClose, onSave }) {
             Title
             <input value={role} onChange={(event) => setRole(event.target.value)} />
           </label>
+          <label>
+            Status
+            <select value={outcome} onChange={(event) => setOutcome(event.target.value)}>
+              <option value="active">Active</option>
+              <option value="advanced">Advanced</option>
+              <option value="rejected">Rejected</option>
+              <option value="offer">Offer</option>
+            </select>
+          </label>
+          <label>
+            Outcome date
+            <input type="date" value={outcomeDate} onChange={(event) => setOutcomeDate(event.target.value)} />
+          </label>
+          <label className="wide-field">
+            Outcome reason
+            <textarea
+              value={outcomeReason}
+              onChange={(event) => setOutcomeReason(event.target.value)}
+              placeholder="Optional note about why this opportunity advanced, closed, or turned into an offer."
+            />
+          </label>
         </div>
         <div className="drawer-actions">
           <button
             type="button"
             className="primary-action"
-            onClick={() => onSave({ name: name.trim(), role: role.trim() })}
+            onClick={() => onSave({
+              name: name.trim(),
+              role: role.trim(),
+              outcome,
+              outcomeReason: outcomeReason.trim(),
+              outcomeDate
+            })}
             disabled={!name.trim()}
           >
             Save changes
@@ -1417,6 +1535,8 @@ const calendarStyles = `
     border-radius: 4px;
   }
   .calendar-event-chip {
+    display: grid;
+    gap: 1px;
     font-size: 0.75rem;
     padding: 4px 8px;
     border-radius: 6px;
@@ -1431,6 +1551,16 @@ const calendarStyles = `
     font-weight: 500;
     letter-spacing: 0.5px;
     border: 1px solid rgba(255,255,255,0.2);
+  }
+  .calendar-event-chip span,
+  .calendar-event-chip small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .calendar-event-chip small {
+    font-size: 0.62rem;
+    opacity: 0.82;
   }
   .calendar-month-grid .calendar-event-chip {
     color: #000000;
@@ -1646,17 +1776,21 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
         <div key={i} className={`calendar-day ${isToday ? 'today' : ''}`} onClick={() => onEditEvent({ date: new Date(currentDate.getFullYear(), currentDate.getMonth(), i, 9, 0, 0).toISOString(), isDraft: true })}>
           <span className="day-number">{i}</span>
           <div className="day-events">
-            {dayEvents.map(evt => (
-              <div 
-                key={evt.id} 
-                className="calendar-event-chip" 
-                style={{ backgroundColor: evt.color || 'var(--cyan)' }}
-                onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
-                title={`${evt.title}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
-              >
-                {evt.title}
-              </div>
-            ))}
+            {dayEvents.map(evt => {
+              const eventLabel = resolveEventEntityLabel(evt, entities);
+              return (
+                <div 
+                  key={evt.id} 
+                  className="calendar-event-chip" 
+                  style={{ backgroundColor: evt.color || 'var(--cyan)' }}
+                  onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
+                  title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
+                >
+                  <span>{evt.title}</span>
+                  <small>{eventLabel}</small>
+                </div>
+              );
+            })}
           </div>
         </div>
       );
@@ -1689,18 +1823,22 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
                 <span>{day.getDate()}</span>
               </div>
               <div className="week-day-events" onClick={() => onEditEvent({ date: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0).toISOString(), isDraft: true })}>
-                {dayEvents.sort((a,b) => new Date(a.date) - new Date(b.date)).map(evt => (
-                  <div 
-                    key={evt.id} 
-                    className="calendar-event-card" 
-                    style={{ borderLeftColor: evt.color || 'var(--cyan)' }}
-                    onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
-                    title={`${evt.title}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
-                  >
-                    <div className="event-time">{new Date(evt.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                    <div className="event-title">{evt.title}</div>
-                  </div>
-                ))}
+                {dayEvents.sort((a,b) => new Date(a.date) - new Date(b.date)).map(evt => {
+                  const eventLabel = resolveEventEntityLabel(evt, entities);
+                  return (
+                    <div 
+                      key={evt.id} 
+                      className="calendar-event-card" 
+                      style={{ borderLeftColor: evt.color || 'var(--cyan)' }}
+                      onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
+                      title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
+                    >
+                      <div className="event-time">{new Date(evt.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                      <div className="event-title">{evt.title}</div>
+                      <div className="event-entity">{eventLabel}</div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
@@ -1720,19 +1858,19 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
         </div>
         <div className="day-view-events">
           {dayEvents.length ? dayEvents.map(evt => {
-             const entity = entities.find(en => en.id === evt.entityId);
+             const eventLabel = resolveEventEntityLabel(evt, entities);
              return (
               <div 
                 key={evt.id} 
                 className="calendar-event-card large" 
                 style={{ borderLeftColor: evt.color || 'var(--cyan)' }}
                 onClick={() => onEditEvent(evt)}
-                title={`${evt.title}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
+                title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
               >
                 <div className="event-time">{new Date(evt.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 <div className="event-details">
                   <div className="event-title">{evt.title}</div>
-                  {entity && <div className="event-entity">Associated with: {entity.name}</div>}
+                  <div className="event-entity">{eventLabel}</div>
                   {evt.description && <div className="event-desc">{evt.description}</div>}
                 </div>
               </div>
@@ -1821,11 +1959,17 @@ function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, o
       : associationMode === 'meeting'
         ? meetingId
         : '';
+    const linkedEntity = associationMode === 'opportunity'
+      ? opportunities.find((entity) => entity.id === opportunityId || entity.name === opportunityId)
+      : associationMode === 'meeting'
+        ? meetings.find((entity) => entity.id === meetingId || entity.name === meetingId)
+        : null;
     onSave({
       id: event?.id,
       title: title.trim(),
       date: fromDateTimeLocal(date),
       entityId: linkedEntityId,
+      entityName: linkedEntity?.name || initialEntity?.name || event?.entityName || linkedEntityId,
       associationMode,
       opportunityId: associationMode === 'opportunity' ? opportunityId : '',
       meetingId: associationMode === 'meeting' ? meetingId : '',
@@ -1965,6 +2109,7 @@ function App() {
   const [assistantCards, setAssistantCards] = useState([]);
   const [askPending, setAskPending] = useState(false);
   const [overlayHidden, setOverlayHidden] = useState(false);
+  const [appWindowMinimized, setAppWindowMinimized] = useState(false);
   const [capturePaused, setCapturePaused] = useState(false);
   const [health, setHealth] = useState(DEFAULT_HEALTH);
   const [liveLevels, setLiveLevels] = useState([]);
@@ -2089,6 +2234,57 @@ function App() {
       .sort((a, b) => a.eventTime - b.eventTime)[0] || null;
   }, [calendarEvents, nowMs]);
 
+  async function startCalendarEvent(event) {
+    if (!event) {
+      startCapture();
+      return;
+    }
+
+    const eventMode = event.associationMode === 'meeting'
+      ? 'meeting'
+      : event.associationMode === 'opportunity'
+        ? 'interview'
+        : mode;
+    const entityId = event.entityId || (eventMode === 'meeting' ? event.meetingId : event.opportunityId) || '';
+    let availableEntities = eventMode === mode ? entities : [];
+    if (!availableEntities.length && api?.getSessionEntities) {
+      const loadedEntities = await api.getSessionEntities(eventMode);
+      availableEntities = Array.isArray(loadedEntities) ? loadedEntities : [];
+    }
+    const entity = availableEntities.find((item) => item.id === entityId || item.name === entityId)
+      || (entityId ? { id: entityId, name: entityId, role: '', attendees: [] } : null);
+
+    setWorkspaceView('live');
+    if (eventMode !== mode) {
+      setMode(eventMode);
+    }
+    if (entity?.id) {
+      setSelectedEntity(entity.id);
+    }
+
+    if (eventMode === 'interview') {
+      const nextSettings = await api?.setActiveSessionContext?.({
+        mode: 'interview',
+        company: entity?.id || '',
+        role: entity?.role || ''
+      });
+      if (nextSettings) {
+        setSettings(nextSettings);
+      }
+    } else if (eventMode === 'meeting') {
+      const nextSettings = await api?.setActiveSessionContext?.({
+        mode: 'meeting',
+        meetingTitle: entity?.name || entity?.id || event.title || '',
+        attendees: entity?.attendees || []
+      });
+      if (nextSettings) {
+        setSettings(nextSettings);
+      }
+    }
+
+    startCapture();
+  }
+
   const reloadSessions = useCallback(async (nextMode = mode, nextEntity = '') => {
     if (!api?.getSessionEntities || !api?.getSessions) {
       return;
@@ -2172,7 +2368,7 @@ function App() {
       const nextCards = Array.isArray(update?.cards) && update.cards.length
         ? update.cards
         : [{ type: 'note', title: update?.title || 'Live help', body: update?.text || '' }];
-      setAssistantCards(nextCards.map(normalizeCardForRender));
+      setAssistantCards((current) => prependAssistantCards(nextCards, current));
       setAskPending(false);
     });
 
@@ -2278,6 +2474,7 @@ function App() {
     setAssistantCards([]);
     setAskPending(false);
     setOverlayHidden(false);
+    setAppWindowMinimized(false);
     setCapturePaused(false);
     setStatus('Starting audio capture...');
     console.log('📢 About to call setIsStreaming(true)');
@@ -2432,17 +2629,19 @@ function App() {
       title: 'Asking Clyde...',
       body: payload.prompt ? 'Reading the screen and recent call context.' : 'Reading the screen and preparing live help.'
     };
-    setAssistantCards((current) => [temporaryCard, ...current].slice(0, 4));
+    setAssistantCards((current) => prependAssistantCards([temporaryCard], current));
 
     try {
       const result = await api?.requestSuggestion?.(payload);
       if (result?.skipped) {
+        setAssistantCards((current) => current.filter((card) => card.id !== temporaryCard.id));
         setAskPending(false);
         setStatus(`Clyde skipped request: ${result.skipped}.`);
       } else if (Array.isArray(result?.cards) && result.cards.length) {
-        setAssistantCards(result.cards.map(normalizeCardForRender));
+        setAssistantCards((current) => prependAssistantCards(result.cards, current, temporaryCard.id));
         setAskPending(false);
       } else if (result?.ok) {
+        setAssistantCards((current) => current.filter((card) => card.id !== temporaryCard.id));
         setAskPending(false);
       }
     } catch (error) {
@@ -2579,9 +2778,61 @@ function App() {
 
   const activeCapture = workspaceView === 'live' && isStreaming;
   
+  async function handleAppMinimizedPointerDown(event) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.screenX;
+    const startY = event.screenY;
+    const bounds = await window.electronAPI?.getAppWindowBounds?.();
+    if (!bounds) {
+      setAppWindowMinimized(false);
+      await window.electronAPI?.showApp?.();
+      return;
+    }
+
+    let moved = false;
+    target.setPointerCapture?.(pointerId);
+
+    function moveWindow(moveEvent) {
+      const dx = moveEvent.screenX - startX;
+      const dy = moveEvent.screenY - startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        moved = true;
+      }
+
+      if (moved) {
+        window.electronAPI?.moveAppWindow?.({
+          x: Math.round(bounds.x + dx),
+          y: Math.round(bounds.y + dy)
+        });
+      }
+    }
+
+    function finishDrag() {
+      target.releasePointerCapture?.(pointerId);
+      target.removeEventListener('pointermove', moveWindow);
+      target.removeEventListener('pointerup', finishDrag);
+      target.removeEventListener('pointercancel', finishDrag);
+
+      if (!moved) {
+        setAppWindowMinimized(false);
+        window.electronAPI?.showApp?.();
+      }
+    }
+
+    target.addEventListener('pointermove', moveWindow);
+    target.addEventListener('pointerup', finishDrag);
+    target.addEventListener('pointercancel', finishDrag);
+  }
+  
   // Log state changes
   useEffect(() => {
-    console.log(`🎨 Render state changed: activeCapture=${activeCapture}, isStreaming=${isStreaming}, workspaceView=${workspaceView}, overlayHidden=${overlayHidden}`);
+    console.log(`🎨 Render state changed: activeCapture=${activeCapture}, isStreaming=${isStreaming}, workspaceView=${workspaceView}, overlayHidden=${overlayHidden}, appWindowMinimized=${appWindowMinimized}`);
     if (activeCapture) {
       console.log('⚠️  ACTIVE CAPTURE MODE - app-shell-active class will be applied');
       const shellElement = document.querySelector('.app-shell');
@@ -2592,7 +2843,30 @@ function App() {
         console.log('   ⚠️  app-shell element NOT found in DOM!');
       }
     }
-  }, [activeCapture, isStreaming, workspaceView, overlayHidden]);
+  }, [activeCapture, appWindowMinimized, isStreaming, workspaceView, overlayHidden]);
+
+  if (appWindowMinimized) {
+    return (
+      <div className="app-shell app-shell-minimized" aria-label="Clyde minimized">
+        <button
+          type="button"
+          className="app-minimized-chip"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setAppWindowMinimized(false);
+              window.electronAPI?.showApp?.();
+            }
+          }}
+          onPointerDown={handleAppMinimizedPointerDown}
+          aria-label="Show Clyde"
+          title="Drag Clyde or click to restore"
+        >
+          <img src={ghostUrl} alt="" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={`app-shell ${activeCapture ? 'app-shell-active' : ''}`}>
@@ -2606,6 +2880,12 @@ function App() {
         onSettings={() => setSettingsOpen(true)}
         settings={settings}
         onToggleCaptureProtection={toggleCaptureProtection}
+        onMinimizeApp={async () => {
+          const minimized = await api?.minimizeAppWindow?.();
+          if (minimized !== false) {
+            setAppWindowMinimized(true);
+          }
+        }}
         onAddNewOpportunity={() => setNewOpportunityOpen(true)}
         onAddNewMeeting={() => setNewMeetingOpen(true)}
         onChangeActiveInterview={async (company, role) => {
@@ -2652,6 +2932,7 @@ function App() {
             mode={mode}
             onViewChange={setWorkspaceView}
             nextUpcomingEvent={nextUpcomingEvent}
+            onStartEvent={startCalendarEvent}
             view={workspaceView}
             onStartCapture={startCapture}
           />
@@ -2893,7 +3174,7 @@ function App() {
 }
 
 function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, onSettings, settings, onToggleCaptureProtection,
-  onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
+  onMinimizeApp, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
   const isInterview = mode === 'interview';
   const api = window.electronAPI;
   const captureProtectionEnabled = settings.captureProtectionEnabled !== false;
@@ -2978,6 +3259,16 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
         <button className="icon-button" type="button" onClick={onSettings} aria-label="Settings" title="Settings">
           <GearIcon />
         </button>
+        <button className="icon-button" type="button" onClick={onMinimizeApp} aria-label="Minimize Clyde" title="Minimize Clyde">
+          <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path d="M6 12h12" />
+          </svg>
+        </button>
+        <button className="icon-button" type="button" onClick={() => api?.maximizeAppWindow?.()} aria-label="Maximize Clyde" title="Maximize Clyde">
+          <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path d="M7 7h10v10H7z" />
+          </svg>
+        </button>
         <button className="icon-button close-button" type="button" onClick={() => api?.closeApp?.()} aria-label="Close app" title="Close app">
           X
         </button>
@@ -2995,9 +3286,10 @@ function GearIcon() {
   );
 }
 
-function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent }) {
+function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEvent }) {
   const timelineLabel = mode === 'interview' ? 'Timeline' : 'Memory';
   const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
+  const nextEventLabel = resolveEventEntityLabel(nextUpcomingEvent);
   const tabs = [
     { id: 'live', eyebrow: 'Now', label: 'Assist' },
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav' },
@@ -3026,11 +3318,21 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent }) {
 
         <section className={nextUpcomingEvent ? 'workspace-nav-event' : 'workspace-nav-event workspace-nav-empty'} aria-label="Next upcoming event">
           {nextUpcomingEvent ? (
-            <>
-              <span>Next up</span>
-              <strong>{nextUpcomingEvent.title || 'Scheduled item'}</strong>
-              <small>{formatEventDateTime(nextUpcomingEvent.date)}</small>
-            </>
+            <div className="workspace-nav-event-content">
+              <div className="workspace-nav-event-copy">
+                <span>Next up</span>
+                <strong>{nextUpcomingEvent.title || 'Scheduled item'}</strong>
+                {nextEventLabel ? <small>{nextEventLabel}</small> : null}
+                <small>{formatEventDateTime(nextUpcomingEvent.date)}</small>
+              </div>
+              <button
+                className="workspace-nav-start primary-action"
+                type="button"
+                onClick={() => onStartEvent?.(nextUpcomingEvent)}
+              >
+                Start
+              </button>
+            </div>
           ) : (
             <>
               <span>Next up</span>
@@ -3164,34 +3466,39 @@ function ActiveGhostMeters({ liveLevels }) {
   );
 }
 
-function ActiveSourceMenu({ includeScreenshot, setIncludeScreenshot, setSources, settings, sources }) {
+function ActiveSourceMenu({ includeScreenshot, mode, onConfirm, setIncludeScreenshot, setSources, settings, sources }) {
   return (
     <div className="active-source-menu">
-      <label>
-        <input
-          type="checkbox"
-          checked={sources.resume}
-          onChange={(event) => setSources((current) => ({ ...current, resume: event.target.checked }))}
-        />
-        Resume / background
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          checked={sources.memory}
-          onChange={(event) => setSources((current) => ({ ...current, memory: event.target.checked }))}
-        />
-        Longterm memory
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          checked={sources.rag}
-          disabled={!settings?.ragEnabled}
-          onChange={(event) => setSources((current) => ({ ...current, rag: event.target.checked }))}
-        />
-        RAG (Pinecone)
-      </label>
+      {mode === 'interview' ? (
+        <label>
+          <input
+            type="checkbox"
+            checked={sources.resume}
+            onChange={(event) => setSources((current) => ({ ...current, resume: event.target.checked }))}
+          />
+          Resume / background
+        </label>
+      ) : null}
+      {mode === 'meeting' ? (
+        <label>
+          <input
+            type="checkbox"
+            checked={sources.memory}
+            onChange={(event) => setSources((current) => ({ ...current, memory: event.target.checked }))}
+          />
+          Longterm memory
+        </label>
+      ) : null}
+      {settings?.ragEnabled ? (
+        <label>
+          <input
+            type="checkbox"
+            checked={sources.rag}
+            onChange={(event) => setSources((current) => ({ ...current, rag: event.target.checked }))}
+          />
+          RAG (Pinecone)
+        </label>
+      ) : null}
       <label>
         <input
           type="checkbox"
@@ -3208,6 +3515,9 @@ function ActiveSourceMenu({ includeScreenshot, setIncludeScreenshot, setSources,
         />
         Include screenshot
       </label>
+      <button type="button" className="active-source-confirm" onClick={onConfirm}>
+        Confirm sources
+      </button>
     </div>
   );
 }
@@ -3235,25 +3545,16 @@ function ActiveCaptureView({
   const [promptType, setPromptType] = useState(null);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
+  const [showMeters, setShowMeters] = useState(true);
   const [showTranscript, setShowTranscript] = useState(false);
   const panelRef = useRef(null);
   const controlBarDragRef = useRef({ moved: false });
   const suppressControlBarClickRef = useRef(false);
-  const [sources, setSources] = useState(() => ({
-    resume: !settings?.ragEnabled,
-    memory: false,
-    rag: Boolean(settings?.ragEnabled),
-    web: false
-  }));
+  const [sources, setSources] = useState(() => getDefaultActiveSources(settings, mode));
 
   useEffect(() => {
-    setSources((current) => ({
-      resume: current.resume,
-      memory: current.memory,
-      rag: settings?.ragEnabled ? current.rag : false,
-      web: current.web
-    }));
-  }, [settings?.ragEnabled]);
+    setSources((current) => normalizeActiveSourcesForMode(current, settings, mode));
+  }, [mode, settings?.ragEnabled]);
 
   useEffect(() => {
     if (hidden) {
@@ -3282,9 +3583,17 @@ function ActiveCaptureView({
             right: Math.max(bounds.right, rect.right - panelRect.left)
           };
         }, { bottom: 0, left: 0, right: 0 });
+        const scrollContentBottom = Array.from(panel.querySelectorAll('[data-active-size-content]')).reduce((bottom, node) => {
+          const rect = node.getBoundingClientRect();
+          const availableHeight = Math.max(320, window.innerHeight - rect.top - 16);
+          const visibleStackHeight = Math.min(node.scrollHeight, availableHeight);
+          node.style.setProperty('--active-card-stack-max-height', `${availableHeight}px`);
+          return Math.max(bottom, rect.top - panelRect.top + visibleStackHeight);
+        }, 0);
+        const contentHeight = Math.max(panel.scrollHeight, contentBounds.bottom, scrollContentBottom);
         const contentWidth = Math.max(panel.scrollWidth, contentBounds.right - contentBounds.left);
         const width = Math.ceil(Math.max(360, contentWidth + 20));
-        const height = Math.ceil(Math.max(160, contentBounds.bottom + 12));
+        const height = Math.ceil(Math.max(160, contentHeight + 12));
 
         window.electronAPI?.resizeActiveCaptureWindow?.({ width, height });
       });
@@ -3294,6 +3603,7 @@ function ActiveCaptureView({
     const mutationObserver = new MutationObserver(reportSize);
     resizeObserver.observe(panel);
     Array.from(panel.children).forEach((child) => resizeObserver.observe(child));
+    Array.from(panel.querySelectorAll('[data-active-size-content]')).forEach((child) => resizeObserver.observe(child));
     mutationObserver.observe(panel, { childList: true, subtree: true, characterData: true });
     reportSize();
 
@@ -3302,17 +3612,18 @@ function ActiveCaptureView({
       resizeObserver.disconnect();
       mutationObserver.disconnect();
     };
-  }, [cards, hidden, includeScreenshot, isAsking, promptType, sourceMenuOpen, showTranscript, transcript?.length]);
+  }, [cards, hidden, includeScreenshot, isAsking, promptType, sourceMenuOpen, showMeters, showTranscript, transcript?.length]);
 
   async function submitAsk(event) {
     event?.preventDefault?.();
     const cleanPrompt = prompt.trim();
-    if (!cleanPrompt) return;
+    const isCamera = promptType === 'camera';
+    if (!cleanPrompt && !isCamera) return;
     setPrompt('');
     
-    const isCamera = promptType === 'camera';
     await onAsk({
       prompt: cleanPrompt,
+      intent: isCamera ? 'screen_question' : 'custom_prompt',
       includeScreenshot: isCamera || includeScreenshot,
       sources: isCamera ? { resume: false, memory: false, rag: false, web: false } : sources,
       mode
@@ -3489,13 +3800,15 @@ function ActiveCaptureView({
           {sourceMenuOpen && promptType === 'custom' ? (
             <ActiveSourceMenu
               includeScreenshot={includeScreenshot}
+              mode={mode}
+              onConfirm={() => setSourceMenuOpen(false)}
               setIncludeScreenshot={setIncludeScreenshot}
               setSources={setSources}
               settings={settings}
               sources={sources}
             />
           ) : null}
-          <ActiveGhostMeters liveLevels={liveLevels} />
+          {showMeters ? <ActiveGhostMeters liveLevels={liveLevels} /> : null}
           <div
             className="active-capture-bar"
             onClickCapture={handleControlBarClickCapture}
@@ -3522,6 +3835,14 @@ function ActiveCaptureView({
             </button>
             <button type="button" className={`active-icon-btn transcript-toggle-btn ${showTranscript ? 'active' : ''}`} onClick={() => setShowTranscript((value) => !value)} aria-label={showTranscript ? 'Hide live transcription' : 'Show live transcription'} title={showTranscript ? 'Hide Live Transcription' : 'Show Live Transcription'}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16"></path><path d="M4 10h10"></path><path d="M4 15h16"></path><path d="M4 20h9"></path></svg>
+            </button>
+            <button type="button" className={`active-icon-btn meter-toggle-btn ${showMeters ? 'active' : ''}`} onClick={() => setShowMeters((value) => !value)} aria-label={showMeters ? 'Hide audio meters' : 'Show audio meters'} title={showMeters ? 'Hide audio meters' : 'Show audio meters'}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M5 17V9"></path>
+                <path d="M10 17V5"></path>
+                <path d="M15 17v-7"></path>
+                <path d="M20 17V7"></path>
+              </svg>
             </button>
             <button type="button" className="active-icon-btn reset-btn" onClick={() => { setPromptType(null); onReset(); }} aria-label="Reset session" title="Reset Session">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '20px', height: '20px'}}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
@@ -3560,7 +3881,7 @@ function ActiveCaptureView({
                     </svg>
                   </button>
                 )}
-                <button type="submit" className="active-icon-btn active-send-button" disabled={isAsking || !prompt.trim()} aria-label="Send" title="Send">
+                <button type="submit" className="active-icon-btn active-send-button" disabled={isAsking || (!prompt.trim() && promptType !== 'camera')} aria-label="Send" title="Send">
                   {isAsking ? (
                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin-icon" style={{width: '18px', height: '18px'}}><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
                   ) : (
@@ -3687,7 +4008,7 @@ function AssistantCards({ cards, variant = 'default', onDismissCard }) {
         <h3>Live assistant</h3>
         <span>{cards.length} cards</span>
       </div>}
-      <div className="scroll-area card-stack">
+      <div className="scroll-area card-stack" data-active-size-content={active ? 'assistant-cards' : undefined}>
         {identifiedQuestion ? (
           <div className="card-identified-question">
             <strong>Question:</strong> {identifiedQuestion}
@@ -3867,6 +4188,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
       })
       .sort((a, b) => new Date(a.date) - new Date(b.date))[0]
     : null;
+  const prepSessionTitle = nextInterviewEvent?.title || latestSession?.title || 'Next session';
   const interviewSummaryParsed = parseEvaluationText(interviewFallbackSummary);
   const meetingSummaryParsed = parseEvaluationText(latestSession?.notes?.summary || '');
 
@@ -3877,27 +4199,26 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
 
         {mode === 'interview' ? (
           <>
-            <div className="prep-card">
-                <strong className="prep-label">Company</strong>
-                <div className="prep-value">{activeInterview.name || 'Not set'}</div>
+            <div className="prep-overview-card">
+              <div className="prep-overview-grid">
+                <div className="prep-overview-item">
+                  <strong className="prep-label">Company</strong>
+                  <div className="prep-value">{activeInterview.name || 'Not set'}</div>
+                </div>
+                <div className="prep-overview-item">
+                  <strong className="prep-label">Role</strong>
+                  <div className="prep-value">{activeInterview.role || settings.currentRole || 'Not set'}</div>
+                </div>
+                <div className="prep-overview-item">
+                  <strong className="prep-label">Session title</strong>
+                  <div className="prep-value">{prepSessionTitle}</div>
+                </div>
+                <button type="button" className="prep-start-button primary-action" onClick={onStart}>Start Interview</button>
               </div>
-            <div className="prep-card">
-                <strong className="prep-label">Role</strong>
-                <div className="prep-value">{activeInterview.role || settings.currentRole || 'Not set'}</div>
-              </div>
+            </div>
 
             {activeSessions.length >= 2 ? (
               <>
-                {nextInterviewEvent ? (
-                  <div className="suggestion-box">
-                    <strong>Next session</strong>
-                    <p style={{ marginTop: '8px' }}>
-                      
-                      <button type="button" className="primary-action" style={{ marginTop: '10px', width: '100%' }} onClick={onStart}>Start Interview</button>
-                    </p>
-                  </div>
-                ) : null}
-
                 {loadingTrend && !hasPreCallPrep ? (
                   <div className="suggestion-box">
                     <strong>Pre-call analysis</strong>
@@ -3972,14 +4293,23 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
           </>
         ) : (
           <>
-            <div className="prep-card">
-                <strong className="prep-label">Meeting</strong>
-                <div className="prep-value">{activeMeeting.name || 'Not set'}</div>
+            <div className="prep-overview-card">
+              <div className="prep-overview-grid">
+                <div className="prep-overview-item">
+                  <strong className="prep-label">Meeting</strong>
+                  <div className="prep-value">{activeMeeting.name || 'Not set'}</div>
+                </div>
+                <div className="prep-overview-item">
+                  <strong className="prep-label">Attendees</strong>
+                  <div className="prep-value">{attendeeSummary(activeMeeting.attendees) || attendeeSummary(settings.meetingAttendees) || 'Not set'}</div>
+                </div>
+                <div className="prep-overview-item">
+                  <strong className="prep-label">Session title</strong>
+                  <div className="prep-value">{latestSession?.title || 'Next meeting'}</div>
+                </div>
+                <button type="button" className="prep-start-button primary-action" onClick={onStart}>Start Meeting</button>
               </div>
-            <div className="prep-card">
-                <strong className="prep-label">Attendees</strong>
-                <div className="prep-value">{attendeeSummary(activeMeeting.attendees) || attendeeSummary(settings.meetingAttendees) || 'Not set'}</div>
-              </div>
+            </div>
             <div className="suggestion-box">
               <strong>Last meeting summary</strong>
               {meetingSummaryParsed.overview ? <p>{meetingSummaryParsed.overview}</p> : null}
@@ -4109,11 +4439,14 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                     <strong>{entity.name}</strong>
-                    {mode === 'interview' && entity.confidence > 0 && (
-                      <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
-                        {entity.confidence}%
-                      </span>
-                    )}
+                    <span className="entity-list-badges">
+                      {mode === 'interview' && <OutcomeBadge outcome={entity.outcome} />}
+                      {mode === 'interview' && entity.confidence > 0 && (
+                        <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
+                          {entity.confidence}%
+                        </span>
+                      )}
+                    </span>
                   </div>
                   <span>{entity.role || entity.kind}</span>
                 </button>
@@ -4149,7 +4482,10 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
         <div className="timeline-title">
           <div>
             <h2>{selected?.name || 'Select a record'}</h2>
-            <p>{sessions.length} saved sessions</p>
+            <div className="timeline-title-meta">
+              <p>{sessions.length} saved sessions</p>
+              {mode === 'interview' && selected ? <OutcomeBadge outcome={selected.outcome} /> : null}
+            </div>
           </div>
           {selected && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -4182,16 +4518,19 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
           <div className="upcoming-events-section" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px', marginBottom: '20px', margin: '0 20px 20px 20px' }}>
             <h4 style={{ margin: '0 0 15px 0', color: 'var(--text)', fontWeight: 500 }}>Upcoming Events</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {entityEvents.map(evt => (
-                <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px', borderLeft: `4px solid ${evt.color || 'var(--cyan)'}` }}>
-                  <div>
-                    <strong style={{ display: 'block', color: 'var(--text)', fontSize: '0.95rem' }}>{evt.title}</strong>
-                    <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{new Date(evt.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+              {entityEvents.map(evt => {
+                const eventLabel = resolveEventEntityLabel(evt, entities);
+                return (
+                  <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px', borderLeft: `4px solid ${evt.color || 'var(--cyan)'}` }}>
+                    <div>
+                      <strong style={{ display: 'block', color: 'var(--text)', fontSize: '0.95rem' }}>{evt.title}</strong>
+                      <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.78rem', marginTop: '2px' }}>{eventLabel}</span>
+                      <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{new Date(evt.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                    </div>
+                    <button type="button" className="primary-action" style={{ marginRight: '8px' }} onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('start-from-event', { detail: { entity: selected, evt } })); }}>Start</button>
                   </div>
-                  <button type="button" className="primary-action" style={{ marginRight: '8px' }} onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('start-from-event', { detail: { entity: selected, evt } })); }}>Start</button>
-
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -4543,6 +4882,34 @@ function normalizeCardForRender(card) {
   };
 }
 
+function assistantCardKey(card = {}) {
+  return [
+    card.type || 'note',
+    card.title || '',
+    card.body || card.text || '',
+    card.question || '',
+    Array.isArray(card.bullets) ? card.bullets.join('|') : '',
+    card.detail || card.why || ''
+  ].join('::');
+}
+
+function prependAssistantCards(cards = [], currentCards = [], replaceCardId = '') {
+  const nextCards = cards.map(normalizeCardForRender);
+  const seenCards = new Set(nextCards.map(assistantCardKey));
+  const retainedCards = currentCards
+    .filter((card) => card.id !== replaceCardId)
+    .filter((card) => {
+      const key = assistantCardKey(card);
+      if (seenCards.has(key)) {
+        return false;
+      }
+      seenCards.add(key);
+      return true;
+    });
+
+  return [...nextCards, ...retainedCards].slice(0, MAX_ASSISTANT_CARDS);
+}
+
 function labelForCard(type) {
   return {
     answer: 'Answer',
@@ -4550,6 +4917,8 @@ function labelForCard(type) {
     follow_up: 'Follow-up',
     recap: 'Recap',
     action: 'Action',
+    insight: 'Insight',
+    screen_description: 'Screen',
     risk: 'Watch',
     note: 'Note'
   }[type] || 'Note';

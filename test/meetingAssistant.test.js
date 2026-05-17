@@ -6,6 +6,7 @@ const {
   describeAssistantError,
   extractAssistantText,
   isUserSpeaker,
+  normalizeSelectedSources,
   parseAssistantCards
 } = require('../src/meetingAssistant');
 
@@ -165,6 +166,142 @@ test('say-next request keeps interview suggestion card styling', async () => {
   assert.equal(updates[0].cards[0].type, 'suggestion');
   assert.equal(updates[0].cards[0].title, 'Say next');
   assert.equal(updates[0].cards[0].body, 'Lead with the support operations example.');
+});
+
+test('meeting screenshot request returns screen description and answer cards', async () => {
+  const requests = [];
+  const updates = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      appMode: 'meeting',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'vision-model'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"screen_descriptions":[{"text":"A planning doc is open."}],"answers":[{"question":"What am I looking at?","bullets":["The screen shows a planning document."]}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  const result = await assistant.requestSuggestion({
+    prompt: 'What am I looking at?',
+    intent: 'screen_question',
+    mode: 'meeting',
+    screenshot: { mimeType: 'image/png', data: 'abc123' }
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(requests[0].data.messages[0].content, /Current command: meeting_screen_question/);
+  assert.match(requests[0].data.messages[1].content[0].text, /Screen question:\nWhat am I looking at\?/);
+  assert.match(requests[0].data.messages[1].content[0].text, /Describe the attached screen first/);
+  assert.equal(requests[0].data.messages[1].content[1].type, 'image_url');
+  assert.deepEqual(updates[0].cards.map((card) => card.type), ['screen_description', 'answer']);
+});
+
+test('meeting say-next request returns suggestions and insights from transcript', async () => {
+  const requests = [];
+  const updates = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      appMode: 'meeting',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'text-model'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"suggestions":[{"text":"Ask who owns the launch date.","why":"Ownership is unclear."}],"insights":[{"text":"The team is blocked on release scope."}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  await assistant.addTranscript({ speaker: 'You', text: 'Can we move the launch?' });
+  const result = await assistant.requestSuggestion({
+    prompt: 'What should I say next?',
+    intent: 'say_next',
+    mode: 'meeting'
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(requests[0].data.messages[0].content, /Current command: meeting_say_next/);
+  assert.match(requests[0].data.messages[1].content, /Transcript:\nYou: Can we move the launch\?/);
+  assert.deepEqual(updates[0].cards.map((card) => card.type), ['suggestion', 'insight']);
+});
+
+test('meeting custom prompt preserves prompt text and selected sources', async () => {
+  const requests = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      appMode: 'meeting',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'text-model',
+      ragEnabled: true
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"answers":[{"question":"List blockers","bullets":["Scope is unclear."]}],"notes":[]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1
+  });
+
+  const result = await assistant.requestSuggestion({
+    prompt: 'List the blockers exactly.',
+    intent: 'custom_prompt',
+    mode: 'meeting',
+    sources: { resume: true, memory: true, rag: true, web: true }
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(requests[0].data.messages[0].content, /Current command: meeting_custom_prompt/);
+  assert.match(requests[0].data.messages[1].content, /Custom prompt:\nList the blockers exactly\./);
+  assert.match(requests[0].data.messages[1].content, /Selected sources: memory, rag, web/);
+  assert.doesNotMatch(requests[0].data.messages[1].content, /resume/);
+});
+
+test('selected source defaults and filtering are mode-aware', () => {
+  assert.deepEqual(normalizeSelectedSources({}, { ragEnabled: true }, 'meeting'), ['rag']);
+  assert.deepEqual(normalizeSelectedSources({}, { ragEnabled: false }, 'meeting'), ['memory']);
+  assert.deepEqual(normalizeSelectedSources({}, { ragEnabled: false }, 'interview'), ['resume']);
+  assert.deepEqual(
+    normalizeSelectedSources({ resume: true, memory: true, web: true }, { ragEnabled: false }, 'meeting'),
+    ['memory', 'web']
+  );
+  assert.deepEqual(
+    normalizeSelectedSources({ resume: true, memory: true, web: true }, { ragEnabled: false }, 'interview'),
+    ['resume', 'web']
+  );
 });
 
 test('manual Ask Clyde retries without screenshot when local vision request fails', async () => {

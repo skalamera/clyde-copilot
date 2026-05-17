@@ -322,3 +322,52 @@ test('interview grading does not turn examples into action items', () => {
   assert.equal(session.notes.summary, 'Strong fit for the role.');
   assert.deepEqual(session.notes.actionItems, []);
 });
+
+test('interview entities store outcome fields and default old records to active', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-outcome-meta-'));
+  const manager = createSessionManager({ appPath: tempDir });
+
+  test.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Recruiter Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Tell me about yourself.' }]
+  });
+
+  let [entity] = manager.getSessionEntities('interview');
+  assert.equal(entity.outcome, 'active');
+  assert.equal(entity.outcomeReason, '');
+  assert.equal(entity.outcomeDate, '');
+  assert.equal(entity.outcomeUpdatedAt, '');
+
+  const updated = manager.updateEntity('interview', 'apollo', {
+    outcome: 'rejected',
+    outcomeReason: 'Recruiter said the team chose a candidate with deeper Freshdesk admin experience.',
+    outcomeDate: '2026-05-15'
+  });
+
+  assert.equal(updated.outcome, 'rejected');
+  assert.equal(updated.outcomeReason, 'Recruiter said the team chose a candidate with deeper Freshdesk admin experience.');
+  assert.equal(updated.outcomeDate, '2026-05-15');
+  assert.match(updated.outcomeUpdatedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  manager.updateEntityConfidence('apollo', 41, 'down');
+  manager.saveSession({
+    mode: 'interview',
+    entity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
+    title: 'Technical Screen',
+    transcript: [{ speaker: 'Interviewer', text: 'Describe your ticket QA process.' }]
+  });
+
+  [entity] = manager.getSessionEntities('interview');
+  assert.equal(entity.confidence, 41);
+  assert.equal(entity.trend, 'down');
+  assert.equal(entity.outcome, 'rejected');
+  assert.equal(entity.outcomeReason, 'Recruiter said the team chose a candidate with deeper Freshdesk admin experience.');
+  assert.equal(entity.outcomeDate, '2026-05-15');
+  assert.match(entity.outcomeUpdatedAt, /^\d{4}-\d{2}-\d{2}T/);
+});

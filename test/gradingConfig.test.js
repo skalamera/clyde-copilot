@@ -61,3 +61,19 @@ test('interview saves and deletes invalidate trend analysis and recompute overal
   assert.match(deleteBlock, /processSessionConfidenceInBackground\(remaining\[0\]\.entity, loadSettings\(\)\)/);
   assert.match(deleteBlock, /sessionManager\.updateEntityConfidence\(nextPayload\.entityId, 0, 'neutral'\)/);
 });
+
+test('interview grading and confidence prompts use outcome calibration examples', () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const gradingBlock = mainSource.split('async function processSessionGradingInBackground')[1] || '';
+  const confidenceBlock = mainSource.split('async function processSessionConfidenceInBackground')[1] || '';
+  const trendBlock = mainSource.split("ipcMain.handle('generate-trend-analysis'")[1] || '';
+  const updateBlock = mainSource.split("ipcMain.handle('update-session-entity'")[1] || '';
+
+  assert.match(mainSource, /buildOutcomeCalibrationExamples/);
+  assert.match(mainSource, /formatOutcomeCalibrationExamples/);
+  assert.match(gradingBlock, /Real outcome calibration examples/);
+  assert.match(confidenceBlock, /Real outcome calibration examples/);
+  assert.match(trendBlock, /Real outcome calibration examples/);
+  assert.match(updateBlock, /patch\.outcome !== undefined/);
+  assert.match(updateBlock, /processSessionConfidenceInBackground\(nextEntity, loadSettings\(\)\)/);
+});

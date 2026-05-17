@@ -6,11 +6,24 @@ const DEFAULT_BITS_PER_SAMPLE = 16;
 const DEFAULT_SEGMENT_SECONDS = 8; // Increased from 5 to 8 to capture much longer sentences
 const DEFAULT_MIN_RMS = 100;
 const DEFAULT_HALLUCINATION_RMS = 350;
+const UNCLEAR_AUDIO_SENTINEL = 'clyde_unclear_audio';
+const UNCLEAR_AUDIO_PROMPT = [
+  'Transcribe as natural spoken English.',
+  'Correct obvious speech-recognition fragments only when the intended wording is clear.',
+  'For example, "The most proud of X" should be "I\'m most proud of X".',
+  `If speech is unclear or cannot be confidently transcribed, return exactly: ${UNCLEAR_AUDIO_SENTINEL}.`
+].join(' ');
 const COMMON_QUIET_HALLUCINATIONS = new Set([
   'thank you',
-  'thank you.',
   'thanks for watching',
-  'thanks for watching.',
+  'you'
+]);
+const FIRST_PERSON_CORRECTION_SPEAKERS = new Set([
+  'candidate',
+  'me',
+  'mic',
+  'microphone',
+  'user',
   'you'
 ]);
 
@@ -118,6 +131,7 @@ function createTranscriptionProcessor(options = {}) {
       const audioBlob = new Blob([wavAudio], { type: 'audio/wav' });
       formData.append('file', audioBlob, 'chunk.wav');
       formData.append('model', model);
+      formData.append('prompt', UNCLEAR_AUDIO_PROMPT);
 
       const headers = {};
       if (provider === 'openai') {
@@ -130,15 +144,16 @@ function createTranscriptionProcessor(options = {}) {
         speakerColor
       });
 
-      if (isLikelyQuietHallucination(transcript.text, rms, hallucinationRms)) {
+      const filteredTranscript = classifyFilteredTranscript(transcript.text, rms, hallucinationRms);
+      if (filteredTranscript) {
         if (diagnostics) {
           sendStatus({
             state: 'capturing',
-            message: `${speaker}: Ignored likely silence hallucination. RMS ${Math.round(rms)}.`
+            message: `${speaker}: Ignored ${filteredTranscript.reason}. RMS ${Math.round(rms)}.`
           });
         }
 
-        return { ok: true, skipped: 'hallucination', rms, text: transcript.text };
+        return { ok: true, skipped: filteredTranscript.skipped, rms, text: transcript.text };
       }
 
       sendTranscript(transcript);
@@ -167,9 +182,31 @@ function createTranscriptionProcessor(options = {}) {
 }
 
 function isLikelyQuietHallucination(text, rms, hallucinationRms = DEFAULT_HALLUCINATION_RMS) {
-  const normalized = String(text || '').trim().toLowerCase();
+  const normalized = normalizeFilterText(text);
 
   return rms < hallucinationRms && COMMON_QUIET_HALLUCINATIONS.has(normalized);
+}
+
+function classifyFilteredTranscript(text, rms, hallucinationRms = DEFAULT_HALLUCINATION_RMS) {
+  const normalized = normalizeFilterText(text);
+
+  if (normalized === UNCLEAR_AUDIO_SENTINEL) {
+    return { skipped: 'unclear-audio', reason: 'unclear audio sentinel' };
+  }
+
+  if (rms < hallucinationRms && COMMON_QUIET_HALLUCINATIONS.has(normalized)) {
+    return { skipped: 'hallucination', reason: 'likely silence hallucination' };
+  }
+
+  return null;
+}
+
+function normalizeFilterText(text) {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 function calculatePcmRms(pcmAudio, bitsPerSample = DEFAULT_BITS_PER_SAMPLE) {
@@ -216,14 +253,38 @@ function buildWavFile(pcmAudio, options = {}) {
 
 function normalizeTranscript(data, chunk, defaults = {}) {
   if (data && typeof data === 'object' && data.text) {
+    const speaker = data.speaker || defaults.speaker || 'Transcription API';
     return {
-      text: data.text,
-      speaker: data.speaker || defaults.speaker || 'Transcription API',
+      text: normalizeTranscriptText(data.text, { speaker }),
+      speaker,
       speakerColor: data.speakerColor || defaults.speakerColor || '#d8bfd8'
     };
   }
 
   return createSimulatedTranscript(chunk, defaults);
+}
+
+function normalizeTranscriptText(text, options = {}) {
+  let normalized = String(text || '').trim().replace(/\s+/g, ' ');
+
+  if (!normalized || !shouldApplyFirstPersonTranscriptCorrections(options.speaker)) {
+    return normalized;
+  }
+
+  normalized = normalized.replace(/^the most proud of\b/i, "I'm most proud of");
+  normalized = normalized.replace(/^most proud of\b/i, "I'm most proud of");
+  normalized = normalized.replace(/^i most proud of\b/i, "I'm most proud of");
+
+  return normalized;
+}
+
+function shouldApplyFirstPersonTranscriptCorrections(speaker = '') {
+  if (!speaker) {
+    return true;
+  }
+
+  const normalized = normalizeFilterText(speaker);
+  return FIRST_PERSON_CORRECTION_SPEAKERS.has(normalized);
 }
 
 function createSimulatedTranscript(chunk, defaults = {}) {
@@ -279,5 +340,7 @@ module.exports = {
   calculatePcmRms,
   createTranscriptionProcessor,
   describeHttpError,
+  classifyFilteredTranscript,
+  normalizeTranscriptText,
   isLikelyQuietHallucination
 };

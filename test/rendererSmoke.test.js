@@ -73,6 +73,10 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(activeSource, /resizeActiveCaptureWindow\?\.\(\{ width: 112, height: 112, minimized: true \}\)/);
   assert.match(activeSource, /Pause Capture/);
   assert.match(activeSource, /Show Live Transcription/);
+  assert.match(activeSource, /showMeters/);
+  assert.match(activeSource, /setShowMeters/);
+  assert.match(activeSource, /Show audio meters/);
+  assert.match(activeSource, /Hide audio meters/);
   assert.match(activeSource, /ActiveTranscriptPanel/);
   assert.match(appSource, /Include screenshot/);
   assert.match(activeSource, /data-testid="stopBtn"/);
@@ -95,10 +99,18 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(cssSource, /\.active-assistant-panel/);
   assert.match(cssSource, /\.active-source-menu[\s\S]*top: 34px/);
   assert.match(cssSource, /\.active-source-menu[\s\S]*z-index: 180/);
-  assert.match(cssSource, /\.assistant-pane-active\s*\{[\s\S]*flex: 0 0 auto/);
+  assert.match(cssSource, /\.assistant-pane-active\s*\{[\s\S]*flex: 1 1 auto/);
+  assert.match(cssSource, /\.assistant-pane-active\s*\{[\s\S]*overflow: hidden/);
   assert.match(cssSource, /\.assistant-pane-active \.scroll-area\s*\{[\s\S]*overflow-y: auto/);
   assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*overflow-y: auto/);
-  assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*min-height: clamp\(220px, 34vh, 340px\)/);
+  assert.match(activeSource, /querySelectorAll\('\[data-active-size-content\]'\)/);
+  assert.match(activeSource, /--active-card-stack-max-height/);
+  assert.match(activeSource, /Math\.max\(320, window\.innerHeight - rect\.top - 16\)/);
+  assert.match(activeSource, /rect\.top - panelRect\.top \+ visibleStackHeight/);
+  assert.match(activeSource, /const contentHeight = Math\.max\(panel\.scrollHeight, contentBounds\.bottom, scrollContentBottom\)/);
+  assert.match(activeSource, /showMeters, showTranscript/);
+  assert.match(cssSource, /\.assistant-pane-active \.scroll-area\s*\{[\s\S]*max-height: var\(--active-card-stack-max-height, calc\(100vh - 138px\)\)/);
+  assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*min-height: clamp\(160px, 24vh, 260px\)/);
   assert.match(cssSource, /\.assistant-pane-active \.assistant-card:only-child\s*\{[\s\S]*min-height: clamp\(320px, 58vh, 560px\)/);
   assert.match(cssSource, /\.active-restore-chip[\s\S]*border-radius: 50%/);
   assert.match(cssSource, /\.active-restore-chip[\s\S]*width: 84px/);
@@ -106,8 +118,8 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(cssSource, /\.active-restore-chip[\s\S]*box-shadow: none/);
   assert.match(cssSource, /\.active-capture-shell-minimized[\s\S]*height: 112px/);
   assert.match(cssSource, /\.active-capture-shell-minimized[\s\S]*width: 112px/);
-  assert.match(cssSource, /\.active-assistant-panel\s*\{[\s\S]*overflow: visible/);
-  assert.match(cssSource, /\.active-transcript-panel\s*\{[\s\S]*min-height: 220px/);
+  assert.match(cssSource, /\.active-assistant-panel\s*\{[\s\S]*overflow-y: auto/);
+  assert.match(cssSource, /\.active-transcript-panel\s*\{[\s\S]*max-height: min\(220px, 32vh\)/);
   assert.match(appSource, /\[\.\.\.transcript\.slice\(-18\)\]\.reverse\(\)/);
 });
 
@@ -145,6 +157,30 @@ test('active capture UI uses compact icon buttons and new ghost meters', () => {
   assert.match(cssSource, /\.active-transcript-panel/);
   assert.match(cssSource, /\.active-capture-bar\s*\{[\s\S]*width: max-content/);
   assert.match(cssSource, /\.active-capture-bar\s*\{[\s\S]*box-shadow: none/);
+  assert.match(cssSource, /\.active-icon-btn\s*\{[\s\S]*padding: 3px/);
+  assert.match(cssSource, /\.active-icon-btn\.meter-toggle-btn/);
+});
+
+test('active source menu filters by mode and confirms selections', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const sourceMenuStart = appSource.indexOf('function ActiveSourceMenu');
+  const sourceMenuEnd = appSource.indexOf('function ActiveCaptureView', sourceMenuStart);
+  const sourceMenuSource = appSource.slice(sourceMenuStart, sourceMenuEnd);
+  const activeStart = appSource.indexOf('function ActiveCaptureView');
+  const activeEnd = appSource.indexOf('function LivePanel', activeStart);
+  const activeSource = appSource.slice(activeStart, activeEnd);
+
+  assert.match(sourceMenuSource, /mode/);
+  assert.match(sourceMenuSource, /mode === 'interview'/);
+  assert.match(sourceMenuSource, /mode === 'meeting'/);
+  assert.match(sourceMenuSource, /Resume \/ background/);
+  assert.match(sourceMenuSource, /Longterm memory/);
+  assert.match(sourceMenuSource, /Confirm sources/);
+  assert.match(sourceMenuSource, /onConfirm/);
+  assert.match(activeSource, /<ActiveSourceMenu[\s\S]*mode=\{mode\}/);
+  assert.match(activeSource, /onConfirm=\{\(\) => setSourceMenuOpen\(false\)\}/);
+  assert.match(activeSource, /getDefaultActiveSources\(settings, mode\)/);
+  assert.match(activeSource, /normalizeActiveSourcesForMode\(current, settings, mode\)/);
 });
 
 test('active assistant cards avoid duplicate label titles', () => {
@@ -156,6 +192,20 @@ test('active assistant cards avoid duplicate label titles', () => {
   assert.match(assistantSource, /const cardLabel = labelForCard\(card\.type\)/);
   assert.match(assistantSource, /const showCardTitle = cardTitle && cardTitle\.toLowerCase\(\) !== cardLabel\.toLowerCase\(\)/);
   assert.match(assistantSource, /showCardTitle \? <h4>\{cardTitle\}<\/h4> : null/);
+});
+
+test('active assistant prepends new response cards above existing cards', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const appStart = appSource.indexOf('function App()');
+  const appEnd = appSource.indexOf('function ModeToggle', appStart);
+  const appBody = appSource.slice(appStart, appEnd);
+
+  assert.match(appSource, /const MAX_ASSISTANT_CARDS = 12/);
+  assert.match(appSource, /function prependAssistantCards/);
+  assert.match(appSource, /return \[\.\.\.nextCards, \.\.\.retainedCards\]\.slice\(0, MAX_ASSISTANT_CARDS\)/);
+  assert.match(appBody, /setAssistantCards\(\(current\) => prependAssistantCards\(nextCards, current\)\)/);
+  assert.match(appBody, /setAssistantCards\(\(current\) => prependAssistantCards\(\[temporaryCard\], current\)\)/);
+  assert.match(appBody, /setAssistantCards\(\(current\) => prependAssistantCards\(result\.cards, current, temporaryCard\.id\)\)/);
 });
 
 test('transcript rating chart renders oldest sessions first', () => {
@@ -197,6 +247,25 @@ test('interview timeline shows transcript star ratings', () => {
   assert.equal(appSource.includes('Interview confidence'), false);
 });
 
+test('interview timeline exposes opportunity outcome status', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+
+  assert.match(appSource, /function getOutcomeLabel/);
+  assert.match(appSource, /function OutcomeBadge/);
+  assert.match(appSource, /Status/);
+  assert.match(appSource, /outcomeReason/);
+  assert.match(appSource, /outcomeDate/);
+  assert.match(appSource, /value="rejected"/);
+  assert.match(appSource, /value="advanced"/);
+  assert.match(appSource, /value="offer"/);
+  assert.match(appSource, /outcome-badge/);
+  assert.match(cssSource, /\.outcome-badge/);
+  assert.match(cssSource, /\.outcome-badge\.rejected/);
+  assert.match(cssSource, /\.outcome-badge\.advanced/);
+  assert.match(cssSource, /\.outcome-badge\.offer/);
+});
+
 test('pre-call prep and trend breakdown omit per-phase confidence scores', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
 
@@ -221,6 +290,25 @@ test('pre-call prep renders saved AI prep sections with 3 bullets each', () => {
   assert.match(contextSource, /Previous interviewer question patterns/);
 });
 
+test('pre-call prep uses compact overview card with session start action', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const contextStart = appSource.indexOf('function ContextPanel');
+  const contextEnd = appSource.indexOf('function TimelineView', contextStart);
+  const contextSource = appSource.slice(contextStart, contextEnd);
+
+  assert.match(contextSource, /const prepSessionTitle = nextInterviewEvent\?\.title \|\| latestSession\?\.title \|\| 'Next session'/);
+  assert.match(contextSource, /className="prep-overview-card"/);
+  assert.match(contextSource, /className="prep-overview-grid"/);
+  assert.match(contextSource, /Session title/);
+  assert.match(contextSource, /className="prep-start-button primary-action"/);
+  assert.match(contextSource, />Start Interview<\/button>/);
+  assert.equal(contextSource.includes('<div className="prep-card">'), false);
+  assert.match(cssSource, /\.prep-overview-card/);
+  assert.match(cssSource, /\.prep-overview-grid/);
+  assert.match(cssSource, /\.prep-start-button/);
+});
+
 test('mode tabs live in the title bar', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
@@ -235,6 +323,36 @@ test('mode tabs live in the title bar', () => {
   assert.match(cssSource, /\.capture-protection-toggle \.ghost-emoji-icon[\s\S]*font-size: 20px/);
   assert.equal(titleBarSource.includes('Command center'), false);
   assert.equal(titleBarSource.includes('mode-chip'), false);
+});
+
+test('title bar exposes settings, minimize, maximize, and close controls in order', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const titleBarStart = appSource.indexOf('function TitleBar');
+  const titleBarEnd = appSource.indexOf('function BrandMasthead', titleBarStart);
+  const titleBarSource = appSource.slice(titleBarStart, titleBarEnd);
+  const appStart = appSource.indexOf('function App()');
+  const appEnd = appSource.indexOf('function ModeToggle', appStart);
+  const appSourceBlock = appSource.slice(appStart, appEnd);
+  const settingsIndex = titleBarSource.indexOf('aria-label="Settings"');
+  const minimizeIndex = titleBarSource.indexOf('aria-label="Minimize Clyde"');
+  const maximizeIndex = titleBarSource.indexOf('aria-label="Maximize Clyde"');
+  const closeIndex = titleBarSource.indexOf('aria-label="Close app"');
+
+  assert.match(titleBarSource, /Minimize Clyde/);
+  assert.match(titleBarSource, /Maximize Clyde/);
+  assert.match(titleBarSource, /onMinimizeApp/);
+  assert.match(titleBarSource, /maximizeAppWindow\?\.\(\)/);
+  assert.match(titleBarSource, /title-actions title-icons/);
+  assert.ok(settingsIndex > -1);
+  assert.ok(minimizeIndex > settingsIndex);
+  assert.ok(maximizeIndex > minimizeIndex);
+  assert.ok(closeIndex > maximizeIndex);
+  assert.match(appSourceBlock, /const \[appWindowMinimized, setAppWindowMinimized\] = useState\(false\)/);
+  assert.match(appSourceBlock, /if \(appWindowMinimized\) \{/);
+  assert.match(appSourceBlock, /onMinimizeApp=\{async \(\) => \{/);
+  assert.match(appSourceBlock, /minimizeAppWindow\?\.\(\)/);
+  assert.match(appSourceBlock, /className="app-minimized-chip"/);
+  assert.match(appSourceBlock, /window\.electronAPI\?\.showApp\?\.\(\)/);
 });
 
 test('meeting context fields are not rendered in settings setup', () => {
@@ -359,14 +477,40 @@ test('workspace nav shows the next upcoming event next to calendar', () => {
   const navSource = appSource.slice(navStart, navEnd);
 
   assert.match(navSource, /nextUpcomingEvent/);
+  assert.match(navSource, /onStartEvent/);
   assert.match(navSource, /workspace-nav-event/);
   assert.match(navSource, /Next up/);
+  assert.match(navSource, /resolveEventEntityLabel\(nextUpcomingEvent/);
   assert.match(navSource, /formatEventDateTime\(nextUpcomingEvent\.date\)/);
+  assert.match(navSource, /className="workspace-nav-start primary-action"/);
+  assert.match(navSource, />\s*Start\s*<\/button>/);
   assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
+  assert.match(appSource, /async function startCalendarEvent\(event\)/);
   assert.equal(navSource.includes('style={{ display: \'flex\''), false);
   assert.match(cssSource, /\.workspace-nav-inner/);
   assert.match(cssSource, /\.workspace-nav-event/);
+  assert.match(cssSource, /\.workspace-nav-start/);
   assert.match(cssSource, /\.workspace-nav-empty/);
+});
+
+test('calendar and timeline event cards render associated entity labels', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const calendarStart = appSource.indexOf('function CalendarView');
+  const calendarEnd = appSource.indexOf('function CalendarEventModal', calendarStart);
+  const calendarSource = appSource.slice(calendarStart, calendarEnd);
+  const modalStart = appSource.indexOf('function CalendarEventModal');
+  const modalEnd = appSource.indexOf('function App()', modalStart);
+  const modalSource = appSource.slice(modalStart, modalEnd);
+  const timelineStart = appSource.indexOf('function TimelineView');
+  const timelineEnd = appSource.indexOf('function SessionBlock', timelineStart);
+  const timelineSource = appSource.slice(timelineStart, timelineEnd);
+
+  assert.match(appSource, /function resolveEventEntityLabel/);
+  assert.match(calendarSource, /resolveEventEntityLabel\(evt, entities\)/);
+  assert.match(calendarSource, /event-entity/);
+  assert.match(modalSource, /entityName:/);
+  assert.match(modalSource, /linkedEntity\?\.name/);
+  assert.match(timelineSource, /resolveEventEntityLabel\(evt, entities\)/);
 });
 
 test('trend analysis cache is keyed by the session signature', () => {

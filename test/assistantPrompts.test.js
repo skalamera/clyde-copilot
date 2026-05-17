@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { buildAssistantPrompt, getAllowedCardTypes } = require('../src/assistantPrompts');
+const { buildAssistantPrompt, getAllowedCardTypes, getAssistantSchema } = require('../src/assistantPrompts');
 
 test('interview mode prompt focuses on candidate answers and follow-up questions', () => {
   const prompt = buildAssistantPrompt({
@@ -36,5 +36,43 @@ test('meeting mode prompt focuses on notes, recap, actions, and memory', () => {
   assert.match(prompt, /Platform weekly/);
   assert.match(prompt, /Long term memory across meetings/);
   assert.match(prompt, /release notes/);
-  assert.deepEqual(getAllowedCardTypes('meeting'), ['recap', 'action', 'follow_up', 'suggestion', 'note']);
+  assert.deepEqual(getAllowedCardTypes('meeting'), ['recap', 'action', 'follow_up', 'suggestion', 'insight', 'screen_description', 'note']);
+});
+
+test('meeting screenshot command requests screen description and answer cards', () => {
+  const prompt = buildAssistantPrompt({
+    mode: 'meeting',
+    context: { meetingTitle: 'Design review' },
+    command: 'meeting_screen_question'
+  });
+  const schema = getAssistantSchema('meeting', 'meeting_screen_question');
+
+  assert.match(prompt, /describe what is visible on the user's screen/i);
+  assert.deepEqual(Object.keys(schema), ['screen_descriptions', 'answers']);
+  assert.equal(schema.screen_descriptions.items.properties.text.type, 'string');
+  assert.equal(schema.answers.items.properties.bullets.type, 'array');
+});
+
+test('meeting say-next command requests suggestions and insights', () => {
+  const prompt = buildAssistantPrompt({
+    mode: 'meeting',
+    command: 'meeting_say_next'
+  });
+  const schema = getAssistantSchema('meeting', 'meeting_say_next');
+
+  assert.match(prompt, /suggest useful things the user can say next/i);
+  assert.deepEqual(Object.keys(schema), ['suggestions', 'insights']);
+  assert.equal(schema.suggestions.items.properties.why.type, 'string');
+  assert.equal(schema.insights.items.properties.text.type, 'string');
+});
+
+test('meeting custom prompt command uses generic answer and note cards', () => {
+  const prompt = buildAssistantPrompt({
+    mode: 'meeting',
+    command: 'meeting_custom_prompt'
+  });
+  const schema = getAssistantSchema('meeting', 'meeting_custom_prompt');
+
+  assert.match(prompt, /follow the user's custom prompt/i);
+  assert.deepEqual(Object.keys(schema), ['answers', 'notes']);
 });

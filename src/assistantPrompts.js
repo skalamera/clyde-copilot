@@ -1,6 +1,6 @@
 const CARD_TYPES = {
   interview: ['answer', 'suggestion', 'follow_up', 'risk', 'note'],
-  meeting: ['recap', 'action', 'follow_up', 'suggestion', 'note']
+  meeting: ['recap', 'action', 'follow_up', 'suggestion', 'insight', 'screen_description', 'note']
 };
 
 function getAllowedCardTypes(mode = 'interview') {
@@ -19,12 +19,14 @@ function buildAssistantPrompt(options = {}) {
   const ragContext = options.ragContext || '';
 
   if (mode === 'meeting') {
+    const commandGuidance = meetingCommandGuidance(command);
     return [
       'You are Clyde, a live meeting assistant.',
       'The user wearing Clyde is in the meeting.',
       'System Audio and other named speakers are meeting participants.',
       'Use the transcript to create concise meeting help during the call.',
       `Current command: ${command}.`,
+      commandGuidance,
       context.meetingTitle ? `Meeting title: ${context.meetingTitle}.` : '',
       context.company ? `Organization: ${context.company}.` : '',
       formatAttendees(context.attendees),
@@ -59,6 +61,58 @@ function buildAssistantPrompt(options = {}) {
 
 function getAssistantSchema(mode = 'interview', command = 'assist') {
   const normalizedMode = normalizeMode(mode);
+
+  if (normalizedMode === 'meeting' && command === 'meeting_screen_question') {
+    return {
+      screen_descriptions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { text: { type: 'string' } },
+          required: ['text']
+        }
+      },
+      answers: answerArraySchema()
+    };
+  }
+
+  if (normalizedMode === 'meeting' && command === 'meeting_say_next') {
+    return {
+      suggestions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string' },
+            why: { type: 'string' }
+          },
+          required: ['text']
+        }
+      },
+      insights: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { text: { type: 'string' } },
+          required: ['text']
+        }
+      }
+    };
+  }
+
+  if (normalizedMode === 'meeting' && command === 'meeting_custom_prompt') {
+    return {
+      answers: answerArraySchema(),
+      notes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { text: { type: 'string' } },
+          required: ['text']
+        }
+      }
+    };
+  }
 
   if (command === 'manual_question') {
     return {
@@ -155,18 +209,38 @@ function getAssistantSchema(mode = 'interview', command = 'assist') {
 
 
   return {
-    answers: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          question: { type: 'string' },
-          bullets: { type: 'array', items: { type: 'string' } }
-        },
-        required: ['question', 'bullets']
-      }
+    answers: answerArraySchema()
+  };
+}
+
+function answerArraySchema() {
+  return {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        question: { type: 'string' },
+        bullets: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['question', 'bullets']
     }
   };
+}
+
+function meetingCommandGuidance(command) {
+  if (command === 'meeting_screen_question') {
+    return 'For this request, describe what is visible on the user\'s screen, then answer or comment on the user\'s screen question.';
+  }
+
+  if (command === 'meeting_say_next') {
+    return 'For this request, suggest useful things the user can say next and extract insights from the transcript so far.';
+  }
+
+  if (command === 'meeting_custom_prompt') {
+    return 'For this request, follow the user\'s custom prompt directly and use only the selected source names supplied in the user message.';
+  }
+
+  return '';
 }
 
 function formatAttendees(attendees) {

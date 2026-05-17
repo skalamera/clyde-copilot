@@ -1,106 +1,150 @@
-# Clyde - Live Interview Copilot
+# Clyde 👻
 
-Clyde is an Electron-based desktop application designed to act as your real-time copilot during online job interviews. Powered by local LLMs (via LM Studio) and RAG (via Pinecone and Gemini), it captures meeting audio, provides live transcriptions, generates real-time suggestions on what to say next, and automatically grades your interview performance after the call.
-
-The internal AI assistant is affectionately named **Clyde**.
-
-## ✨ Key Features
-
-* **🎙️ Real-Time Transcription:** Captures system and microphone audio using SoX and transcribes it on the fly using a local Whisper model.
-* **🧠 Live Assistant (Clyde):** Analyzes the rolling transcript to provide real-time, non-intrusive UI cards with suggestions, answers, and questions to ask the interviewer.
-* **📚 RAG Resume Context:** Integrates with Google's Gemini and Pinecone. When the interviewer asks about your past projects or experience, Clyde detects the intent, searches your vectorized resume, and injects your exact metrics and achievements into his suggested answers.
-* **📊 Post-Interview Grading:** Save your interview sessions to a local dashboard. The app uses an LLM to grade your performance (A-F), extract reasoning, and compute an overall confidence trend for each company you interview with.
-* **🎛️ Provider Agnostic:** Natively switch between Local LLMs (LM Studio) and Cloud LLMs (OpenAI, Anthropic, Gemini) via the in-app Settings UI. No proxy or complex configuration required.
-* **🎛️ Context Management:** Easily paste the specific Job Description into the app's context settings so Clyde tailors his live answers specifically to the role's requirements.
+Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Built with Electron and React, Clyde sits alongside your video calls to provide live transcription, contextual suggestions, and post-call analytics. It is designed to work seamlessly with local AI models (via LM Studio and Whisper) to keep your sensitive conversation data entirely on your machine, with options to connect to Cloud APIs if preferred.
 
 ---
 
-## 📋 Prerequisites
+## 🌟 Core Features
 
-Before you can run Clyde, you must install and configure the following external dependencies:
+### 🎙️ Real-Time Audio Capture & Transcription
+*   **Multi-channel Capture**: Records both your microphone ("You") and system audio ("Others") using `native-audio-node`.
+*   **Live Transcription**: Streams audio chunks to a local Whisper server or OpenAI's Cloud API to generate a continuous transcript.
+*   **Visual Audio Meters**: Features a compact, ghost-themed HUD that provides live audio levels (RMS) and speaking indicators for local and remote participants.
 
-1. **Node.js** (v18+ recommended)
-2. **SoX (Sound eXchange):**
-   * **Windows:** Download and install [SoX](https://sourceforge.net/projects/sox/). **Crucial:** You must add the SoX installation folder (e.g., `C:\Program Files (x86)\sox-14-4-2`) to your system's `PATH` environment variable.
-3. **LM Studio (or compatible local API):**
-   * Download [LM Studio](https://lmstudio.ai/).
-   * Start the Local Server in LM Studio (usually runs on `http://localhost:1234`).
-   * Load an instruction-following model (e.g., Llama-3, Mistral) for the Chat completions.
-   * Make sure you have a local Whisper endpoint running for transcription (or use the provided `npm run whisper` script if you have the standalone server configured).
+### 🤖 Live AI Assistant (Active Capture)
+*   **Compact Floating HUD**: A draggable, unobtrusive overlay that stays on top of your screen during calls.
+*   **Contextual Nudges**: Click the "Nudge" button to get immediate AI suggestions on what to say next based on the live transcript.
+*   **Screenshot Awareness**: Capture your current screen context alongside your prompt to get help with code, presentations, or technical questions.
+*   **Custom Prompts**: Query the AI manually at any time during the meeting.
+*   **Capture Protection**: Privacy toggle that prevents Clyde's HUD from showing up in your own screen shares.
 
-## 🚀 Installation
+### 💼 Interview & Meeting Modes
+*   **Interview Mode**: Track opportunities by Company and Role. Paste in Job Descriptions to give Clyde deep context for tailoring interview answers.
+*   **Meeting Mode**: Optimized for internal team syncs, generating recaps, action items, and follow-ups.
 
-1. Clone the repository and navigate into the directory:
+### 📈 Pre-Call Prep & Post-Call Analytics
+*   **Automated Grading**: Clyde automatically grades your interview performance (0-5 stars) evaluating clarity, technical accuracy, and conciseness.
+*   **Trend Analysis**: Plots your transcript ratings over time using interactive charts (`Recharts`). Computes confidence scores (0-100%) and overall momentum (Up, Down, Sideways).
+*   **Pre-Call Prep**: Analyzes past interviews for the same company to generate cumulative summaries, probable focus areas, interviewer question patterns, and questions you should ask.
+
+### 🧠 Long-Term Memory & RAG
+*   **Vector Database Integration**: Connects to Pinecone to index and retrieve context from your Resume, past meetings, and long-term memory.
+*   **Source Toggling**: Selectively include/exclude your Resume, Memory, RAG, or Web Search for specific queries mid-call.
+
+---
+
+## 🏗️ Architecture
+
+Clyde follows a standard Electron multi-process architecture, heavily relying on IPC (Inter-Process Communication) to bridge the secure backend and the reactive frontend.
+
+```mermaid
++-----------------------------------------------------------------------+
+|                           Electron Main Process                       |
+|                                                                       |
+|  +----------------+   +-----------------+   +----------------------+  |
+|  | Audio Capture  |   | LLM Orchestration|  | Transcription Client |  |
+|  | (native-audio) |   | (axios, prompts)|   | (Whisper / OpenAI)   |  |
+|  +-------+--------+   +--------+--------+   +----------+-----------+  |
+|          |                     |                       |              |
++----------|---------------------|-----------------------|--------------+
+           |                     |                       |
+           v                     v                       v
+      Audio Chunks         Cards / Advice          Text Streams
+           |                     |                       |
++----------|---------------------|-----------------------|--------------+
+|          |            Electron Renderer Process        |              |
+|                                                                       |
+|  +----------------+   +-----------------+   +----------------------+  |
+|  |  Active HUD    |   |  Timeline View  |   | Trend & Prep Panels  |  |
+|  | (Ghost Meters) |   | (Transcript UI) |   | (Recharts, Stats)    |  |
+|  +----------------+   +-----------------+   +----------------------+  |
+|                                                                       |
+|                       React + Vite + CSS Modules                      |
++-----------------------------------------------------------------------+
+```
+
+### Main Process (`main.js` & `src/`)
+*   **`audioCapture.js` / `native-audio-node`**: Hooks into OS-level audio devices.
+*   **`llmClient.js` & `meetingAssistant.js`**: Constructs dynamic prompts utilizing the transcript digest, job descriptions, and user inputs. Calls LM Studio (Local LLM) or Cloud APIs.
+*   **`transcriptionClient.js`**: Handles audio chunk buffering, RMS calculation (to drop silent chunks), and requests to the Whisper API.
+*   **`sessionManager.js` & `interviewManager.js`**: Handles local SQLite/JSON persistence of sessions, entities (companies), and transcripts using `electron-store`.
+*   **`trendAnalysis.js`**: Background worker logic that triggers LLM calls to compute grades and insights after a session ends.
+
+### Renderer Process (`src/renderer/`)
+*   **`App.jsx`**: The core React application containing the routing logic between the Timeline, Calendar, Trends, and the Live Capture views.
+*   **`App.css`**: Custom styling, heavily utilizing CSS grid, flexbox, and backdrop-filters to create a modern, dark-mode, glassmorphic UI.
+*   **IPC via `preload.js`**: Exposes a safe `window.electronAPI` bridge to allow React to trigger captures, save settings, and receive real-time text/audio level updates.
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+*   Node.js (v18+ recommended)
+*   Python & FFmpeg (for local Whisper)
+*   [LM Studio](https://lmstudio.ai/) (for local LLM capabilities)
+
+### Installation
+
+1. **Clone the repository:**
    ```bash
    git clone <repository-url>
-   cd casper
+   cd clyde
    ```
 
-2. Install Node.js dependencies:
+2. **Install Dependencies:**
    ```bash
    npm install
    ```
 
-3. Create a `.env` file in the root directory (copy from a sample if available) and configure your environment:
+3. **Configure Local AI (Optional but recommended):**
+   * Start **LM Studio** and load a model (e.g., Llama-3 or Mistral). Start the Local Inference Server on port `1234`.
+   * Configure Clyde's settings via the UI to point to `http://localhost:1234/v1/chat/completions`.
 
-   ```env
-   # Endpoints
-   LM_STUDIO_API_URL=http://localhost:8000/v1/audio/transcriptions
-   LM_STUDIO_CHAT_URL=http://localhost:1234/v1/chat/completions
-   LM_STUDIO_CHAT_MODEL=local-model-name
-   TRANSCRIPTION_MODEL=Systran/faster-distil-whisper-large-v3
+4. **Start the Whisper Server:**
+   ```bash
+   # Starts the local Python FastAPI Whisper server
+   npm run whisper
    
-   # Assistant Settings
-   LM_STUDIO_ASSISTANT_MAX_TOKENS=800
-   
-   # Pinecone & Gemini (For RAG / Resume Context)
-   GEMINI_API_KEY=your_gemini_api_key_here
-   PINECONE_API_KEY=your_pinecone_api_key_here
-   PINECONE_HOST=your_pinecone_index_host_url_here
-
-   # Audio Device Settings (Optional: specify explicit audio sources)
-   # CLYDE_AUDIO_DEVICE=default
+   # Or, if you don't have a CUDA GPU:
+   npm run whisper:cpu
    ```
 
-## 🎮 Usage
+5. **Run the App (Development):**
+   ```bash
+   npm start
+   ```
 
-### Starting the Application
-```bash
-npm start
-```
+---
 
-### Navigating the UI
-1. **Context Settings:** Click "Context" in the top title bar to paste the Job Description before your interview begins.
-2. **Audio Setup:** Click "Test Inputs" to verify your microphone and system audio are being captured (you'll see the RMS meters move).
-3. **Start Transcription:** Click the **Start Transcription** button to begin capturing audio. The Live Transcript panel will populate as people speak.
-4. **Live Help:** Clyde will automatically generate suggestion cards when questions are detected. If you get stuck, click **What to say next?** to force a suggestion.
-5. **End & Save:** When the interview is over, click **End & Save**. Enter the company name and interview phase, then hit **Save & Grade**. 
-6. **Dashboard:** Click "Dashboard" in the top title bar to view the leaderboard of your interviews, review your AI grades, and read historical transcripts.
-7. **Reset Session:** Made a mistake or doing a dry run? Click **Reset Session** to wipe the current transcript buffer without restarting the app.
+## 🛠️ Scripts & Tooling
 
-## 🛠️ Architecture & Core Files
+*   `npm start`: Builds the Vite renderer and starts the Electron app.
+*   `npm run renderer:build`: Compiles the React frontend into `src/renderer-dist`.
+*   `npm run renderer:dev`: Starts the Vite dev server for frontend-only development.
+*   `npm test`: Runs the Node.js native test runner against the test suite (`test/`).
+*   `npm run audio:check`: Diagnostic script to list available OS audio sources.
+*   `npm run pack` / `npm run dist`: Packages the application into an executable using `electron-builder`.
 
-* `main.js`: Electron main process. Manages window creation, IPC communication, and audio capture orchestration.
-* `src/index.html`: The main UI overlay. Built with raw HTML/CSS/JS for maximum performance and a custom transparent glassmorphism aesthetic.
-* `src/audioCapture.js`: Spawns and manages the `sox` child process to capture raw PCM audio streams.
-* `src/transcriptionClient.js`: Buffers PCM audio chunks, calculates RMS to filter silence/hallucinations, packs them into WAV formats, and sends them to the local Whisper API.
-* `src/meetingAssistant.js`: Maintains the rolling transcript buffer. Periodically sends the transcript to LM Studio, parses the structured JSON responses, and detects intent for RAG injections.
-* `src/pineconeClient.js`: Uses Google Gemini embeddings to query Pinecone for relevant resume context when specific behavioral or experiential questions are detected.
-* `src/interviewManager.js`: Handles local saving of interviews, background grading calls to the LLM, and calculating confidence scores.
+---
 
 ## 🧪 Testing
 
-Run the test suite using Node's native test runner:
+Clyde uses Node's native test runner (`node:test` and `node:assert`). Tests cover both the Main process IPC logic and Renderer Smoke tests (verifying UI components, classes, and logic).
+
 ```bash
 npm test
 ```
 
-## ⚠️ Troubleshooting
+---
 
-* **"SoX was not found" Error:** Ensure SoX is installed and the directory containing `sox.exe` is in your system's `PATH`. Restart your terminal/IDE after updating the path.
-* **No Transcript Appearing:** Verify that your local Whisper server is running and `LM_STUDIO_API_URL` is pointing to the correct address. Use the "Test Inputs" button to ensure audio is actually reaching the app.
-* **App Appears "Frozen" when saving:** The save modal might be hidden or improperly positioned if the window is resized. Ensure you are using the latest version with the fixed CSS z-index and opacity transitions.
+## 🔒 Privacy & Security
 
-## 📄 License
+Clyde is architected to keep your data local by default:
+*   **No Cloud Lock-in**: Audio and transcripts are processed entirely on your machine if using the Local Whisper and LM Studio integrations.
+*   **Capture Protection**: The active overlay uses `mainWindow.setAlwaysOnTop(true, 'screen-saver')` and `mainWindow.setContentProtection(true)` to hide the HUD from standard screen sharing applications.
+*   **Local Storage**: All transcripts, meeting notes, and job descriptions are stored locally in your OS's `userData` folder.
 
-ISC License. See `package.json` for details.
+---
+
+*Clyde - Your invisible edge in every meeting.*
