@@ -20,6 +20,9 @@ test('interview grading leaves enough response budget for written evaluation', (
   assert.match(mainSource, /Write a detailed evaluation in exactly 4 short professional sections/);
   assert.match(mainSource, /Use concrete details from the transcript/);
   assert.match(mainSource, /Do not write a generic one-paragraph summary/);
+  assert.match(mainSource, /Address the user directly as "you"/);
+  assert.match(mainSource, /Do not call the user "the candidate"/);
+  assert.match(mainSource, /reasoning: directAddressFeedback/);
 });
 
 test('interview saves clean transcript text before grading', () => {
@@ -47,6 +50,8 @@ test('trend analysis generation no longer requests per-interview confidence scor
   assert.match(trendBlock, /questions_to_ask/);
   assert.match(trendBlock, /exactly 3 detailed bullets/i);
   assert.match(trendBlock, /patterns\/themes/i);
+  assert.match(trendBlock, /Address the user directly as "you"/);
+  assert.match(trendBlock, /Do not call the user "the candidate"/);
   assert.match(trendBlock, /required:\s*\['trend', 'executive_summary', 'key_strengths', 'areas_for_improvement', 'phase_breakdown', 'pre_call_prep'\]/);
 });
 
@@ -71,6 +76,8 @@ test('interview grading and confidence prompts use outcome calibration examples'
 
   assert.match(mainSource, /buildOutcomeCalibrationExamples/);
   assert.match(mainSource, /formatOutcomeCalibrationExamples/);
+  assert.match(mainSource, /summarizeOutcomeCalibrationExamples/);
+  assert.match(mainSource, /ipcMain\.handle\('get-outcome-calibration-summary'/);
   assert.match(gradingBlock, /Real outcome calibration examples/);
   assert.match(confidenceBlock, /Real outcome calibration examples/);
   assert.match(trendBlock, /Real outcome calibration examples/);

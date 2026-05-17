@@ -136,6 +136,15 @@ Clyde uses Node's native test runner (`node:test` and `node:assert`). Tests cove
 npm test
 ```
 
+For renderer UI changes, run the focused smoke test plus the production renderer build:
+
+```bash
+npm test -- test/rendererSmoke.test.js
+npm run renderer:build
+```
+
+If the Codex Browser retry against the Vite renderer server returns `ERR_BLOCKED_BY_CLIENT`, stop the Vite server after the retry and use those 2 commands as the reliable verification path.
+
 ---
 
 ## 🔒 Privacy & Security

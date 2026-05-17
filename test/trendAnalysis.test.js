@@ -3,6 +3,7 @@ const test = require('node:test');
 
 const {
   buildTrendAnalysisSessionSignature,
+  directAddressFeedback,
   getTranscriptRating,
   isTrendAnalysisComplete,
   normalizeTrendAnalysisResult
@@ -71,6 +72,47 @@ test('trend analysis normalizes saved pre-call prep into 3 bullets per section',
   assert.equal(normalized.pre_call_prep.interviewer_question_patterns.length, 3);
   assert.equal(normalized.pre_call_prep.questions_to_ask.length, 3);
   assert.equal(isTrendAnalysisComplete(normalized, sessions.length), true);
+});
+
+test('trend analysis and pre-call prep address the user directly', () => {
+  const normalized = normalizeTrendAnalysisResult({
+    trend: 'sideways',
+    executive_summary: 'The candidate demonstrates strong support judgment.',
+    key_strengths: ['The candidate gave concrete examples.'],
+    areas_for_improvement: ['His answer on automation needs more substance.'],
+    phase_breakdown: [
+      { phase: 'Interview #1', observation: 'The candidate was clear. He showed useful context.' }
+    ],
+    pre_call_prep: {
+      cumulative_phase_summary: ['The candidate has strong examples.', 'He should quantify the work.', 'His next answer should be tighter.'],
+      probable_focus: ['The interviewer may test whether the candidate owns outcomes.', 'He should prepare metrics.', 'His team examples need scope.'],
+      interviewer_question_patterns: ['They asked how the candidate leads teams.', 'They tested his technical depth.', 'They asked whether he owns tooling.'],
+      questions_to_ask: ['What should the candidate clarify?', 'Where should he go deeper?', 'How will his success be measured?']
+    }
+  }, [
+    { id: '1', phase: 'Interview #1', grading: { transcriptRating: 4 }, transcript: [{ speaker: 'You', text: 'I led support tooling.' }] }
+  ]);
+
+  const allText = [
+    normalized.executive_summary,
+    ...normalized.key_strengths,
+    ...normalized.areas_for_improvement,
+    ...normalized.phase_breakdown.map((item) => item.observation),
+    ...Object.values(normalized.pre_call_prep).flat()
+  ].join(' ');
+
+  assert.equal(allText.includes('The candidate'), false);
+  assert.equal(allText.includes('the candidate'), false);
+  assert.equal(/\bHe\b|\bhe\b|\bHis\b|\bhis\b/.test(allText), false);
+  assert.match(allText, /You demonstrate/);
+  assert.match(allText, /[Yy]our answer/);
+});
+
+test('direct address feedback rewrites common third-person candidate phrasing', () => {
+  assert.equal(
+    directAddressFeedback('The candidate is strong. He showed that his team can execute.'),
+    'You are strong. You showed that your team can execute.'
+  );
 });
 
 test('transcript ratings normalize new and legacy grading formats', () => {

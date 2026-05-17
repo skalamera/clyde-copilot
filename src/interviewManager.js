@@ -6,6 +6,7 @@ const {
     normalizeCleanedTranscriptResponse,
     transcriptToText
 } = require('./transcriptCleanup');
+const { directAddressFeedback } = require('./trendAnalysis');
 
 function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
     const interviewsDir = path.join(appPath, 'Interviews');
@@ -394,6 +395,7 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
             Give a highly precise grade (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, D-, F) based on clarity, technical accuracy, conciseness, and professionalism. Be strict and exact.
             Write a detailed evaluation in exactly 4 short professional sections using markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, and **Outlook:**.
             Use concrete details from the transcript. Do not write a generic one-paragraph summary. Finish every sentence. Keep examples separate from the written evaluation.
+            Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
             
             Transcript:
             ${transcriptText}`;
@@ -437,8 +439,8 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
 
             interviewData.gradingStatus = 'complete';
             interviewData.grade = gradeData.grade;
-            interviewData.reasoning = gradeData.reasoning;
-            interviewData.examples = gradeData.examples;
+            interviewData.reasoning = directAddressFeedback(gradeData.reasoning);
+            interviewData.examples = Array.isArray(gradeData.examples) ? gradeData.examples.map(directAddressFeedback).filter(Boolean) : [];
 
             fs.writeFileSync(path.join(companyDir, `${id}.json`), JSON.stringify(interviewData, null, 2));
 

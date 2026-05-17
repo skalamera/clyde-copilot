@@ -1673,17 +1673,46 @@ h1 {
 .timeline-view {
   display: grid;
   gap: 0;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: var(--timeline-rail-width, 390px) 8px minmax(0, 1fr);
   min-height: 520px;
   overflow: hidden;
 }
 
 .timeline-rail {
   border-right: 1px solid var(--line);
+  min-width: 0;
+  overflow: auto;
   padding: 16px;
 }
 
+.timeline-rail-resizer {
+  align-self: stretch;
+  background: transparent;
+  cursor: col-resize;
+  margin-left: -4px;
+  position: relative;
+  width: 8px;
+  z-index: 2;
+}
+
+.timeline-rail-resizer::before {
+  background: rgba(154, 202, 255, 0.14);
+  bottom: 0;
+  content: '';
+  left: 3px;
+  position: absolute;
+  top: 0;
+  width: 1px;
+}
+
+.timeline-rail-resizer:hover::before,
+.timeline-rail-resizer:focus-visible::before {
+  background: rgba(79, 231, 255, 0.62);
+  box-shadow: 0 0 12px rgba(79, 231, 255, 0.28);
+}
+
 .timeline-main {
+  min-width: 0;
   padding: 16px;
 }
 
@@ -1697,13 +1726,14 @@ h1 {
   gap: 10px;
 }
 
-.entity-list button {
+.entity-list .opportunity-row > button:first-child {
   display: grid;
   justify-items: start;
+  min-width: 0;
   text-align: left;
 }
 
-.entity-list button.active {
+.entity-list .opportunity-row > button:first-child.active {
   border-color: var(--cyan);
   background: rgba(79, 231, 255, 0.1);
 }
@@ -1711,6 +1741,14 @@ h1 {
 .entity-list span {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.entity-list .confidence-pill {
+  font-size: 0.88rem;
+}
+
+.entity-list .outcome-badge {
+  font-size: 0.72rem;
 }
 
 .entity-list-badges,
@@ -1725,16 +1763,132 @@ h1 {
   margin: 0;
 }
 
+.timeline-title-meta .outcome-badge {
+  margin-bottom: 6px;
+}
+
+.calibration-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-top: 7px;
+}
+
+.opportunity-row {
+  align-items: stretch;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 46px;
+}
+
+.opportunity-row > button:first-child {
+  align-content: center;
+  gap: 8px;
+  min-height: 86px;
+  padding: 12px 16px;
+}
+
+.opportunity-row-compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.opportunity-row-main {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+}
+
+.opportunity-row-main strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opportunity-row-heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.opportunity-active-toggle {
+  align-self: stretch;
+  color: var(--muted);
+  display: grid;
+  font-size: 1rem;
+  min-width: 46px;
+  padding: 0;
+  place-items: center;
+}
+
+.opportunity-active-toggle:hover,
+.opportunity-active-toggle:focus-visible {
+  color: var(--cyan);
+}
+
+.opportunity-active-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.opportunity-section {
+  border-top: 1px solid rgba(154, 202, 255, 0.14);
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.opportunity-section-toggle {
+  align-items: center;
+  background: transparent;
+  border-color: rgba(154, 202, 255, 0.14);
+  color: var(--muted);
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 800;
+  justify-content: space-between;
+  letter-spacing: 0;
+  min-height: 34px;
+  padding: 7px 10px;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.opportunity-section-toggle:hover,
+.opportunity-section-toggle:focus-visible {
+  border-color: rgba(79, 231, 255, 0.34);
+  color: var(--text);
+}
+
+.opportunity-section-toggle span:last-child {
+  align-items: center;
+  background: rgba(154, 202, 255, 0.12);
+  border-radius: 999px;
+  display: inline-flex;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 8px;
+}
+
+.opportunity-section-list {
+  display: grid;
+  gap: 10px;
+}
+
 .confidence-pill {
   align-items: center;
   border: 1px solid currentColor;
   border-radius: 999px;
   display: inline-flex;
-  font-size: 1rem;
+  font-size: 0.88rem;
   font-weight: 900;
   justify-content: center;
-  min-width: 52px;
-  padding: 4px 9px;
+  min-width: 50px;
+  padding: 4px 8px;
 }
 
 .confidence-pill.high {
@@ -2071,6 +2225,10 @@ label {
   .timeline-rail {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .timeline-rail-resizer {
+    display: none;
   }
 
   .brand-mark {

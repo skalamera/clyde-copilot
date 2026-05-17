@@ -220,6 +220,20 @@ test('transcript rating chart renders oldest sessions first', () => {
   assert.equal(trendsSource.includes('[...chronologicalSessions].reverse()'), false);
 });
 
+test('trend analysis view keeps content in the main grid column with a resizable rail', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const trendsStart = appSource.indexOf('function TrendsView');
+  const trendsEnd = appSource.indexOf('function TrendChart', trendsStart);
+  const trendsSource = appSource.slice(trendsStart, trendsEnd);
+
+  assert.match(trendsSource, /const \[railWidth, setRailWidth\] = useState\(390\)/);
+  assert.match(trendsSource, /data-testid="trendsTimeline" style=\{\{ '--timeline-rail-width': `\$\{railWidth\}px` \}\}/);
+  assert.match(trendsSource, /timeline-rail-resizer/);
+  assert.match(trendsSource, /role="separator"/);
+  assert.ok(trendsSource.indexOf('className="timeline-rail"') < trendsSource.indexOf('className="timeline-rail-resizer"'));
+  assert.ok(trendsSource.indexOf('className="timeline-rail-resizer"') < trendsSource.indexOf('className="timeline-main"'));
+});
+
 test('timeline replaces the live workspace when opened', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const returnStart = appSource.indexOf('return (');
@@ -264,6 +278,92 @@ test('interview timeline exposes opportunity outcome status', () => {
   assert.match(cssSource, /\.outcome-badge\.rejected/);
   assert.match(cssSource, /\.outcome-badge\.advanced/);
   assert.match(cssSource, /\.outcome-badge\.offer/);
+  assert.match(cssSource, /\.timeline-title-meta \.outcome-badge/);
+  assert.match(cssSource, /margin-bottom: 6px/);
+});
+
+test('rejected opportunities cannot be selected as the active interview', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const titleBarStart = appSource.indexOf('function TitleBar');
+  const titleBarEnd = appSource.indexOf('function GearIcon', titleBarStart);
+  const titleBarSource = appSource.slice(titleBarStart, titleBarEnd);
+  const timelineStart = appSource.indexOf('function TimelineView');
+  const timelineEnd = appSource.indexOf('function SessionBlock', timelineStart);
+  const timelineSource = appSource.slice(timelineStart, timelineEnd);
+  const saveStart = appSource.indexOf('async function saveEntityEdits');
+  const saveEnd = appSource.indexOf('async function saveSessionEdits', saveStart);
+  const saveSource = appSource.slice(saveStart, saveEnd);
+
+  assert.match(titleBarSource, /selectableInterviewEntities/);
+  assert.match(titleBarSource, /normalizeOpportunityOutcome\(entity\.outcome\) !== 'rejected'/);
+  assert.match(titleBarSource, /selectableInterviewEntities\.map/);
+  assert.match(timelineSource, /const canSetActiveInterview = mode !== 'interview' \|\| normalizeOpportunityOutcome\(entity\.outcome\) !== 'rejected'/);
+  assert.match(timelineSource, /disabled=\{!canSetActiveInterview\}/);
+  assert.match(saveSource, /normalizeOpportunityOutcome\(patch\.outcome\) === 'rejected'/);
+  assert.match(saveSource, /company: '',\s*role: ''/);
+});
+
+test('interview timeline groups rejected and offer opportunities below active opportunities', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const sectionStart = appSource.indexOf('function OpportunitySection');
+  const sectionEnd = appSource.indexOf('function TimelineView', sectionStart);
+  const sectionSource = appSource.slice(sectionStart, sectionEnd);
+  const timelineStart = appSource.indexOf('function TimelineView');
+  const timelineEnd = appSource.indexOf('function SessionBlock', timelineStart);
+  const timelineSource = appSource.slice(timelineStart, timelineEnd);
+
+  assert.match(timelineSource, /activeEntities/);
+  assert.match(timelineSource, /rejectedEntities/);
+  assert.match(timelineSource, /offerEntities/);
+  assert.match(timelineSource, /OpportunitySection/);
+  assert.match(timelineSource, /Rejected/);
+  assert.match(timelineSource, /Offer/);
+  assert.match(sectionSource, /aria-expanded/);
+  assert.match(timelineSource, /timeline-rail-resizer/);
+  assert.match(timelineSource, /role="separator"/);
+  assert.match(timelineSource, /--timeline-rail-width/);
+  assert.match(cssSource, /\.opportunity-row-main/);
+  assert.match(cssSource, /\.opportunity-row-heading/);
+  assert.match(cssSource, /\.opportunity-section-toggle/);
+  assert.match(cssSource, /\.timeline-rail-resizer/);
+  assert.match(cssSource, /grid-template-columns: var\(--timeline-rail-width, 390px\) 8px minmax\(0, 1fr\)/);
+});
+
+test('timeline and trend views show outcome calibration diagnostics', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const trendsStart = appSource.indexOf('function TrendsView');
+  const trendsEnd = appSource.indexOf('function TrendChart', trendsStart);
+  const trendsSource = appSource.slice(trendsStart, trendsEnd);
+  const timelineStart = appSource.indexOf('function TimelineView');
+  const timelineEnd = appSource.indexOf('function SessionBlock', timelineStart);
+  const timelineSource = appSource.slice(timelineStart, timelineEnd);
+
+  assert.match(appSource, /function useOutcomeCalibrationSummary/);
+  assert.match(appSource, /function OutcomeCalibrationNote/);
+  assert.match(appSource, /Calibration used:/);
+  assert.match(appSource, /advanced\/offer/);
+  assert.match(appSource, /getOutcomeCalibrationSummary/);
+  assert.match(trendsSource, /OutcomeCalibrationNote/);
+  assert.match(timelineSource, /OutcomeCalibrationNote/);
+  assert.match(cssSource, /\.calibration-note/);
+});
+
+test('trend analysis groups rejected and offer opportunities below active opportunities', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const trendsStart = appSource.indexOf('function TrendsView');
+  const trendsEnd = appSource.indexOf('function TrendChart', trendsStart);
+  const trendsSource = appSource.slice(trendsStart, trendsEnd);
+
+  assert.match(trendsSource, /collapsedOutcomeSections/);
+  assert.match(trendsSource, /activeEntities/);
+  assert.match(trendsSource, /rejectedEntities/);
+  assert.match(trendsSource, /offerEntities/);
+  assert.match(trendsSource, /OpportunitySection/);
+  assert.match(trendsSource, /title="Rejected"/);
+  assert.match(trendsSource, /title="Offer"/);
+  assert.match(trendsSource, /No active opportunities/);
 });
 
 test('pre-call prep and trend breakdown omit per-phase confidence scores', () => {
@@ -513,6 +613,15 @@ test('calendar and timeline event cards render associated entity labels', () => 
   assert.match(timelineSource, /resolveEventEntityLabel\(evt, entities\)/);
 });
 
+test('calendar month cells use taller day squares for stacked events', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const calendarStart = appSource.indexOf('const calendarStyles = `');
+  const calendarEnd = appSource.indexOf('`;\n\nfunction CalendarView', calendarStart);
+  const calendarStylesSource = appSource.slice(calendarStart, calendarEnd);
+
+  assert.match(calendarStylesSource, /\.calendar-days \{[\s\S]*grid-auto-rows: minmax\(160px, 1fr\)/);
+});
+
 test('trend analysis cache is keyed by the session signature', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const clientSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'trendAnalysisClient.js'), 'utf8');
@@ -573,7 +682,10 @@ test('timeline renders evaluation notes as structured content', () => {
   const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
 
   assert.match(appSource, /function EvaluationNotes/);
+  assert.match(appSource, /function directAddressFeedback/);
   assert.match(appSource, /parseEvaluationText/);
+  assert.match(appSource, /directAddressFeedback\(text\)/);
+  assert.match(appSource, /directAddressFeedback\(item\)/);
   assert.match(appSource, /evaluation-section/);
   assert.match(appSource, /evaluation-action-items/);
   assert.match(appSource, /evaluation-examples/);

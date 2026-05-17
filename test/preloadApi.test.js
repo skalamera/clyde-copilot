@@ -12,6 +12,7 @@ test('preload exposes mode-aware session APIs', () => {
     'deleteSession',
     'deleteSessionEntity',
     'updateSessionEntity',
+    'getOutcomeCalibrationSummary',
     'generateTrendAnalysis',
     'setActiveSessionContext',
     'validateServices',
@@ -29,6 +30,7 @@ test('preload exposes mode-aware session APIs', () => {
   }
 
   assert.match(source, /requestSuggestion:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('request-suggestion', payload\)/);
+  assert.match(source, /getOutcomeCalibrationSummary:\s*\(entity\)\s*=>\s*ipcRenderer\.invoke\('get-outcome-calibration-summary', entity\)/);
   assert.match(source, /generateTrendAnalysis:\s*\(companyId,\s*options\)\s*=>\s*ipcRenderer\.invoke\('generate-trend-analysis', companyId, options\)/);
   assert.match(source, /hideApp:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('hide-app'\)/);
   assert.match(source, /minimizeAppWindow:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('minimize-app-window'\)/);

@@ -29,11 +29,12 @@ const {
 } = require('./src/meetingPostProcessing');
 const { startAutoUpdater } = require('./src/autoUpdater');
 const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
-const { buildTrendAnalysisSessionSignature, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
+const { buildTrendAnalysisSessionSignature, directAddressFeedback, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
 const {
     buildOutcomeCalibrationExamples,
-    formatOutcomeCalibrationExamples
+    formatOutcomeCalibrationExamples,
+    summarizeOutcomeCalibrationExamples
 } = require('./src/outcomeLearning');
 
 let mainWindow;
@@ -206,20 +207,33 @@ function applyCaptureProtection(settings = {}) {
     }
 }
 
+function getOutcomeCalibrationExamples(entity = {}) {
+    return buildOutcomeCalibrationExamples({
+        sessionManager,
+        currentEntityId: entity.id || entity.name || '',
+        role: entity.role || '',
+        limit: 4
+    });
+}
+
 function buildOutcomeCalibrationSection(entity = {}) {
     try {
-        const examples = buildOutcomeCalibrationExamples({
-            sessionManager,
-            currentEntityId: entity.id || entity.name || '',
-            role: entity.role || '',
-            limit: 4
-        });
+        const examples = getOutcomeCalibrationExamples(entity);
 
         return formatOutcomeCalibrationExamples(examples)
             || 'Real outcome calibration examples:\nNone available yet. Use the standard rubric without local calibration.';
     } catch (error) {
         console.warn('Failed to build outcome calibration examples:', error);
         return 'Real outcome calibration examples:\nNone available yet. Use the standard rubric without local calibration.';
+    }
+}
+
+function buildOutcomeCalibrationSummary(entity = {}) {
+    try {
+        return summarizeOutcomeCalibrationExamples(getOutcomeCalibrationExamples(entity));
+    } catch (error) {
+        console.warn('Failed to build outcome calibration summary:', error);
+        return summarizeOutcomeCalibrationExamples([]);
     }
 }
 
@@ -1278,6 +1292,10 @@ function createWindow () {
       return sessionManager.getSessionEntities(mode || 'interview');
   });
 
+  ipcMain.handle('get-outcome-calibration-summary', (event, entity = {}) => {
+      return buildOutcomeCalibrationSummary(entity);
+  });
+
   ipcMain.handle('save-session', async (event, record) => {
       const sessionId = sessionManager.saveSession(record || {});
       
@@ -1486,6 +1504,7 @@ function createWindow () {
           Return transcript_rating as a whole number from 0 to 5 based on this single transcript. 0 means unusable or no evidence. 1 means weak. 2 means below bar. 3 means acceptable. 4 means strong. 5 means excellent. Rate clarity, technical accuracy, conciseness, professionalism, and concrete evidence. Be strict and exact.
           Write a detailed evaluation in exactly 4 short professional sections using markdown headers: **Overall assessment:**, **Evidence:**, **Risks:**, and **Outlook:**.
           Use concrete details from the transcript. Do not write a generic one-paragraph summary. Finish every sentence. Keep examples separate from the written evaluation.
+          Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
           Real outcome calibration examples are included below when Clyde has labeled local examples. Use them as local hiring-market context. Base this transcript rating on its own evidence.
 
           ${outcomeCalibrationSection}
@@ -1534,8 +1553,8 @@ function createWindow () {
           record.grading = {
               status: 'complete',
               transcriptRating: normalizeTranscriptRating(gradeData.transcript_rating),
-              reasoning: gradeData.reasoning,
-              examples: Array.isArray(gradeData.examples) ? gradeData.examples : [],
+              reasoning: directAddressFeedback(gradeData.reasoning),
+              examples: Array.isArray(gradeData.examples) ? gradeData.examples.map(directAddressFeedback).filter(Boolean) : [],
               scoredAt: new Date().toISOString()
           };
           sessionManager.saveSession(record);
@@ -1771,10 +1790,11 @@ Review the transcripts of all their interviews in chronological order.
 2. Provide a structured deep dive analysis explaining EXACTLY what caused the trend (up, down, or sideways) from phase to phase. Include an executive summary, key strengths, areas for improvement, and a phase-by-phase observation. Cite specific examples.
 3. Return exactly ${sortedSessions.length} phase breakdown entries, one for each interview below, in the same chronological order.
 4. Return pre_call_prep with exactly 3 detailed bullets for each prep section:
-   - cumulative_phase_summary: a cumulative summary of all phases and where the candidate currently stands.
+   - cumulative_phase_summary: a cumulative summary of all phases and where you currently stand.
    - probable_focus: likely next-round focus areas based on prior transcripts and the job context.
    - interviewer_question_patterns: actual patterns/themes across previous interviewer questions, not exact question repeats.
-   - questions_to_ask: useful questions the candidate can ask in the next round.
+   - questions_to_ask: useful questions you can ask in the next round.
+Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
 Real outcome calibration examples are included below when Clyde has labeled local examples. Use them when judging whether the trend resembles prior rejected, advanced, or offer outcomes.
 
 ${outcomeCalibrationSection}

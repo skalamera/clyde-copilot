@@ -143,6 +143,31 @@ function formatOutcomeCalibrationExamples(examples = []) {
   return lines.join('\n');
 }
 
+function summarizeOutcomeCalibrationExamples(examples = []) {
+  const list = Array.isArray(examples) ? examples.filter(Boolean) : [];
+  const summary = {
+    total: list.length,
+    rejected: 0,
+    advanced: 0,
+    offer: 0,
+    positive: 0
+  };
+
+  for (const example of list) {
+    if (example.outcome === 'rejected') {
+      summary.rejected += 1;
+    } else if (example.outcome === 'advanced') {
+      summary.advanced += 1;
+      summary.positive += 1;
+    } else if (example.outcome === 'offer') {
+      summary.offer += 1;
+      summary.positive += 1;
+    }
+  }
+
+  return summary;
+}
+
 function compareExamples(left, right) {
   if (right.roleScore !== left.roleScore) {
     return right.roleScore - left.roleScore;
@@ -203,5 +228,6 @@ function cleanText(value) {
 
 module.exports = {
   buildOutcomeCalibrationExamples,
-  formatOutcomeCalibrationExamples
+  formatOutcomeCalibrationExamples,
+  summarizeOutcomeCalibrationExamples
 };

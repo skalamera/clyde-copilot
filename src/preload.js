@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveManualInterview: (metadata) => ipcRenderer.invoke('save-manual-interview', metadata),
     getSessions: (filters) => ipcRenderer.invoke('get-sessions', filters),
     getSessionEntities: (mode) => ipcRenderer.invoke('get-session-entities', mode),
+    getOutcomeCalibrationSummary: (entity) => ipcRenderer.invoke('get-outcome-calibration-summary', entity),
     saveSession: (sessionRecord) => ipcRenderer.invoke('save-session', sessionRecord),
     deleteSession: (payload) => ipcRenderer.invoke('delete-session', payload),
     deleteSessionEntity: (payload) => ipcRenderer.invoke('delete-session-entity', payload),

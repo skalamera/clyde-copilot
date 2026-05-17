@@ -34,7 +34,7 @@ function normalizeTrendAnalysisResult(analysis, sessions = []) {
     (item) => normalizeKey(item?.phase),
     (item, meta) => ({
       phase: meta.phase,
-      observation: cleanText(item?.observation) || buildFallbackObservation(meta.session)
+      observation: directAddressFeedback(item?.observation) || buildFallbackObservation(meta.session)
     }),
     (meta) => ({
       phase: meta.phase,
@@ -45,10 +45,11 @@ function normalizeTrendAnalysisResult(analysis, sessions = []) {
 
   return {
     ...sourceWithoutConfidenceScores,
+    executive_summary: directAddressFeedback(source.executive_summary),
     phase_breakdown: phaseBreakdown,
     pre_call_prep: preCallPrep,
-    key_strengths: Array.isArray(source.key_strengths) ? source.key_strengths : [],
-    areas_for_improvement: Array.isArray(source.areas_for_improvement) ? source.areas_for_improvement : []
+    key_strengths: Array.isArray(source.key_strengths) ? source.key_strengths.map(directAddressFeedback) : [],
+    areas_for_improvement: Array.isArray(source.areas_for_improvement) ? source.areas_for_improvement.map(directAddressFeedback) : []
   };
 }
 
@@ -119,11 +120,11 @@ function normalizePreCallPrep(prep, phaseBreakdown = []) {
 
 function normalizeBulletList(items, fallback) {
   const cleaned = (Array.isArray(items) ? items : [])
-    .map(cleanText)
+    .map(directAddressFeedback)
     .filter(Boolean)
     .slice(0, 3);
   const fallbackItems = (Array.isArray(fallback) ? fallback : [])
-    .map(cleanText)
+    .map(directAddressFeedback)
     .filter(Boolean);
 
   for (const item of fallbackItems) {
@@ -228,13 +229,13 @@ function buildFallbackObservation(session) {
   const reasoning = cleanText(session?.grading?.reasoning || '');
   if (reasoning) {
     const firstSentence = reasoning.match(/[^.!?]+[.!?]?/);
-    return cleanText(firstSentence ? firstSentence[0] : reasoning);
+    return directAddressFeedback(firstSentence ? firstSentence[0] : reasoning);
   }
 
   const summary = cleanText(session?.notes?.summary || '');
   if (summary) {
     const firstSentence = summary.match(/[^.!?]+[.!?]?/);
-    return cleanText(firstSentence ? firstSentence[0] : summary);
+    return directAddressFeedback(firstSentence ? firstSentence[0] : summary);
   }
 
   const rating = getTranscriptRating(session?.grading);
@@ -253,6 +254,34 @@ function buildFallbackObservation(session) {
 function cleanText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function directAddressFeedback(value) {
+  let text = cleanText(value);
+  if (!text) {
+    return '';
+  }
+
+  return text
+    .replace(/\b[Tt]he candidate's\b/g, 'your')
+    .replace(/\b[Tt]he candidate\b/g, (match) => match[0] === 'T' ? 'You' : 'you')
+    .replace(/\b[Tt]his candidate's\b/g, 'your')
+    .replace(/\b[Tt]his candidate\b/g, (match) => match[0] === 'T' ? 'You' : 'you')
+    .replace(/\b[Hh]is\b/g, (match) => match[0] === 'H' ? 'Your' : 'your')
+    .replace(/\b[Hh]e\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
+    .replace(/\b[Hh]im\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
+    .replace(/\b[Yy]ou is\b/g, (match) => match[0] === 'Y' ? 'You are' : 'you are')
+    .replace(/\b[Yy]ou was\b/g, (match) => match[0] === 'Y' ? 'You were' : 'you were')
+    .replace(/\b[Yy]ou has\b/g, (match) => match[0] === 'Y' ? 'You have' : 'you have')
+    .replace(/\b[Yy]ou demonstrates\b/g, (match) => match[0] === 'Y' ? 'You demonstrate' : 'you demonstrate')
+    .replace(/\b[Yy]ou shows\b/g, (match) => match[0] === 'Y' ? 'You show' : 'you show')
+    .replace(/\b[Yy]ou provides\b/g, (match) => match[0] === 'Y' ? 'You provide' : 'you provide')
+    .replace(/\b[Yy]ou brings\b/g, (match) => match[0] === 'Y' ? 'You bring' : 'you bring')
+    .replace(/\b[Yy]ou needs\b/g, (match) => match[0] === 'Y' ? 'You need' : 'you need')
+    .replace(/\b[Yy]ou owns\b/g, (match) => match[0] === 'Y' ? 'You own' : 'you own')
+    .replace(/\b[Yy]ou leads\b/g, (match) => match[0] === 'Y' ? 'You lead' : 'you lead')
+    .replace(/\s+([.,;:])/g, '$1')
     .trim();
 }
 
@@ -323,6 +352,7 @@ module.exports = {
   buildTrendAnalysisSessionSignature,
   getTranscriptRating,
   isTrendAnalysisComplete,
+  directAddressFeedback,
   getGradePercentage,
   normalizeTranscriptRating,
   normalizePreCallPrep,

@@ -183,6 +183,71 @@ function OutcomeBadge({ outcome }) {
   );
 }
 
+function isClosedOpportunityOutcome(outcome) {
+  const normalized = normalizeOpportunityOutcome(outcome);
+  return normalized === 'rejected' || normalized === 'offer';
+}
+
+function formatOutcomeCalibrationSummary(summary) {
+  const total = Number(summary?.total) || 0;
+  if (!total) {
+    return 'Calibration used: 0 examples';
+  }
+
+  const rejected = Number(summary?.rejected) || 0;
+  const positive = Number(summary?.positive) || ((Number(summary?.advanced) || 0) + (Number(summary?.offer) || 0));
+  const noun = total === 1 ? 'example' : 'examples';
+  return `Calibration used: ${total} ${noun}, ${rejected} rejected, ${positive} advanced/offer`;
+}
+
+function OutcomeCalibrationNote({ summary }) {
+  if (!summary) {
+    return null;
+  }
+
+  return (
+    <p className="calibration-note">
+      {formatOutcomeCalibrationSummary(summary)}
+    </p>
+  );
+}
+
+function useOutcomeCalibrationSummary(api, mode, entity) {
+  const [summary, setSummary] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (mode !== 'interview' || !entity?.id || typeof api?.getOutcomeCalibrationSummary !== 'function') {
+      setSummary(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    api.getOutcomeCalibrationSummary({
+      id: entity.id,
+      name: entity.name || entity.id,
+      role: entity.role || ''
+    }).then((nextSummary) => {
+      if (!cancelled) {
+        setSummary(nextSummary || null);
+      }
+    }).catch((error) => {
+      console.warn('Failed to load outcome calibration summary', error);
+      if (!cancelled) {
+        setSummary(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, mode, entity?.id, entity?.name, entity?.role]);
+
+  return summary;
+}
+
 function toDateInput(value) {
   const text = String(value || '').trim();
   if (!text) {
@@ -231,9 +296,34 @@ function useNowMs() {
 }
 
 function cleanEvaluationText(value) {
-  return String(value || '')
+  const text = String(value || '')
     .replace(/\*\*/g, '')
     .replace(/\s+/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1')
+    .trim();
+
+  return directAddressFeedback(text);
+}
+
+function directAddressFeedback(text) {
+  return String(text || '')
+    .replace(/\b[Tt]he candidate's\b/g, 'your')
+    .replace(/\b[Tt]he candidate\b/g, (match) => match[0] === 'T' ? 'You' : 'you')
+    .replace(/\b[Tt]his candidate's\b/g, 'your')
+    .replace(/\b[Tt]his candidate\b/g, (match) => match[0] === 'T' ? 'You' : 'you')
+    .replace(/\b[Hh]is\b/g, (match) => match[0] === 'H' ? 'Your' : 'your')
+    .replace(/\b[Hh]e\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
+    .replace(/\b[Hh]im\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
+    .replace(/\b[Yy]ou is\b/g, (match) => match[0] === 'Y' ? 'You are' : 'you are')
+    .replace(/\b[Yy]ou was\b/g, (match) => match[0] === 'Y' ? 'You were' : 'you were')
+    .replace(/\b[Yy]ou has\b/g, (match) => match[0] === 'Y' ? 'You have' : 'you have')
+    .replace(/\b[Yy]ou demonstrates\b/g, (match) => match[0] === 'Y' ? 'You demonstrate' : 'you demonstrate')
+    .replace(/\b[Yy]ou shows\b/g, (match) => match[0] === 'Y' ? 'You show' : 'you show')
+    .replace(/\b[Yy]ou provides\b/g, (match) => match[0] === 'Y' ? 'You provide' : 'you provide')
+    .replace(/\b[Yy]ou brings\b/g, (match) => match[0] === 'Y' ? 'You bring' : 'you bring')
+    .replace(/\b[Yy]ou needs\b/g, (match) => match[0] === 'Y' ? 'You need' : 'you need')
+    .replace(/\b[Yy]ou owns\b/g, (match) => match[0] === 'Y' ? 'You own' : 'you own')
+    .replace(/\b[Yy]ou leads\b/g, (match) => match[0] === 'Y' ? 'You lead' : 'you lead')
     .replace(/\s+([.,;:])/g, '$1')
     .trim();
 }
@@ -1088,8 +1178,19 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
   const api = window.electronAPI;
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [railWidth, setRailWidth] = useState(390);
+  const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ rejected: false, offer: false });
 
   const selected = entities.find((entity) => entity.id === selectedEntity);
+  const activeEntities = mode === 'interview'
+    ? entities.filter((entity) => !isClosedOpportunityOutcome(entity.outcome))
+    : entities;
+  const rejectedEntities = mode === 'interview'
+    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'rejected')
+    : [];
+  const offerEntities = mode === 'interview'
+    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'offer')
+    : [];
   const chronologicalSessions = useMemo(
     () => [...sessions].sort((a, b) => new Date(a.date) - new Date(b.date)),
     [sessions]
@@ -1102,6 +1203,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
     () => buildTrendAnalysisSessionSignature(chronologicalSessions),
     [chronologicalSessions]
   );
+  const calibrationSummary = useOutcomeCalibrationSummary(api, mode, selected);
 
   useEffect(() => {
     if (!selected || sessions.length < 2 || !sessionsMatchSelected) {
@@ -1174,43 +1276,125 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
 
   const sortedSessions = chronologicalSessions;
 
+  const handleRailResizePointerDown = (event) => {
+    if (window.innerWidth <= 1120) {
+      return;
+    }
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = railWidth;
+    const maxWidth = Math.min(620, Math.max(390, Math.round(window.innerWidth * 0.48)));
+
+    const handleMove = (moveEvent) => {
+      const delta = moveEvent.clientX - startX;
+      setRailWidth(Math.max(360, Math.min(maxWidth, startWidth + delta)));
+    };
+
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+  };
+
+  const handleRailResizeKeyDown = (event) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      return;
+    }
+
+    event.preventDefault();
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    const maxWidth = Math.min(620, Math.max(390, Math.round(window.innerWidth * 0.48)));
+    setRailWidth((current) => Math.max(360, Math.min(maxWidth, current + (direction * 24))));
+  };
+
+  const toggleOutcomeSection = (outcome) => {
+    setCollapsedOutcomeSections((current) => ({
+      ...current,
+      [outcome]: !current[outcome]
+    }));
+  };
+
+  const renderEntityRow = (entity) => (
+    <div key={entity.id} className="opportunity-row opportunity-row-compact">
+      <button
+        className={entity.id === selectedEntity ? 'active' : ''}
+        type="button"
+        onClick={() => onSelectEntity(entity.id)}
+      >
+        <div className="opportunity-row-main">
+          <strong>{entity.name}</strong>
+          <span className="entity-list-badges">
+            {mode === 'interview' && <OutcomeBadge outcome={entity.outcome} />}
+            {mode === 'interview' && entity.confidence > 0 && (
+              <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
+                {entity.confidence}%
+              </span>
+            )}
+          </span>
+        </div>
+        <span className="opportunity-row-heading">{entity.role || entity.kind}</span>
+      </button>
+    </div>
+  );
+
   return (
-    <section className="timeline-view" data-testid="trendsTimeline">
+    <section className="timeline-view" data-testid="trendsTimeline" style={{ '--timeline-rail-width': `${railWidth}px` }}>
       <div className="timeline-rail">
         <div className="timeline-heading">
           <h2>Trend Analysis</h2>
         </div>
         <div className="entity-list">
-          {entities.length ? entities.map((entity) => {
-            return (
-              <div key={entity.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <button
-                  className={entity.id === selectedEntity ? 'active' : ''}
-                  type="button"
-                  onClick={() => onSelectEntity(entity.id)}
-                  style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                    <strong>{entity.name}</strong>
-                    {entity.confidence > 0 && (
-                      <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
-                        {entity.confidence}%
-                      </span>
-                    )}
-                  </div>
-                  <span>{entity.role || entity.kind}</span>
-                </button>
-              </div>
-            );
-          }) : <EmptyState title="No saved sessions" body="Save a session to build history." />}
+          {entities.length ? (
+            <>
+              {activeEntities.length ? activeEntities.map(renderEntityRow) : (
+                <EmptyState title="No active opportunities" body={mode === 'interview' ? 'Rejected and offer opportunities are grouped below.' : 'Save a session to build history.'} />
+              )}
+              {mode === 'interview' ? (
+                <>
+                  <OpportunitySection
+                    collapsed={collapsedOutcomeSections.rejected}
+                    count={rejectedEntities.length}
+                    entities={rejectedEntities}
+                    onToggle={() => toggleOutcomeSection('rejected')}
+                    renderEntityRow={renderEntityRow}
+                    title="Rejected"
+                  />
+                  <OpportunitySection
+                    collapsed={collapsedOutcomeSections.offer}
+                    count={offerEntities.length}
+                    entities={offerEntities}
+                    onToggle={() => toggleOutcomeSection('offer')}
+                    renderEntityRow={renderEntityRow}
+                    title="Offer"
+                  />
+                </>
+              ) : null}
+            </>
+          ) : <EmptyState title="No saved sessions" body="Save a session to build history." />}
         </div>
       </div>
+      <div
+        aria-label="Resize opportunity list"
+        aria-orientation="vertical"
+        className="timeline-rail-resizer"
+        onKeyDown={handleRailResizeKeyDown}
+        onPointerDown={handleRailResizePointerDown}
+        role="separator"
+        tabIndex={0}
+      />
 
       <div className="timeline-main" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div className="timeline-title" style={{ flexShrink: 0 }}>
           <div>
             <h2>{selected?.name ? `${selected.name} Analysis` : 'Select a record'}</h2>
             <p>{sessions.length} saved sessions</p>
+            {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
           </div>
         </div>
 
@@ -1260,20 +1444,20 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
                       <div className="structured-analysis" style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '20px' }}>
                         <div className="analysis-card summary" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', borderLeft: '4px solid var(--cyan)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                           <h5 style={{ margin: '0 0 10px 0', color: 'var(--text)', fontSize: '1.05rem' }}>Executive Summary</h5>
-                          <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--muted)' }}>{analysis.executive_summary}</p>
+                          <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--muted)' }}>{directAddressFeedback(analysis.executive_summary)}</p>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
                           <div className="analysis-card strengths" style={{ background: 'rgba(46, 204, 113, 0.05)', padding: '20px', borderRadius: '12px', borderTop: '3px solid rgba(46, 204, 113, 0.8)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                             <h5 style={{ margin: '0 0 15px 0', color: '#2ecc71', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}><span style={{ fontSize: '1.2rem' }}>↑</span> Key Strengths</h5>
                             <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.9rem', color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                              {analysis.key_strengths?.length ? analysis.key_strengths.map((item, i) => <li key={i} style={{ lineHeight: '1.4' }}>{item}</li>) : <li>None identified.</li>}
+                              {analysis.key_strengths?.length ? analysis.key_strengths.map((item, i) => <li key={i} style={{ lineHeight: '1.4' }}>{directAddressFeedback(item)}</li>) : <li>None identified.</li>}
                             </ul>
                           </div>
                           <div className="analysis-card improvements" style={{ background: 'rgba(231, 76, 60, 0.05)', padding: '20px', borderRadius: '12px', borderTop: '3px solid rgba(231, 76, 60, 0.8)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                             <h5 style={{ margin: '0 0 15px 0', color: '#e74c3c', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}><span style={{ fontSize: '1.2rem' }}>↓</span> Areas for Improvement</h5>
                             <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.9rem', color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                              {analysis.areas_for_improvement?.length ? analysis.areas_for_improvement.map((item, i) => <li key={i} style={{ lineHeight: '1.4' }}>{item}</li>) : <li>None identified.</li>}
+                              {analysis.areas_for_improvement?.length ? analysis.areas_for_improvement.map((item, i) => <li key={i} style={{ lineHeight: '1.4' }}>{directAddressFeedback(item)}</li>) : <li>None identified.</li>}
                             </ul>
                           </div>
                         </div>
@@ -1284,7 +1468,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
                             {analysis.phase_breakdown?.map((pb, i) => (
                               <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '16px', paddingBottom: i !== analysis.phase_breakdown.length - 1 ? '20px' : '0', borderBottom: i !== analysis.phase_breakdown.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none', alignItems: 'start' }}>
                                 <div style={{ minWidth: '140px', fontWeight: '600', color: 'var(--cyan)', fontSize: '0.9rem' }}>{pb.phase}</div>
-                                <div style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: '1.5' }}>{pb.observation}</div>
+                                <div style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: '1.5' }}>{directAddressFeedback(pb.observation)}</div>
                               </div>
                             ))}
                           </div>
@@ -1292,7 +1476,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
                       </div>
                     ) : (
                       <div className="analysis-text" style={{ marginTop: '20px' }}>
-                        <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', margin: 0, color: 'var(--text)' }}>{analysis.deep_dive_analysis}</p>
+                        <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', margin: 0, color: 'var(--text)' }}>{directAddressFeedback(analysis.deep_dive_analysis)}</p>
                       </div>
                     )}
                   </div>
@@ -1471,7 +1655,7 @@ const calendarStyles = `
   .calendar-days {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    grid-auto-rows: minmax(100px, 1fr);
+    grid-auto-rows: minmax(160px, 1fr);
     flex: 1;
     overflow-y: auto;
   }
@@ -2175,6 +2359,10 @@ function App() {
     window.addEventListener('open-manual-transcript-modal', handleManual);
     const handleStartEvent = async (e) => {
       const { entity, evt } = e.detail;
+      if (mode === 'interview' && normalizeOpportunityOutcome(entity?.outcome) === 'rejected') {
+        setStatus('Rejected opportunities cannot be active interviews.');
+        return;
+      }
       setWorkspaceView('live');
       if (mode === 'interview') {
         const nextSettings = await api?.setActiveSessionContext?.({ mode: 'interview', company: entity.id, role: entity.role || '' });
@@ -2212,6 +2400,28 @@ function App() {
       brief: settings.resumeText ? `${settings.resumeText.length.toLocaleString()} characters of resume context loaded.` : 'No resume context loaded.'
     };
   }, [entities, mode, settings]);
+
+  useEffect(() => {
+    if (mode !== 'interview' || !settings.currentCompany) {
+      return;
+    }
+
+    const activeInterview = entities.find((entity) => entity.id === settings.currentCompany || entity.name === settings.currentCompany);
+    if (!activeInterview || normalizeOpportunityOutcome(activeInterview.outcome) !== 'rejected') {
+      return;
+    }
+
+    (async () => {
+      const nextSettings = await api?.setActiveSessionContext?.({
+        mode: 'interview',
+        company: '',
+        role: ''
+      });
+      if (nextSettings) {
+        setSettings(nextSettings);
+      }
+    })();
+  }, [api, entities, mode, settings.currentCompany]);
 
   const transcriptText = useMemo(
     () => transcript.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n'),
@@ -2253,6 +2463,11 @@ function App() {
     }
     const entity = availableEntities.find((item) => item.id === entityId || item.name === entityId)
       || (entityId ? { id: entityId, name: entityId, role: '', attendees: [] } : null);
+
+    if (eventMode === 'interview' && normalizeOpportunityOutcome(entity?.outcome) === 'rejected') {
+      setStatus('Rejected opportunities cannot be active interviews.');
+      return;
+    }
 
     setWorkspaceView('live');
     if (eventMode !== mode) {
@@ -2581,13 +2796,15 @@ function App() {
       grading: { status: 'pending' }
     });
 
-    const nextSettings = await api?.setActiveSessionContext?.({
-      mode: 'interview',
-      company: entity.id,
-      role: entity.role || ''
-    });
-    if (nextSettings) {
-      setSettings(nextSettings);
+    if (normalizeOpportunityOutcome(entity.outcome) !== 'rejected') {
+      const nextSettings = await api?.setActiveSessionContext?.({
+        mode: 'interview',
+        company: entity.id,
+        role: entity.role || ''
+      });
+      if (nextSettings) {
+        setSettings(nextSettings);
+      }
     }
   }
 
@@ -2730,11 +2947,24 @@ function App() {
       patch
     });
 
-    if (mode === 'interview' && settings.currentCompany === entity.id) {
+    const rejectingActiveInterview = mode === 'interview'
+      && settings.currentCompany === entity.id
+      && normalizeOpportunityOutcome(patch.outcome) === 'rejected';
+
+    if (rejectingActiveInterview) {
+      const nextSettings = await api?.setActiveSessionContext?.({
+        mode,
+        company: '',
+        role: ''
+      });
+      if (nextSettings) {
+        setSettings(nextSettings);
+      }
+    } else if (mode === 'interview' && settings.currentCompany === entity.id) {
       const nextSettings = await api?.setActiveSessionContext?.({
         mode,
         company: entity.id,
-        role: patch.role || ''
+        role: patch.role ?? updated?.role ?? entity.role ?? ''
       });
       if (nextSettings) {
         setSettings(nextSettings);
@@ -3157,6 +3387,10 @@ function App() {
               setCalendarModalOpen(false);
               if (type === 'opportunity') {
                 const entity = entities.find(e => e.id === id);
+                if (normalizeOpportunityOutcome(entity?.outcome) === 'rejected') {
+                  setStatus('Rejected opportunities cannot be active interviews.');
+                  return;
+                }
                 await chooseMode('interview');
                 const nextSettings = await api?.setActiveSessionContext?.({ mode: 'interview', company: id, role: entity?.role || '' });
                 if (nextSettings) setSettings(nextSettings);
@@ -3178,6 +3412,9 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
   const isInterview = mode === 'interview';
   const api = window.electronAPI;
   const captureProtectionEnabled = settings.captureProtectionEnabled !== false;
+  const selectableInterviewEntities = isInterview
+    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) !== 'rejected')
+    : entities;
   const activeMeetingId = isInterview
     ? ''
     : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
@@ -3215,15 +3452,18 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
                 if (e.target.value === '__new__') {
                   onAddNewOpportunity();
                 } else {
-                  const entity = entities.find(ent => ent.id === e.target.value);
+                  const entity = selectableInterviewEntities.find((entity) => entity.id === e.target.value);
+                  if (e.target.value && !entity) {
+                    return;
+                  }
                   onChangeActiveInterview(e.target.value, entity?.role || '');
                 }
               }}
             >
               <option value="">None</option>
-              {entities.map(ent => (
-                <option key={ent.id} value={ent.id}>
-                  {ent.name}{ent.role ? ` - ${ent.role}` : ''}
+              {selectableInterviewEntities.map((entity) => (
+                <option key={entity.id} value={entity.id}>
+                  {entity.name}{entity.role ? ` - ${entity.role}` : ''}
                 </option>
               ))}
               <option value="__new__">+ Add New</option>
@@ -4232,7 +4472,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
                       <strong>Phase-by-Phase Breakdown</strong>
                       <ul className="action-list">
                         {preCallPrep.cumulative_phase_summary.map((item, index) => (
-                          <li key={`${item}-${index}`}>{item}</li>
+                          <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
                         ))}
                       </ul>
                     </div>
@@ -4241,7 +4481,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
                       <strong>Probable focus for next round</strong>
                       <ul className="action-list">
                         {preCallPrep.probable_focus.map((item, index) => (
-                          <li key={`${item}-${index}`}>{item}</li>
+                          <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
                         ))}
                       </ul>
                     </div>
@@ -4250,7 +4490,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
                       <strong>Previous interviewer question patterns</strong>
                       <ul className="action-list">
                         {preCallPrep.interviewer_question_patterns.map((item, index) => (
-                          <li key={`${item}-${index}`}>{item}</li>
+                          <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
                         ))}
                       </ul>
                     </div>
@@ -4259,7 +4499,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
                       <strong>Questions you can ask</strong>
                       <ul className="action-list">
                         {preCallPrep.questions_to_ask.map((item, index) => (
-                          <li key={`${item}-${index}`}>{item}</li>
+                          <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
                         ))}
                       </ul>
                     </div>
@@ -4355,14 +4595,47 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
   );
 }
 
+function OpportunitySection({ collapsed, count, entities, onToggle, renderEntityRow, title }) {
+  return (
+    <section className="opportunity-section">
+      <button
+        aria-expanded={!collapsed}
+        className="opportunity-section-toggle"
+        onClick={onToggle}
+        type="button"
+      >
+        <span>{title}</span>
+        <span>{count}</span>
+      </button>
+      {!collapsed && count > 0 ? (
+        <div className="opportunity-section-list">
+          {entities.map(renderEntityRow)}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeMeetingId = mode === 'meeting'
     ? entities.find((entity) => entity.id === settings?.meetingTitle || entity.name === settings?.meetingTitle)?.id || ''
     : '';
   const [hasJd, setHasJd] = useState(false);
+  const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ rejected: false, offer: false });
+  const [railWidth, setRailWidth] = useState(390);
   const api = window.electronAPI;
+  const calibrationSummary = useOutcomeCalibrationSummary(api, mode, selected);
   const nowMs = useNowMs();
+  const activeEntities = mode === 'interview'
+    ? entities.filter((entity) => !isClosedOpportunityOutcome(entity.outcome))
+    : entities;
+  const rejectedEntities = mode === 'interview'
+    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'rejected')
+    : [];
+  const offerEntities = mode === 'interview'
+    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'offer')
+    : [];
   
   const entityEvents = (calendarEvents || [])
     .filter((event) => {
@@ -4405,8 +4678,102 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
     }
   };
 
+  const toggleOutcomeSection = (outcome) => {
+    setCollapsedOutcomeSections((current) => ({
+      ...current,
+      [outcome]: !current[outcome]
+    }));
+  };
+
+  const handleRailResizePointerDown = (event) => {
+    if (window.innerWidth <= 1120) {
+      return;
+    }
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = railWidth;
+    const maxWidth = Math.min(620, Math.max(390, Math.round(window.innerWidth * 0.48)));
+
+    const handleMove = (moveEvent) => {
+      const delta = moveEvent.clientX - startX;
+      setRailWidth(Math.max(360, Math.min(maxWidth, startWidth + delta)));
+    };
+
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+  };
+
+  const handleRailResizeKeyDown = (event) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      return;
+    }
+
+    event.preventDefault();
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    const maxWidth = Math.min(620, Math.max(390, Math.round(window.innerWidth * 0.48)));
+    setRailWidth((current) => Math.max(360, Math.min(maxWidth, current + (direction * 24))));
+  };
+
+  const renderEntityRow = (entity) => {
+    const isActive = mode === 'interview'
+      ? settings?.currentCompany === entity.id
+      : activeMeetingId === entity.id;
+    const canSetActiveInterview = mode !== 'interview' || normalizeOpportunityOutcome(entity.outcome) !== 'rejected';
+
+    return (
+      <div key={entity.id} className="opportunity-row">
+        <button
+          className={entity.id === selectedEntity ? 'active' : ''}
+          type="button"
+          onClick={() => onSelectEntity(entity.id)}
+        >
+          <div className="opportunity-row-main">
+            <strong>{entity.name}</strong>
+            <span className="entity-list-badges">
+              {mode === 'interview' && <OutcomeBadge outcome={entity.outcome} />}
+              {mode === 'interview' && entity.confidence > 0 && (
+                <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
+                  {entity.confidence}%
+                </span>
+              )}
+            </span>
+          </div>
+          <span className="opportunity-row-heading">{entity.role || entity.kind}</span>
+        </button>
+        {(mode === 'interview' || mode === 'meeting') && (
+          <button 
+            className="opportunity-active-toggle"
+            disabled={!canSetActiveInterview}
+            type="button" 
+            title={!canSetActiveInterview ? 'Rejected opportunities cannot be active interviews' : (isActive ? (mode === 'interview' ? 'Active Interview' : 'Active Meeting') : (mode === 'interview' ? 'Set as Active Interview' : 'Set as Active Meeting'))}
+            onClick={() => {
+              if (!canSetActiveInterview) {
+                return;
+              }
+              if (mode === 'interview') {
+                onChangeActiveInterview(isActive ? '' : entity.id, isActive ? '' : entity.role);
+              } else {
+                onChangeActiveMeeting(isActive ? '' : entity.id);
+              }
+            }}
+          >
+            {isActive ? '★' : '☆'}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <section className="timeline-view" data-testid="sessionTimeline">
+    <section className="timeline-view" data-testid="sessionTimeline" style={{ '--timeline-rail-width': `${railWidth}px` }}>
       <div className="timeline-rail">
         <div className="timeline-heading">
           <h2>{mode === 'interview' ? 'Interview timeline' : 'Meeting memory'}</h2>
@@ -4425,58 +4792,44 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
           </div>
         </div>
         <div className="entity-list">
-          {entities.length ? entities.map((entity) => {
-            const isActive = mode === 'interview'
-              ? settings?.currentCompany === entity.id
-              : activeMeetingId === entity.id;
-            return (
-              <div key={entity.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <button
-                  className={entity.id === selectedEntity ? 'active' : ''}
-                  type="button"
-                  onClick={() => onSelectEntity(entity.id)}
-                  style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                    <strong>{entity.name}</strong>
-                    <span className="entity-list-badges">
-                      {mode === 'interview' && <OutcomeBadge outcome={entity.outcome} />}
-                      {mode === 'interview' && entity.confidence > 0 && (
-                        <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
-                          {entity.confidence}%
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <span>{entity.role || entity.kind}</span>
-                </button>
-                {(mode === 'interview' || mode === 'meeting') && (
-                  <button 
-                    type="button" 
-                    title={isActive ? (mode === 'interview' ? 'Active Interview' : 'Active Meeting') : (mode === 'interview' ? 'Set as Active Interview' : 'Set as Active Meeting')}
-                    onClick={() => {
-                      if (mode === 'interview') {
-                        onChangeActiveInterview(isActive ? '' : entity.id, isActive ? '' : entity.role);
-                      } else {
-                        onChangeActiveMeeting(isActive ? '' : entity.id);
-                      }
-                    }}
-                    style={{ 
-                      padding: '4px 8px', 
-                      background: isActive ? 'var(--cyan)' : 'transparent',
-                      color: isActive ? '#000' : 'var(--muted)',
-                      border: '1px solid var(--line)',
-                      borderRadius: '4px'
-                    }}
-                  >
-                    {isActive ? '★' : '☆'}
-                  </button>
-                )}
-              </div>
-            );
-          }) : <EmptyState title="No saved sessions" body="Save a session to build history." />}
+          {entities.length ? (
+            <>
+              {activeEntities.length ? activeEntities.map(renderEntityRow) : (
+                <EmptyState title="No active opportunities" body={mode === 'interview' ? 'Rejected and offer opportunities are grouped below.' : 'Save a session to build history.'} />
+              )}
+              {mode === 'interview' ? (
+                <>
+                  <OpportunitySection
+                    collapsed={collapsedOutcomeSections.rejected}
+                    count={rejectedEntities.length}
+                    entities={rejectedEntities}
+                    onToggle={() => toggleOutcomeSection('rejected')}
+                    renderEntityRow={renderEntityRow}
+                    title="Rejected"
+                  />
+                  <OpportunitySection
+                    collapsed={collapsedOutcomeSections.offer}
+                    count={offerEntities.length}
+                    entities={offerEntities}
+                    onToggle={() => toggleOutcomeSection('offer')}
+                    renderEntityRow={renderEntityRow}
+                    title="Offer"
+                  />
+                </>
+              ) : null}
+            </>
+          ) : <EmptyState title="No saved sessions" body="Save a session to build history." />}
         </div>
       </div>
+      <div
+        aria-label="Resize opportunity list"
+        aria-orientation="vertical"
+        className="timeline-rail-resizer"
+        onKeyDown={handleRailResizeKeyDown}
+        onPointerDown={handleRailResizePointerDown}
+        role="separator"
+        tabIndex={0}
+      />
 
       <div className="timeline-main">
         <div className="timeline-title">
@@ -4486,6 +4839,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
               <p>{sessions.length} saved sessions</p>
               {mode === 'interview' && selected ? <OutcomeBadge outcome={selected.outcome} /> : null}
             </div>
+            {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
           </div>
           {selected && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

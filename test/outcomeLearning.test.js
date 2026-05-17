@@ -7,7 +7,8 @@ const test = require('node:test');
 const { createSessionManager } = require('../src/sessionManager');
 const {
   buildOutcomeCalibrationExamples,
-  formatOutcomeCalibrationExamples
+  formatOutcomeCalibrationExamples,
+  summarizeOutcomeCalibrationExamples
 } = require('../src/outcomeLearning');
 
 function addSession(manager, entity, title, transcriptText, rating = 3) {
@@ -106,4 +107,20 @@ test('outcome calibration examples keep a capped mix of rejected and positive ou
   assert.match(promptText, /Real outcome calibration examples/);
   assert.match(promptText, /Outcome:/);
   assert.match(promptText, /Transcript evidence:/);
+});
+
+test('outcome calibration summary counts rejected and positive examples', () => {
+  const summary = summarizeOutcomeCalibrationExamples([
+    { outcome: 'rejected' },
+    { outcome: 'advanced' },
+    { outcome: 'offer' }
+  ]);
+
+  assert.deepEqual(summary, {
+    total: 3,
+    rejected: 1,
+    advanced: 1,
+    offer: 1,
+    positive: 2
+  });
 });
