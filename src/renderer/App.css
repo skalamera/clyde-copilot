@@ -1772,6 +1772,7 @@ h1 {
   font-size: 0.78rem;
   line-height: 1.35;
   margin-top: 10px;
+  margin-bottom: 12px;
   background: rgba(142, 68, 255, 0.1);
   border: 1px solid rgba(142, 68, 255, 0.4);
   padding: 4px 12px;
@@ -1780,6 +1781,8 @@ h1 {
   align-items: center;
   gap: 6px;
   font-weight: 500;
+  white-space: nowrap;
+  width: fit-content;
 }
 
 .calibration-note-icon {
