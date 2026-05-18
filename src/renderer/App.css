@@ -1060,6 +1060,7 @@ h1 {
   gap: 10px;
   scrollbar-color: rgba(180, 190, 205, 0.62) transparent;
   scrollbar-width: thin;
+  padding-bottom: 20px;
 }
 
 .assistant-pane-active .scroll-area:hover {
@@ -1085,43 +1086,19 @@ h1 {
 }
 
 .assistant-pane-active .assistant-card {
-  background: rgba(31, 38, 48, 0.88);
-  border-color: rgba(255, 255, 255, 0.18);
-  border-left-color: rgba(79, 231, 255, 0.78);
+  background: rgba(31, 38, 48, var(--active-capture-opacity, 0.88));
+  border-color: rgba(255, 255, 255, calc(var(--active-capture-opacity, 0.88) * 0.2));
+  border-left-color: rgba(79, 231, 255, calc(var(--active-capture-opacity, 0.88) * 0.9));
   border-radius: 14px;
   box-shadow: none;
   flex: 0 0 auto;
   min-height: clamp(160px, 24vh, 260px);
-  max-height: clamp(240px, 58vh, 460px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 16px 18px;
-  scrollbar-color: transparent transparent;
-  scrollbar-width: none;
+  margin-bottom: 2px;
 }
 
 .assistant-pane-active .assistant-card:only-child {
   min-height: clamp(320px, 58vh, 560px);
-  max-height: clamp(360px, 70vh, 620px);
-}
-
-.assistant-pane-active .assistant-card:hover {
-  scrollbar-color: rgba(180, 190, 205, 0.62) transparent;
-  scrollbar-width: thin;
-}
-
-.assistant-pane-active .assistant-card::-webkit-scrollbar {
-  width: 0;
-}
-
-.assistant-pane-active .assistant-card:hover::-webkit-scrollbar {
-  width: 7px;
-}
-
-.assistant-pane-active .assistant-card:hover::-webkit-scrollbar-thumb {
-  background: rgba(180, 190, 205, 0.62);
-  border-radius: 999px;
 }
 
 .assistant-pane-active .assistant-card h4 {
@@ -1298,7 +1275,7 @@ h1 {
   border-radius: 14px;
   box-shadow: none;
   max-height: min(220px, 32vh);
-  min-height: 0;
+  min-height: 120px;
   overflow: auto;
   padding: 10px 12px;
   width: min(100%, 420px);
@@ -1465,8 +1442,51 @@ h1 {
   white-space: pre-wrap;
 }
 
+.carousel-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(13, 16, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.carousel-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  min-height: 28px;
+  transition: all 0.2s;
+}
+
+.carousel-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.carousel-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.carousel-dots {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
 .card-stack {
   gap: 12px;
+  padding-bottom: 24px;
 }
 
 .assistant-card {

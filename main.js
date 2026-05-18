@@ -1411,15 +1411,12 @@ function createWindow () {
 
   ipcMain.on('reset-session', () => {
       fullSessionTranscript = [];
-      stopRustAudioEngineCapture();
       closeTranscriptionProcessors();
       transcriptionProcessors = null;
       if (meetingAssistant) {
           meetingAssistant.resetTranscript();
       }
-      audioCaptures = null;
-      stopLiveAudioLevels();
-      sendAudioStatus({ state: 'idle', message: 'Session reset.' });
+      
       if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('session-reset');
       }

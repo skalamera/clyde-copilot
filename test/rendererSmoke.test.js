@@ -139,7 +139,7 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*overflow-y: auto/);
   assert.match(activeSource, /querySelectorAll\('\[data-active-size-content\]'\)/);
   assert.match(activeSource, /--active-card-stack-max-height/);
-  assert.match(activeSource, /Math\.max\(320, window\.innerHeight - rect\.top - 16\)/);
+  assert.match(activeSource, /const maxAllowedWindowHeight = workAreaHeight - 40/);
   assert.match(activeSource, /rect\.top - panelRect\.top \+ visibleStackHeight/);
   assert.match(activeSource, /const contentHeight = Math\.max\(panel\.scrollHeight, contentBounds\.bottom, scrollContentBottom\)/);
   assert.match(activeSource, /showMeters, showTranscript/);
@@ -239,7 +239,7 @@ test('active assistant prepends new response cards above existing cards', () => 
   assert.match(appSource, /return \[\.\.\.nextCards, \.\.\.retainedCards\]\.slice\(0, MAX_ASSISTANT_CARDS\)/);
   assert.match(appBody, /setAssistantCards\(\(current\) => prependAssistantCards\(nextCards, current\)\)/);
   assert.match(appBody, /setAssistantCards\(\(current\) => prependAssistantCards\(\[temporaryCard\], current\)\)/);
-  assert.match(appBody, /setAssistantCards\(\(current\) => prependAssistantCards\(result\.cards, current, temporaryCard\.id\)\)/);
+  assert.match(appBody, /setAssistantCards\(\(current\) => prependAssistantCards\(result\.cards, current, temporaryCard\.id, temporaryCard\.groupId\)\)/);
 });
 
 test('transcript rating chart renders oldest sessions first', () => {
@@ -453,6 +453,19 @@ test('pre-call prep uses compact overview card with session start action', () =>
   assert.match(cssSource, /\.prep-overview-card/);
   assert.match(cssSource, /\.prep-overview-grid/);
   assert.match(cssSource, /\.prep-start-button/);
+});
+
+test('starting capture switches to the live workspace before streaming', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const start = appSource.indexOf('function startCapture()');
+  const end = appSource.indexOf('\n  function stopCapture()', start);
+  const startCaptureSource = appSource.slice(start, end);
+
+  assert.match(startCaptureSource, /setWorkspaceView\('live'\)/);
+  assert.ok(
+    startCaptureSource.indexOf("setWorkspaceView('live')") < startCaptureSource.indexOf('setIsStreaming(true)'),
+    'startCapture should enter the live workspace before streaming so the active capture UI renders immediately'
+  );
 });
 
 test('mode tabs live in the title bar', () => {

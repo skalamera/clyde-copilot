@@ -69,11 +69,18 @@ test('main process restores window bounds on stop-audio-capture', () => {
   assert.match(source, /normalBounds = null/);
 });
 
-test('reset-session keeps active state', () => {
+test('reset-session clears transcript and keeps capture running', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
 
-  assert.match(source, /stopRustAudioEngineCapture\(\)/);
-  assert.match(source, /sendAudioStatus\(\{ state: 'idle', message: 'Session reset\.' \}\)/);
+  // Extract the reset-session block
+  const match = source.match(/ipcMain\.on\('reset-session', \(\) => \{([\s\S]*?)\}\);/);
+  assert.ok(match, 'reset-session handler should exist');
+  
+  const block = match[1];
+  assert.match(block, /fullSessionTranscript = \[\]/);
+  assert.match(block, /closeTranscriptionProcessors\(\)/);
+  assert.doesNotMatch(block, /stopRustAudioEngineCapture\(\)/);
+  assert.doesNotMatch(block, /sendAudioStatus\(\{ state: 'idle', message: 'Session reset\.' \}\)/);
 });
 
 test('active capture window can shrink to rendered content height', () => {

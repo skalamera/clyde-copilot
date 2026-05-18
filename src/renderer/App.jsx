@@ -2671,6 +2671,16 @@ function App() {
     }
   }
 
+  async function updateSettingLive(key, value) {
+    const nextSettings = { ...settings, [key]: value };
+    setSettings(nextSettings);
+    try {
+      await api?.saveSettings?.(nextSettings);
+    } catch (error) {
+      setSettings(settings);
+    }
+  }
+
   async function validateServices() {
     setServiceChecking(true);
     try {
@@ -2696,6 +2706,7 @@ function App() {
     setAppWindowMinimized(false);
     setCapturePaused(false);
     setStatus('Starting audio capture...');
+    setWorkspaceView('live');
     console.log('📢 About to call setIsStreaming(true)');
     setIsStreaming(true);
     console.log('📢 About to call api?.showApp?()');
@@ -2846,6 +2857,7 @@ function App() {
     setAskPending(true);
     const temporaryCard = {
       id: `asking-${Date.now()}`,
+      groupId: `asking-${Date.now()}`,
       type: 'note',
       title: 'Asking Clyde...',
       body: payload.prompt ? 'Reading the screen and recent call context.' : 'Reading the screen and preparing live help.'
@@ -2859,7 +2871,7 @@ function App() {
         setAskPending(false);
         setStatus(`Clyde skipped request: ${result.skipped}.`);
       } else if (Array.isArray(result?.cards) && result.cards.length) {
-        setAssistantCards((current) => prependAssistantCards(result.cards, current, temporaryCard.id));
+        setAssistantCards((current) => prependAssistantCards(result.cards, current, temporaryCard.id, temporaryCard.groupId));
         setAskPending(false);
       } else if (result?.ok) {
         setAssistantCards((current) => current.filter((card) => card.id !== temporaryCard.id));
@@ -3159,6 +3171,8 @@ function App() {
             liveLevels={liveLevels}
             transcript={transcript}
             onToggleCaptureProtection={toggleCaptureProtection}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onUpdateSetting={updateSettingLive}
           />
         ) : (
         <>
@@ -3785,13 +3799,15 @@ function ActiveCaptureView({
   captureProtectionEnabled,
   onToggleCaptureProtection,
   liveLevels,
-  transcript
+  transcript,
+  onOpenSettings,
+  onUpdateSetting
 }) {
   const [prompt, setPrompt] = useState('');
   const [promptType, setPromptType] = useState(null);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
-  const [showMeters, setShowMeters] = useState(true);
+  const [showMeters, setShowMeters] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const panelRef = useRef(null);
   const controlBarDragRef = useRef({ moved: false });
@@ -3831,10 +3847,12 @@ function ActiveCaptureView({
         }, { bottom: 0, left: 0, right: 0 });
         const scrollContentBottom = Array.from(panel.querySelectorAll('[data-active-size-content]')).reduce((bottom, node) => {
           const rect = node.getBoundingClientRect();
-          const availableHeight = Math.max(320, window.innerHeight - rect.top - 16);
+          const workAreaHeight = window.screen?.availHeight || 1080;
+          const maxAllowedWindowHeight = workAreaHeight - 40;
+          const availableHeight = Math.max(320, maxAllowedWindowHeight - rect.top - 20);
           const visibleStackHeight = Math.min(node.scrollHeight, availableHeight);
           node.style.setProperty('--active-card-stack-max-height', `${availableHeight}px`);
-          return Math.max(bottom, rect.top - panelRect.top + visibleStackHeight);
+          return Math.max(bottom, rect.top - panelRect.top + visibleStackHeight + 10);
         }, 0);
         const contentHeight = Math.max(panel.scrollHeight, contentBounds.bottom, scrollContentBottom);
         const contentWidth = Math.max(panel.scrollWidth, contentBounds.right - contentBounds.left);
@@ -4039,7 +4057,7 @@ function ActiveCaptureView({
         </button>
       ) : null}
       {!hidden ? (
-        <div className="active-assistant-panel" ref={panelRef}>
+        <div className="active-assistant-panel" ref={panelRef} style={{ '--active-capture-opacity': (settings.activeCaptureOpacity ?? 88) / 100 }}>
           <div style={{ width: '100%', height: '24px', WebkitAppRegion: 'drag', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'grab', marginBottom: '-4px' }}>
             <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px' }} />
           </div>
@@ -4090,6 +4108,12 @@ function ActiveCaptureView({
                 <path d="M20 17V7"></path>
               </svg>
             </button>
+            <button type="button" className={`active-icon-btn opacity-toggle-btn ${promptType === 'opacity' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'opacity' ? null : 'opacity'); setSourceMenuOpen(false); }} aria-label="Adjust Opacity" title="Adjust Transparency">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{width: '24px', height: '24px'}}>
+                <path d="M12 2v20"></path>
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+              </svg>
+            </button>
             <button type="button" className="active-icon-btn reset-btn" onClick={() => { setPromptType(null); onReset(); }} aria-label="Reset session" title="Reset Session">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '20px', height: '20px'}}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
             </button>
@@ -4110,31 +4134,48 @@ function ActiveCaptureView({
           
           {promptType ? (
             <div style={{ position: 'relative' }}>
-              <form className="active-ask-form" onSubmit={submitAsk}>
-                <input
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  placeholder={promptType === 'camera' ? 'Ask about the screen...' : 'Type a custom prompt...'}
-                  disabled={isAsking}
-                  autoFocus
-                />
-                {promptType === 'custom' && (
-                  <button type="button" className="active-icon-btn active-source-button" onClick={() => setSourceMenuOpen((value) => !value)} aria-label="Sources" title="Sources">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}>
-                      <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                      <polyline points="2 12 12 17 22 12"></polyline>
-                      <polyline points="2 17 12 22 22 17"></polyline>
-                    </svg>
-                  </button>
-                )}
-                <button type="submit" className="active-icon-btn active-send-button" disabled={isAsking || (!prompt.trim() && promptType !== 'camera')} aria-label="Send" title="Send">
-                  {isAsking ? (
-                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin-icon" style={{width: '18px', height: '18px'}}><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
-                  ) : (
-                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              {promptType === 'opacity' ? (
+                <div className="active-ask-form" style={{ gridTemplateColumns: '1fr', padding: '10px 14px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: 'var(--text)', width: '100%', cursor: 'pointer' }}>
+                    <span style={{ whiteSpace: 'nowrap' }}>Card Opacity</span>
+                    <input
+                      type="range"
+                      min="20"
+                      max="100"
+                      step="1"
+                      style={{ flex: 1, margin: 0, padding: 0 }}
+                      value={settings.activeCaptureOpacity ?? 88}
+                      onChange={(e) => onUpdateSetting('activeCaptureOpacity', Number(e.target.value))}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <form className="active-ask-form" onSubmit={submitAsk}>
+                  <input
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder={promptType === 'camera' ? 'Ask about the screen...' : 'Type a custom prompt...'}
+                    disabled={isAsking}
+                    autoFocus
+                  />
+                  {promptType === 'custom' && (
+                    <button type="button" className="active-icon-btn active-source-button" onClick={() => setSourceMenuOpen((value) => !value)} aria-label="Sources" title="Sources">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}>
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                      </svg>
+                    </button>
                   )}
-                </button>
-              </form>
+                  <button type="submit" className="active-icon-btn active-send-button" disabled={isAsking || (!prompt.trim() && promptType !== 'camera')} aria-label="Send" title="Send">
+                    {isAsking ? (
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin-icon" style={{width: '18px', height: '18px'}}><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+                    ) : (
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    )}
+                  </button>
+                </form>
+              )}
             </div>
           ) : null}
           {showTranscript ? <ActiveTranscriptPanel transcript={transcript} /> : null}
@@ -4246,7 +4287,37 @@ function Transcript({ transcript }) {
 
 function AssistantCards({ cards, variant = 'default', onDismissCard }) {
   const active = variant === 'active';
-  const identifiedQuestion = cards.find(c => c.question)?.question;
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  const groups = useMemo(() => {
+    const res = [];
+    let currentGroup = null;
+    for (const card of cards) {
+      const gKey = card.groupId || card.question || card.id;
+      if (!currentGroup) {
+        currentGroup = { key: gKey, cards: [card], question: card.question };
+      } else if (currentGroup.key === gKey) {
+        currentGroup.cards.push(card);
+        if (card.question && !currentGroup.question) {
+          currentGroup.question = card.question;
+        }
+      } else {
+        res.push(currentGroup);
+        currentGroup = { key: gKey, cards: [card], question: card.question };
+      }
+    }
+    if (currentGroup) res.push(currentGroup);
+    return res;
+  }, [cards]);
+
+  const latestGroupKey = groups[0]?.key;
+  useEffect(() => {
+    setSlideIndex(0);
+  }, [latestGroupKey]);
+
+  const currentGroup = groups[slideIndex];
+  const displayCards = currentGroup?.cards || [];
+  const identifiedQuestion = currentGroup?.question;
 
   return (
     <div className={active ? 'assistant-pane assistant-pane-active' : 'assistant-pane'}>
@@ -4254,13 +4325,42 @@ function AssistantCards({ cards, variant = 'default', onDismissCard }) {
         <h3>Live assistant</h3>
         <span>{cards.length} cards</span>
       </div>}
+      
+      {groups.length > 1 && (
+        <div className="carousel-nav">
+          <button 
+            type="button" 
+            className="carousel-btn"
+            onClick={() => setSlideIndex(prev => Math.min(groups.length - 1, prev + 1))}
+            disabled={slideIndex >= groups.length - 1}
+            aria-label="Previous answer"
+            title="Older answer"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
+          </button>
+          <span className="carousel-dots">
+            {slideIndex === 0 ? 'Latest answer' : `Answer ${groups.length - slideIndex} of ${groups.length}`}
+          </span>
+          <button 
+            type="button" 
+            className="carousel-btn"
+            onClick={() => setSlideIndex(prev => Math.max(0, prev - 1))}
+            disabled={slideIndex === 0}
+            aria-label="Next answer"
+            title="Newer answer"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
+        </div>
+      )}
+
       <div className="scroll-area card-stack" data-active-size-content={active ? 'assistant-cards' : undefined}>
         {identifiedQuestion ? (
           <div className="card-identified-question">
             <strong>Question:</strong> {identifiedQuestion}
           </div>
         ) : null}
-        {cards.length ? cards.map((card, index) => {
+        {displayCards.length ? displayCards.map((card, index) => {
           const cardLabel = labelForCard(card.type);
           const cardTitle = String(card.title || '').trim();
           const showCardTitle = cardTitle && cardTitle.toLowerCase() !== cardLabel.toLowerCase();
@@ -5353,8 +5453,9 @@ function assistantCardKey(card = {}) {
   ].join('::');
 }
 
-function prependAssistantCards(cards = [], currentCards = [], replaceCardId = '') {
-  const nextCards = cards.map(normalizeCardForRender);
+function prependAssistantCards(cards = [], currentCards = [], replaceCardId = '', explicitGroupId = '') {
+  const gId = explicitGroupId || `g-${Date.now()}`;
+  const nextCards = cards.map(c => ({ ...normalizeCardForRender(c), groupId: c.groupId || gId }));
   const seenCards = new Set(nextCards.map(assistantCardKey));
   const retainedCards = currentCards
     .filter((card) => card.id !== replaceCardId)
