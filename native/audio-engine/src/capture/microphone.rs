@@ -28,7 +28,9 @@ pub fn spawn(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         if let Err(error) = run(microphone_device_id, stop, paused, event_tx.clone()) {
-            let _ = event_tx.send(EngineEvent::error(format!("Microphone capture failed: {error}")));
+            let _ = event_tx.send(EngineEvent::error(format!(
+                "Microphone capture failed: {error}"
+            )));
         }
     })
 }
@@ -46,7 +48,9 @@ fn run(
     let default_name = default_device.name().unwrap_or_default();
     let device = select_by_name(host.input_devices()?, &microphone_device_id, &default_name)
         .unwrap_or(default_device);
-    let device_name = device.name().unwrap_or_else(|_| "default microphone".to_string());
+    let device_name = device
+        .name()
+        .unwrap_or_else(|_| "default microphone".to_string());
     let supported_config = device.default_input_config()?;
     let sample_format = supported_config.sample_format();
     let stream_config: cpal::StreamConfig = supported_config.clone().into();
@@ -54,7 +58,9 @@ fn run(
     let channels = stream_config.channels as usize;
     let err_tx = event_tx.clone();
     let err_fn = move |error| {
-        let _ = err_tx.send(EngineEvent::error(format!("Microphone stream error: {error}")));
+        let _ = err_tx.send(EngineEvent::error(format!(
+            "Microphone stream error: {error}"
+        )));
     };
 
     let _ = event_tx.send(EngineEvent::status(

@@ -171,6 +171,7 @@ function saveSettings(newSettings) {
         meetingAssistant = createMeetingAssistant({
             settings: newSettings,
             intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
+            utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 700),
             maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
             maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
             timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
@@ -646,6 +647,7 @@ function getRustAudioEngineSidecar() {
 
     audioEngineSidecar = createAudioEngineSidecar({
         appPath: __dirname,
+        isPackaged: app.isPackaged,
         logger: console,
         onAudioChunk: async (event) => {
             try {
@@ -777,7 +779,7 @@ function checkRustAudioEngineHealth(settings = loadSettings()) {
         return;
     }
 
-    const enginePath = resolveAudioEnginePath({ appPath: __dirname });
+    const enginePath = resolveAudioEnginePath({ appPath: __dirname, isPackaged: app.isPackaged });
     const enginePresent = fs.existsSync(enginePath);
     const mic = settings.microphoneDeviceId || 'Default microphone';
     const systemAudio = settings.systemAudioDeviceId || 'Default system audio';
@@ -965,6 +967,7 @@ function getMeetingAssistant() {
     meetingAssistant = createMeetingAssistant({
         settings,
         intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
+        utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 700),
         maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
         maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
         timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),

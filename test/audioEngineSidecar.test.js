@@ -148,8 +148,20 @@ test('audio engine path resolves packaged resources before development builds', 
   const resolved = resolveAudioEnginePath({
     resourcesPath: 'C:\\App\\resources',
     appPath: 'C:\\Repo',
+    isPackaged: true,
     pathExists
   });
 
   assert.equal(resolved, 'C:\\App\\resources\\clyde-audio-engine.exe');
+});
+
+test('audio engine path reports development build path while running Electron dev mode', () => {
+  const resolved = resolveAudioEnginePath({
+    resourcesPath: 'C:\\Repo\\node_modules\\electron\\dist\\resources',
+    appPath: 'C:\\Repo',
+    isPackaged: false,
+    pathExists: () => false
+  });
+
+  assert.equal(resolved, 'C:\\Repo\\native\\audio-engine\\target\\release\\clyde-audio-engine.exe');
 });

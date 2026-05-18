@@ -6,6 +6,7 @@ const DEFAULT_INTERVAL_MS = 30000;
 const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_TOKENS = 800;
+const DEFAULT_UTTERANCE_SETTLE_MS = 0;
 
 function createMeetingAssistant(options = {}) {
   const settings = options.settings || {};
@@ -22,11 +23,17 @@ function createMeetingAssistant(options = {}) {
   const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const utteranceSettleMs = Math.max(0, Number(options.utteranceSettleMs ?? DEFAULT_UTTERANCE_SETTLE_MS) || 0);
 
   let transcriptTurns = [];
   let recentHistory = [];
+  let intentTurns = [];
+  let pendingIntentUtterance = null;
+  let intentSettleTimer = null;
+  let nextIntentTurnId = 1;
   let lastRunAt = 0;
   let inFlight = false;
+  let rerunAfterInFlight = false;
   let lastDigest = '';
   let currentContext = {};
   let newlyAccumulatedTurns = 0;
@@ -70,7 +77,14 @@ function createMeetingAssistant(options = {}) {
     recentHistory = recentHistory.slice(-10); // Keep the absolute latest 10 turns for manual suggestion history
 
     if (isUserSpeaker(turn.speaker)) {
+      clearPendingIntentUtterance();
+      appendIntentTurn(speaker, text);
       return { ok: true, skipped: 'user-speaker' };
+    }
+
+    const intentReady = queueInterviewerIntentUtterance(speaker, text);
+    if (!intentReady) {
+      return { ok: true, skipped: 'waiting-for-utterance' };
     }
 
     // Only try to answer if we have collected at least 2 distinct speech turns 
@@ -108,6 +122,10 @@ function createMeetingAssistant(options = {}) {
     }
 
     if (inFlight) {
+      if (!force && !isSuggestionRequest) {
+        rerunAfterInFlight = true;
+      }
+
       return { ok: true, skipped: 'in-flight' };
     }
 
@@ -119,7 +137,8 @@ function createMeetingAssistant(options = {}) {
 
     const digest = isSuggestionRequest
       ? recentHistory.slice(-6).map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
-      : transcriptTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
+      : intentTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
+    const digestMaxIntentTurnId = getMaxIntentTurnId(intentTurns);
 
     // Only check for unchanged if it's NOT a forced suggestion request
     if (!isSuggestionRequest && (!digest || digest === lastDigest)) {
@@ -285,6 +304,7 @@ function createMeetingAssistant(options = {}) {
         // CLEAR the transcript buffer of the current digest so we don't accidentally re-answer these old questions!
         // Because of smart merging, we can't just check text strings. We just empty the array.
         transcriptTurns = [];
+        intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
         lastDigest = '';
         newlyAccumulatedTurns = 0;
         
@@ -311,6 +331,15 @@ function createMeetingAssistant(options = {}) {
       return { ok: false, message, error };
     } finally {
       inFlight = false;
+
+      if (rerunAfterInFlight) {
+        rerunAfterInFlight = false;
+        setTimeout(() => {
+          maybeRun(true).catch((error) => {
+            logger.error('Queued meeting assistant run failed:', describeAssistantError(error));
+          });
+        }, 0);
+      }
     }
   }
 
@@ -320,6 +349,9 @@ function createMeetingAssistant(options = {}) {
 
   function resetTranscript() {
     transcriptTurns = [];
+    intentTurns = [];
+    clearPendingIntentUtterance();
+    rerunAfterInFlight = false;
     lastRunAt = 0;
     lastDigest = '';
     newlyAccumulatedTurns = 0;
@@ -333,6 +365,108 @@ function createMeetingAssistant(options = {}) {
     resetTranscript,
     getTranscriptTurns: () => [...transcriptTurns]
   };
+
+  function queueInterviewerIntentUtterance(speaker, text) {
+    if (utteranceSettleMs <= 0) {
+      appendIntentTurn(speaker, text);
+      return true;
+    }
+
+    if (pendingIntentUtterance && pendingIntentUtterance.speaker !== speaker) {
+      commitPendingIntentUtterance();
+      scheduleSettledIntentRun();
+      pendingIntentUtterance = createPendingIntentUtterance(speaker, text);
+      restartIntentSettleTimer();
+      return false;
+    }
+
+    if (
+      pendingIntentUtterance
+      && shouldStartNewIntentUtterance(pendingIntentUtterance.text, text)
+    ) {
+      commitPendingIntentUtterance();
+      scheduleSettledIntentRun();
+      pendingIntentUtterance = createPendingIntentUtterance(speaker, text);
+      restartIntentSettleTimer();
+      return false;
+    }
+
+    if (pendingIntentUtterance) {
+      pendingIntentUtterance.text = mergeUtteranceText(pendingIntentUtterance.text, text);
+    } else {
+      pendingIntentUtterance = createPendingIntentUtterance(speaker, text);
+    }
+
+    restartIntentSettleTimer();
+    return false;
+  }
+
+  function appendIntentTurn(speaker, text) {
+    const clean = cleanText(text);
+
+    if (!clean) {
+      return false;
+    }
+
+    intentTurns.push({
+      id: nextIntentTurnId,
+      speaker,
+      text: clean
+    });
+    nextIntentTurnId++;
+    intentTurns = intentTurns.slice(-Math.max(24, maxTurns * 3));
+    return true;
+  }
+
+  function createPendingIntentUtterance(speaker, text) {
+    return {
+      speaker,
+      text: cleanText(text)
+    };
+  }
+
+  function commitPendingIntentUtterance() {
+    if (!pendingIntentUtterance) {
+      return false;
+    }
+
+    const committed = appendIntentTurn(pendingIntentUtterance.speaker, pendingIntentUtterance.text);
+    pendingIntentUtterance = null;
+    return committed;
+  }
+
+  function clearPendingIntentUtterance() {
+    if (intentSettleTimer) {
+      clearTimeout(intentSettleTimer);
+      intentSettleTimer = null;
+    }
+
+    pendingIntentUtterance = null;
+  }
+
+  function restartIntentSettleTimer() {
+    if (intentSettleTimer) {
+      clearTimeout(intentSettleTimer);
+    }
+
+    intentSettleTimer = setTimeout(() => {
+      intentSettleTimer = null;
+
+      if (commitPendingIntentUtterance()) {
+        maybeRun().catch((error) => {
+          logger.error('Settled meeting assistant run failed:', describeAssistantError(error));
+        });
+      }
+    }, utteranceSettleMs);
+  }
+
+  function scheduleSettledIntentRun() {
+    setTimeout(() => {
+      maybeRun().catch((error) => {
+        logger.error('Settled meeting assistant run failed:', describeAssistantError(error));
+      });
+    }, 0);
+  }
 }
 
 function extractAssistantText(data) {
@@ -361,6 +495,10 @@ function extractAssistantText(data) {
   }
 
   return content;
+}
+
+function getMaxIntentTurnId(turns = []) {
+  return turns.reduce((maxId, turn) => Math.max(maxId, Number(turn.id) || 0), 0);
 }
 
 function isUserSpeaker(speaker) {
@@ -722,6 +860,52 @@ function toArray(value) {
 
 function cleanText(value) {
   return String(value || '').trim();
+}
+
+function shouldStartNewIntentUtterance(currentText, nextText) {
+  const current = normalizeUtteranceText(currentText);
+  const next = normalizeUtteranceText(nextText);
+
+  return /[?.!]\s*$/.test(current) && /^(can|could|would|what|why|how|tell|walk|if|where|when|do|did|are|is|was|were)\b/i.test(next);
+}
+
+function mergeUtteranceText(left, right) {
+  const cleanLeft = normalizeUtteranceText(left);
+  const cleanRight = normalizeUtteranceText(right);
+
+  if (!cleanLeft) {
+    return cleanRight;
+  }
+
+  if (!cleanRight) {
+    return cleanLeft;
+  }
+
+  const lowerLeft = cleanLeft.toLowerCase();
+  const lowerRight = cleanRight.toLowerCase();
+
+  if (lowerRight === lowerLeft || lowerRight.startsWith(`${lowerLeft} `)) {
+    return cleanRight;
+  }
+
+  const leftWords = cleanLeft.split(' ');
+  const rightWords = cleanRight.split(' ');
+  const maxOverlap = Math.min(8, leftWords.length, rightWords.length);
+
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    const leftTail = leftWords.slice(-size).join(' ').toLowerCase();
+    const rightHead = rightWords.slice(0, size).join(' ').toLowerCase();
+
+    if (leftTail === rightHead) {
+      return [...leftWords, ...rightWords.slice(size)].join(' ');
+    }
+  }
+
+  return `${cleanLeft} ${cleanRight}`;
+}
+
+function normalizeUtteranceText(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
 }
 
 function describeAssistantError(error) {

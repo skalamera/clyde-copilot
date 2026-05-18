@@ -1,8 +1,4 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc::Sender,
-    Arc,
-};
+use std::sync::{atomic::AtomicBool, mpsc::Sender, Arc};
 use std::thread;
 
 use crate::protocol::EngineEvent;
@@ -17,8 +13,12 @@ pub fn spawn(
     event_tx: Sender<EngineEvent>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        if let Err(error) = windows_loopback::run(system_audio_device_id, stop, paused, event_tx.clone()) {
-            let _ = event_tx.send(EngineEvent::error(format!("System audio capture failed: {error}")));
+        if let Err(error) =
+            windows_loopback::run(system_audio_device_id, stop, paused, event_tx.clone())
+        {
+            let _ = event_tx.send(EngineEvent::error(format!(
+                "System audio capture failed: {error}"
+            )));
         }
     })
 }
@@ -48,13 +48,12 @@ mod windows_loopback {
     use std::thread;
     use std::time::Duration;
 
-    use anyhow::Context;
     use base64::{engine::general_purpose, Engine as _};
-    use windows::core::{Interface, PCWSTR};
+    use windows::core::PCWSTR;
     use windows::Win32::Media::Audio::{
         eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
-        AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
-        DEVICE_STATE_ACTIVE, MMDeviceEnumerator, WAVEFORMATEX,
+        MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
+        AUDCLNT_STREAMFLAGS_LOOPBACK, DEVICE_STATE_ACTIVE,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
@@ -81,7 +80,7 @@ mod windows_loopback {
         event_tx: Sender<EngineEvent>,
     ) -> anyhow::Result<()> {
         unsafe {
-            CoInitializeEx(None, COINIT_MULTITHREADED)?;
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
         }
 
         let result = unsafe { run_inner(system_audio_device_id, stop, paused, event_tx) };
@@ -254,9 +253,7 @@ mod windows_loopback {
     }
 
     #[allow(dead_code)]
-    unsafe fn _enumerate_render_devices(
-        enumerator: &IMMDeviceEnumerator,
-    ) -> anyhow::Result<usize> {
+    unsafe fn _enumerate_render_devices(enumerator: &IMMDeviceEnumerator) -> anyhow::Result<usize> {
         let collection = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
         Ok(collection.GetCount()? as usize)
     }

@@ -193,7 +193,7 @@ test('realtime provider opens OpenAI websocket and appends 24 kHz PCM audio', as
   const result = await processor.processAudioChunk(createPcm16(4410));
   assert.equal(result.skipped, 'connecting');
   assert.equal(sockets.length, 1);
-    assert.equal(sockets[0].url, 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview');
+  assert.equal(sockets[0].url, 'wss://api.openai.com/v1/realtime?intent=transcription');
   assert.equal(sockets[0].options.headers.Authorization, 'Bearer test-key');
 
   sockets[0].open();
@@ -202,8 +202,47 @@ test('realtime provider opens OpenAI websocket and appends 24 kHz PCM audio', as
   assert.equal(sockets[0].sent[0].session.type, 'transcription');
   assert.equal(sockets[0].sent[0].session.audio.input.format.rate, 24000);
   assert.equal(sockets[0].sent[0].session.audio.input.transcription.model, 'gpt-realtime-whisper');
+  assert.equal(sockets[0].sent[0].session.audio.input.transcription.language, 'en');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(sockets[0].sent[0].session.audio.input.transcription, 'prompt'),
+    false
+  );
+  assert.equal(sockets[0].sent[0].session.audio.input.turn_detection, null);
+  assert.equal(sockets[0].sent.length, 1);
+
+  sockets[0].receive({ type: 'session.updated' });
+
   assert.equal(sockets[0].sent[1].type, 'input_audio_buffer.append');
   assert.equal(Buffer.from(sockets[0].sent[1].audio, 'base64').length, 4800);
+});
+
+test('realtime provider manually commits buffered speech after trailing silence', async () => {
+  const { FakeWebSocket, sockets } = createRealtimeWebSocketHarness();
+  const processor = createTranscriptionProcessor({
+    settings: {
+      transcriptionProvider: 'openai-realtime-whisper',
+      transcriptionApiKey: 'test-key'
+    },
+    WebSocketImpl: FakeWebSocket,
+    sampleRate: 24000,
+    sourceId: 'mic',
+    minRms: 100,
+    sendTranscript: () => {},
+    logger: { log() {}, warn() {}, error() {} }
+  });
+
+  await processor.processAudioChunk(createPcm16(4800, 1200));
+  sockets[0].open();
+  sockets[0].receive({ type: 'session.updated' });
+
+  for (let index = 0; index < 4; index += 1) {
+    await processor.processAudioChunk(createPcm16(4800, 1));
+  }
+
+  assert.equal(
+    sockets[0].sent.some((event) => event.type === 'input_audio_buffer.commit'),
+    true
+  );
 });
 
 test('realtime provider streams partial deltas and final transcripts by item id', async () => {

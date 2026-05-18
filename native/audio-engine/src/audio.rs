@@ -53,7 +53,8 @@ pub fn resample_i16_linear(input: &[i16], input_rate: u32, output_rate: u32) -> 
         return input.to_vec();
     }
 
-    let output_len = ((input.len() as u64 * output_rate as u64) / input_rate as u64).max(1) as usize;
+    let output_len =
+        ((input.len() as u64 * output_rate as u64) / input_rate as u64).max(1) as usize;
     let ratio = input_rate as f64 / output_rate as f64;
     let mut output = Vec::with_capacity(output_len);
 

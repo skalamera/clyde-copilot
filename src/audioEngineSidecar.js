@@ -26,11 +26,15 @@ function resolveAudioEnginePath(options = {}) {
   const resourcesPath = options.resourcesPath || process.resourcesPath;
   const appPath = options.appPath || path.join(__dirname, '..');
   const pathExists = options.pathExists || fs.existsSync;
-  const candidates = [
-    resourcesPath ? path.join(resourcesPath, AUDIO_ENGINE_EXECUTABLE) : '',
+  const isPackaged = Boolean(options.isPackaged);
+  const resourceCandidate = resourcesPath ? path.join(resourcesPath, AUDIO_ENGINE_EXECUTABLE) : '';
+  const devCandidates = [
     path.join(appPath, 'native', 'audio-engine', 'target', 'release', AUDIO_ENGINE_EXECUTABLE),
     path.join(appPath, 'native', 'audio-engine', 'target', 'debug', AUDIO_ENGINE_EXECUTABLE)
-  ].filter(Boolean);
+  ];
+  const candidates = isPackaged
+    ? [resourceCandidate, ...devCandidates].filter(Boolean)
+    : [...devCandidates, resourceCandidate].filter(Boolean);
 
   return candidates.find((candidate) => pathExists(candidate)) || candidates[0] || '';
 }

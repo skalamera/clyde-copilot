@@ -59,12 +59,11 @@ where
     let requested = requested_id.trim();
     let fallback = default_name.trim();
 
-    devices
-        .into_iter()
-        .find(|device| {
-            let name = device.name().unwrap_or_default();
-            (!requested.is_empty() && name == requested) || (requested.is_empty() && !fallback.is_empty() && name == fallback)
-        })
+    devices.into_iter().find(|device| {
+        let name = device.name().unwrap_or_default();
+        (!requested.is_empty() && name == requested)
+            || (requested.is_empty() && !fallback.is_empty() && name == fallback)
+    })
 }
 
 #[cfg(test)]

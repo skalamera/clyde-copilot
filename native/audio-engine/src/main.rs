@@ -40,7 +40,9 @@ fn main() -> anyhow::Result<()> {
         let line = match line {
             Ok(line) => line,
             Err(error) => {
-                let _ = event_tx.send(EngineEvent::error(format!("Failed to read command: {error}")));
+                let _ = event_tx.send(EngineEvent::error(format!(
+                    "Failed to read command: {error}"
+                )));
                 continue;
             }
         };
@@ -83,12 +85,16 @@ fn main() -> anyhow::Result<()> {
                     system_audio_device_id,
                     event_tx.clone(),
                 ));
-                let _ = event_tx.send(EngineEvent::status("capturing", "Rust audio engine capture started."));
+                let _ = event_tx.send(EngineEvent::status(
+                    "capturing",
+                    "Rust audio engine capture started.",
+                ));
             }
             EngineCommand::Pause => {
                 if let Some(session) = capture_session.as_ref() {
                     session.pause();
-                    let _ = event_tx.send(EngineEvent::status("paused", "Rust audio engine paused."));
+                    let _ =
+                        event_tx.send(EngineEvent::status("paused", "Rust audio engine paused."));
                 }
             }
             EngineCommand::Resume => {

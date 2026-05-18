@@ -10,6 +10,20 @@ const {
   parseAssistantCards
 } = require('../src/meetingAssistant');
 
+async function waitFor(predicate, timeoutMs = 500) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.fail('Timed out waiting for condition.');
+}
+
 test('skips LM Studio calls until configured', async () => {
   const assistant = createMeetingAssistant({
     settings: { llmProvider: 'local', llmModel: '' }
@@ -84,6 +98,329 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
   assert.equal(updates[0].cards[0].type, 'answer');
   assert.equal(updates[0].cards[0].question, 'Why?');
   assert.deepEqual(updates[0].cards[0].bullets, ['A']);
+});
+
+test('answers fragmented consecutive interviewer questions separately', async () => {
+  const originalGeminiApiKey = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+
+  const requests = [];
+
+  try {
+    const assistant = createMeetingAssistant({
+      settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+      },
+      axiosClient: {
+        post: async (url, data) => {
+          requests.push({ url, data });
+          return {
+            data: {
+              choices: [{
+                message: { content: '{"answers": [{"question":"Answer", "bullets": ["A"]}]}' }
+              }]
+            }
+          };
+        }
+      },
+      intervalMs: 0
+    });
+
+    await assistant.addTranscript({ speaker: 'System Audio', text: 'If' });
+    await assistant.addTranscript({ speaker: 'System Audio', text: 'If you were to get the job, what would your 30' });
+    await assistant.addTranscript({ speaker: 'System Audio', text: 'sixty ninety day plan look like?' });
+    await assistant.addTranscript({ speaker: 'System Audio', text: 'Why do you think you would be a good fit for this particular' });
+    await assistant.addTranscript({ speaker: 'System Audio', text: 'particular role.' });
+    await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you tell me about the My Career Max project?' });
+
+    const targetPrompts = requests.map((request) => request.data.messages[0].content);
+
+    assert.equal(requests.length, 3);
+    assert.match(targetPrompts[0], /The interviewer just asked this question: "If you were to get the job, what would your 30 sixty ninety day plan look like\?"/);
+    assert.match(targetPrompts[1], /The interviewer just asked this question: "Why do you think you would be a good fit for this particular role\."/);
+    assert.match(targetPrompts[2], /The interviewer just asked this question: "Can you tell me about the My Career Max project\?"/);
+    assert.doesNotMatch(targetPrompts[2], /30 sixty ninety day plan.*good fit/s);
+  } finally {
+    if (originalGeminiApiKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = originalGeminiApiKey;
+    }
+  }
+});
+
+test('reruns intent detection when a final question fragment arrives during an in-flight check', async () => {
+  const meetingAssistantPath = require.resolve('../src/meetingAssistant');
+  const pineconeClientPath = require.resolve('../src/pineconeClient');
+  const originalMeetingAssistantCache = require.cache[meetingAssistantPath];
+  const originalPineconeClientCache = require.cache[pineconeClientPath];
+
+  let resolveFirstIntent;
+  let firstIntentStarted;
+  const firstIntentStartedPromise = new Promise((resolve) => {
+    firstIntentStarted = resolve;
+  });
+
+  try {
+    delete require.cache[meetingAssistantPath];
+    require.cache[pineconeClientPath] = {
+      id: pineconeClientPath,
+      filename: pineconeClientPath,
+      loaded: true,
+      exports: {
+        detectResumeQuestion: async (transcript) => {
+          if (!resolveFirstIntent) {
+            firstIntentStarted();
+            await new Promise((resolve) => {
+              resolveFirstIntent = resolve;
+            });
+            return null;
+          }
+
+          return transcript.includes('sixty ninety day plan look like?')
+            ? 'If you were to get the job, what would your 30 sixty ninety day plan look like?'
+            : null;
+        },
+        searchResumeVectors: async () => []
+      }
+    };
+
+    const { createMeetingAssistant: createAssistantWithFakeIntent } = require('../src/meetingAssistant');
+    const requests = [];
+    const assistant = createAssistantWithFakeIntent({
+      settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+      },
+      axiosClient: {
+        post: async (url, data) => {
+          requests.push({ url, data });
+          return {
+            data: {
+              choices: [{
+                message: { content: '{"answers": [{"question":"Answer", "bullets": ["A"]}]}' }
+              }]
+            }
+          };
+        }
+      },
+      intervalMs: 0
+    });
+
+    const firstRun = assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'If you were to get the job, what would your 30'
+    });
+
+    await firstIntentStartedPromise;
+
+    const finalFragment = await assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'sixty ninety day plan look like?'
+    });
+
+    assert.equal(finalFragment.skipped, 'in-flight');
+
+    resolveFirstIntent();
+    await firstRun;
+    await waitFor(() => requests.length === 1);
+
+    assert.match(
+      requests[0].data.messages[0].content,
+      /The interviewer just asked this question: "If you were to get the job, what would your 30 sixty ninety day plan look like\?"/
+    );
+  } finally {
+    delete require.cache[meetingAssistantPath];
+
+    if (originalMeetingAssistantCache) {
+      require.cache[meetingAssistantPath] = originalMeetingAssistantCache;
+    }
+
+    if (originalPineconeClientCache) {
+      require.cache[pineconeClientPath] = originalPineconeClientCache;
+    } else {
+      delete require.cache[pineconeClientPath];
+    }
+  }
+});
+
+test('runs intent detection only after interviewer utterance settles', async () => {
+  const meetingAssistantPath = require.resolve('../src/meetingAssistant');
+  const pineconeClientPath = require.resolve('../src/pineconeClient');
+  const originalMeetingAssistantCache = require.cache[meetingAssistantPath];
+  const originalPineconeClientCache = require.cache[pineconeClientPath];
+
+  const detectedTranscripts = [];
+
+  try {
+    delete require.cache[meetingAssistantPath];
+    require.cache[pineconeClientPath] = {
+      id: pineconeClientPath,
+      filename: pineconeClientPath,
+      loaded: true,
+      exports: {
+        detectResumeQuestion: async (transcript) => {
+          detectedTranscripts.push(transcript);
+          return transcript.includes('particular role.')
+            ? 'Why do you think you would be a good fit for this particular role.'
+            : null;
+        },
+        searchResumeVectors: async () => []
+      }
+    };
+
+    const { createMeetingAssistant: createAssistantWithFakeIntent } = require('../src/meetingAssistant');
+    const requests = [];
+    const assistant = createAssistantWithFakeIntent({
+      settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+      },
+      axiosClient: {
+        post: async (url, data) => {
+          requests.push({ url, data });
+          return {
+            data: {
+              choices: [{
+                message: { content: '{"answers": [{"question":"Answer", "bullets": ["A"]}]}' }
+              }]
+            }
+          };
+        }
+      },
+      intervalMs: 0,
+      utteranceSettleMs: 25
+    });
+
+    const firstFragment = await assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'Why do you think you would be a good fit for this particular'
+    });
+    const finalFragment = await assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'particular role.'
+    });
+
+    assert.equal(firstFragment.skipped, 'waiting-for-utterance');
+    assert.equal(finalFragment.skipped, 'waiting-for-utterance');
+    assert.equal(detectedTranscripts.length, 0);
+    assert.equal(requests.length, 0);
+
+    await waitFor(() => requests.length === 1, 1000);
+
+    assert.equal(detectedTranscripts.length, 1);
+    assert.match(
+      detectedTranscripts[0],
+      /System Audio: Why do you think you would be a good fit for this particular role\./
+    );
+    assert.match(
+      requests[0].data.messages[0].content,
+      /The interviewer just asked this question: "Why do you think you would be a good fit for this particular role\."/
+    );
+  } finally {
+    delete require.cache[meetingAssistantPath];
+
+    if (originalMeetingAssistantCache) {
+      require.cache[meetingAssistantPath] = originalMeetingAssistantCache;
+    }
+
+    if (originalPineconeClientCache) {
+      require.cache[pineconeClientPath] = originalPineconeClientCache;
+    } else {
+      delete require.cache[pineconeClientPath];
+    }
+  }
+});
+
+test('keeps settled interviewer questions separate when a new question starts quickly', async () => {
+  const meetingAssistantPath = require.resolve('../src/meetingAssistant');
+  const pineconeClientPath = require.resolve('../src/pineconeClient');
+  const originalMeetingAssistantCache = require.cache[meetingAssistantPath];
+  const originalPineconeClientCache = require.cache[pineconeClientPath];
+
+  try {
+    delete require.cache[meetingAssistantPath];
+    require.cache[pineconeClientPath] = {
+      id: pineconeClientPath,
+      filename: pineconeClientPath,
+      loaded: true,
+      exports: {
+        detectResumeQuestion: async (transcript) => {
+          if (transcript.includes('particular role.')) {
+            return 'Why do you think you would be a good fit for this particular role.';
+          }
+
+          if (transcript.includes('sixty ninety day plan look like?')) {
+            return 'If you were to get the job, what would your 30 sixty ninety day plan look like?';
+          }
+
+          return null;
+        },
+        searchResumeVectors: async () => []
+      }
+    };
+
+    const { createMeetingAssistant: createAssistantWithFakeIntent } = require('../src/meetingAssistant');
+    const requests = [];
+    const assistant = createAssistantWithFakeIntent({
+      settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+      },
+      axiosClient: {
+        post: async (url, data) => {
+          requests.push({ url, data });
+          return {
+            data: {
+              choices: [{
+                message: { content: '{"answers": [{"question":"Answer", "bullets": ["A"]}]}' }
+              }]
+            }
+          };
+        }
+      },
+      intervalMs: 0,
+      utteranceSettleMs: 50
+    });
+
+    await assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'If you were to get the job, what would your 30 sixty ninety day plan look like?'
+    });
+    await assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'Why do you think you would be a good fit for this particular'
+    });
+    await assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'particular role.'
+    });
+
+    await waitFor(() => requests.length === 2, 1000);
+
+    const targetPrompts = requests.map((request) => request.data.messages[0].content);
+    assert.match(targetPrompts[0], /30 sixty ninety day plan look like\?/);
+    assert.doesNotMatch(targetPrompts[0], /good fit/);
+    assert.match(targetPrompts[1], /good fit for this particular role\./);
+    assert.doesNotMatch(targetPrompts[1], /30 sixty ninety day plan/s);
+  } finally {
+    delete require.cache[meetingAssistantPath];
+
+    if (originalMeetingAssistantCache) {
+      require.cache[meetingAssistantPath] = originalMeetingAssistantCache;
+    }
+
+    if (originalPineconeClientCache) {
+      require.cache[pineconeClientPath] = originalPineconeClientCache;
+    } else {
+      delete require.cache[pineconeClientPath];
+    }
+  }
 });
 
 test('manual Ask Clyde request includes prompt and screenshot in assistant call', async () => {

@@ -8,10 +8,12 @@ const DEFAULT_MIN_RMS = 100;
 const DEFAULT_HALLUCINATION_RMS = 350;
 const OPENAI_REALTIME_WHISPER_PROVIDER = 'openai-realtime-whisper';
 const OPENAI_REALTIME_WHISPER_MODEL = 'gpt-realtime-whisper';
-const OPENAI_REALTIME_SESSION_MODEL = 'gpt-4o-realtime-preview';
-const OPENAI_REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${OPENAI_REALTIME_SESSION_MODEL}`;
+const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime?intent=transcription';
 const OPENAI_REALTIME_SAMPLE_RATE = 24000;
 const OPENAI_REALTIME_PENDING_AUDIO_MS = 5000;
+const OPENAI_REALTIME_MIN_COMMIT_AUDIO_MS = 120;
+const OPENAI_REALTIME_SILENCE_COMMIT_MS = 600;
+const OPENAI_REALTIME_MAX_COMMIT_AUDIO_MS = 2500;
 const UNCLEAR_AUDIO_SENTINEL = 'clyde_unclear_audio';
 const UNCLEAR_AUDIO_PROMPT = [
   'Transcribe as natural spoken English.',
@@ -219,6 +221,12 @@ function createRealtimeTranscriptionProcessor(options = {}) {
   let pendingAudioMs = 0;
   let latestRms = 0;
   let currentTurnMaxRms = 0;
+  let lastCommittedTurnMaxRms = 0;
+  let uncommittedAudioMs = 0;
+  let uncommittedSpeechMs = 0;
+  let trailingSilenceMs = 0;
+  let hasUncommittedSpeech = false;
+  let appendedAudioSinceCommitMs = 0;
   const partials = new Map();
 
   function processAudioChunk(chunk) {
@@ -244,11 +252,15 @@ function createRealtimeTranscriptionProcessor(options = {}) {
     }
 
     const pcm24 = resamplePcm16Mono(chunk, sampleRate, OPENAI_REALTIME_SAMPLE_RATE);
-    enqueueAudio(pcm24);
+    const audioDurationMs = getPcm16DurationMs(pcm24, OPENAI_REALTIME_SAMPLE_RATE);
+
+    enqueueAudio(pcm24, audioDurationMs);
+    trackManualCommitState(rms, audioDurationMs);
     ensureSocket();
 
     if (socketReady) {
       flushPendingAudio();
+      maybeCommitPendingAudio();
       return Promise.resolve({ ok: true });
     }
 
@@ -269,11 +281,8 @@ function createRealtimeTranscriptionProcessor(options = {}) {
     });
 
     attachSocketEvent(socket, 'open', () => {
-      socketReady = true;
       lastErrorMessage = '';
       sendSessionUpdate();
-      flushPendingAudio();
-      sendStatus({ state: 'capturing', message: 'OpenAI realtime transcription connected.' });
     });
 
     attachSocketEvent(socket, 'message', handleSocketMessage);
@@ -315,29 +324,64 @@ function createRealtimeTranscriptionProcessor(options = {}) {
               model: OPENAI_REALTIME_WHISPER_MODEL,
               language: 'en'
             },
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500
-            }
+            turn_detection: null
           }
         }
       }
     });
   }
 
-  function enqueueAudio(pcmAudio) {
-    const durationMs = pcmAudio.length
-      ? Math.round((pcmAudio.length / 2) / OPENAI_REALTIME_SAMPLE_RATE * 1000)
-      : 0;
+  function canCommitPendingAudio() {
+    return socketReady
+      && socket
+      && socket.readyState === openReadyState
+      && hasUncommittedSpeech
+      && uncommittedSpeechMs >= OPENAI_REALTIME_MIN_COMMIT_AUDIO_MS
+      && appendedAudioSinceCommitMs >= 100
+      && pendingAudio.length === 0;
+  }
 
+  function shouldCommitPendingAudio(force = false) {
+    return force
+      || trailingSilenceMs >= OPENAI_REALTIME_SILENCE_COMMIT_MS
+      || uncommittedAudioMs >= OPENAI_REALTIME_MAX_COMMIT_AUDIO_MS;
+  }
+
+  function sendCommitEvent() {
+    const sent = sendSocketEvent({ type: 'input_audio_buffer.commit' });
+
+    if (sent) {
+      lastCommittedTurnMaxRms = Math.max(lastCommittedTurnMaxRms, currentTurnMaxRms, latestRms);
+      resetManualCommitState();
+    }
+
+    return sent;
+  }
+
+  function maybeCommitPendingAudio(force = false) {
+    if (!canCommitPendingAudio() || !shouldCommitPendingAudio(force)) {
+      return false;
+    }
+
+    return sendCommitEvent();
+  }
+
+  function resetManualCommitState() {
+    uncommittedAudioMs = 0;
+    uncommittedSpeechMs = 0;
+    trailingSilenceMs = 0;
+    hasUncommittedSpeech = false;
+    appendedAudioSinceCommitMs = 0;
+    currentTurnMaxRms = 0;
+  }
+
+  function enqueueAudio(pcmAudio, durationMs = getPcm16DurationMs(pcmAudio, OPENAI_REALTIME_SAMPLE_RATE)) {
     pendingAudio.push(pcmAudio);
     pendingAudioMs += durationMs;
 
     while (pendingAudio.length > 1 && pendingAudioMs > OPENAI_REALTIME_PENDING_AUDIO_MS) {
       const dropped = pendingAudio.shift();
-      pendingAudioMs -= Math.round((dropped.length / 2) / OPENAI_REALTIME_SAMPLE_RATE * 1000);
+      pendingAudioMs -= getPcm16DurationMs(dropped, OPENAI_REALTIME_SAMPLE_RATE);
     }
   }
 
@@ -347,14 +391,37 @@ function createRealtimeTranscriptionProcessor(options = {}) {
     }
 
     for (const pcmAudio of pendingAudio) {
-      sendSocketEvent({
+      const sent = sendSocketEvent({
         type: 'input_audio_buffer.append',
         audio: pcmAudio.toString('base64')
       });
+
+      if (sent) {
+        appendedAudioSinceCommitMs += getPcm16DurationMs(pcmAudio, OPENAI_REALTIME_SAMPLE_RATE);
+      }
     }
 
     pendingAudio = [];
     pendingAudioMs = 0;
+  }
+
+  function trackManualCommitState(rms, audioDurationMs) {
+    if (!audioDurationMs) {
+      return;
+    }
+
+    uncommittedAudioMs += audioDurationMs;
+
+    if (rms >= minRms) {
+      hasUncommittedSpeech = true;
+      uncommittedSpeechMs += audioDurationMs;
+      trailingSilenceMs = 0;
+      return;
+    }
+
+    if (hasUncommittedSpeech) {
+      trailingSilenceMs += audioDurationMs;
+    }
   }
 
   function sendSocketEvent(event) {
@@ -378,6 +445,11 @@ function createRealtimeTranscriptionProcessor(options = {}) {
       return;
     }
 
+    if (event.type === 'session.updated') {
+      handleSessionUpdated();
+      return;
+    }
+
     if (event.type === 'conversation.item.input_audio_transcription.completed') {
       handleTranscriptCompleted(event);
       return;
@@ -388,6 +460,14 @@ function createRealtimeTranscriptionProcessor(options = {}) {
       logger.error('OpenAI realtime transcription error:', messageText);
       sendStatus({ state: 'warning', message: messageText });
     }
+  }
+
+  function handleSessionUpdated() {
+    socketReady = true;
+    lastErrorMessage = '';
+    flushPendingAudio();
+    maybeCommitPendingAudio();
+    sendStatus({ state: 'capturing', message: 'OpenAI realtime transcription connected.' });
   }
 
   function handleTranscriptDelta(event) {
@@ -415,9 +495,10 @@ function createRealtimeTranscriptionProcessor(options = {}) {
     const itemId = getCompositeRealtimeItemId(sourceId, event.item_id || event.itemId || 'unknown');
     const rawText = event.transcript || partials.get(itemId) || '';
     const text = normalizeTranscriptText(rawText, { speaker });
-    const itemRms = currentTurnMaxRms || latestRms;
+    const itemRms = lastCommittedTurnMaxRms || currentTurnMaxRms || latestRms;
 
     partials.delete(itemId);
+    lastCommittedTurnMaxRms = 0;
     currentTurnMaxRms = 0;
 
     if (!text) {
@@ -447,8 +528,14 @@ function createRealtimeTranscriptionProcessor(options = {}) {
   }
 
   function close() {
+    if (socketReady) {
+      flushPendingAudio();
+      maybeCommitPendingAudio(true);
+    }
+
     pendingAudio = [];
     pendingAudioMs = 0;
+    resetManualCommitState();
     partials.clear();
     socketClosedByClient = true;
 
@@ -666,6 +753,12 @@ function isPotentialUnclearAudioSentinel(text) {
   const sentinel = normalizeFilterText(UNCLEAR_AUDIO_SENTINEL);
 
   return Boolean(normalized) && sentinel.startsWith(normalized);
+}
+
+function getPcm16DurationMs(pcmAudio, sampleRate) {
+  return pcmAudio && pcmAudio.length
+    ? Math.round((pcmAudio.length / 2) / sampleRate * 1000)
+    : 0;
 }
 
 function resamplePcm16Mono(pcmAudio, fromSampleRate = DEFAULT_SAMPLE_RATE, toSampleRate = OPENAI_REALTIME_SAMPLE_RATE) {
