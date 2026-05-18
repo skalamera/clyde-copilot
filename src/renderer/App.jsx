@@ -1390,7 +1390,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
         tabIndex={0}
       />
 
-      <div className="timeline-main" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div className="timeline-main" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
         <div className="timeline-title" style={{ flexShrink: 0 }}>
           <div>
             <h2>{selected?.name ? `${selected.name} Analysis` : 'Select a record'}</h2>
@@ -4834,13 +4834,13 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
 
       <div className="timeline-main">
         <div className="timeline-title">
-          <div>
-            <h2>{selected?.name || 'Select a record'}</h2>
-            <div className="timeline-title-meta">
-              <p>{sessions.length} saved sessions</p>
-              {mode === 'interview' && selected ? <OutcomeBadge outcome={selected.outcome} /> : null}
-            </div>
-              {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
+            <div>
+              <h2>{selected?.name || 'Select a record'}</h2>
+              <div className="timeline-title-meta">
+                <p>{sessions.length} saved sessions</p>
+                {mode === 'interview' && selected ? <OutcomeBadge outcome={selected.outcome} /> : null}
+                {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
+              </div>
             </div>
             {selected && (
               <div className="timeline-title-actions">
