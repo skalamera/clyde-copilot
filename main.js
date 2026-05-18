@@ -47,6 +47,7 @@ let activeCaptureMinimized = false;
 let suppressActiveBoundsSave = false;
 let suppressAppBoundsSave = false;
 let capturePaused = false;
+let audioCaptureRunning = false;
 let audioCaptures;
 let audioLevelCaptures;
 let transcriptionProcessors;
@@ -922,6 +923,8 @@ function sendAssistantUpdate(update) {
         return;
     }
 
+    const cards = Array.isArray(update?.cards) ? update.cards : [];
+    log.info(`Assistant update: ${cards.length} cards`);
     mainWindow.webContents.send('assistant-update', update);
 }
 
@@ -1341,6 +1344,12 @@ function createWindow () {
   ipcMain.on('start-audio-capture', async (event) => {
       log.info('🎤 IPC: start-audio-capture received');
       log.info(`   Window state - Visible: ${mainWindow?.isVisible()}, Destroyed: ${mainWindow?.isDestroyed()}`);
+      if (audioCaptureRunning) {
+          sendAudioStatus({ state: 'capturing', message: 'Audio capture is already running.' });
+          enterActiveCaptureWindow();
+          return;
+      }
+
       fullSessionTranscript = []; // Reset full session transcript on new start
       capturePaused = false;
       getMeetingAssistant(); // ensure initialized
@@ -1352,6 +1361,7 @@ function createWindow () {
 
       if (failed) {
           log.error(`❌ Audio capture failed: ${failed.message}`);
+          audioCaptureRunning = false;
           stopLiveAudioLevels();
           sendAudioStatus({ state: 'error', message: failed.message });
       } else {
@@ -1361,6 +1371,7 @@ function createWindow () {
               : 'Capturing audio.';
           log.info(`✅ Audio capture started: ${message}`);
 
+          audioCaptureRunning = true;
           sendAudioStatus({ state: 'capturing', message });
           enterActiveCaptureWindow();
           updateHealth('capture', { state: 'ready', detail: message });
@@ -1369,6 +1380,7 @@ function createWindow () {
 
   ipcMain.on('stop-audio-capture', () => {
       capturePaused = false;
+      audioCaptureRunning = false;
       if (audioCaptures) {
           stopAudioCaptures();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });

@@ -274,6 +274,11 @@ function createAudioEngineSidecar(options = {}) {
     }
 
     if (event.type === 'error') {
+      if (isSystemAudioCaptureError(event)) {
+        onStatus({ state: 'warning', message: formatSystemAudioCaptureError(event.message) });
+        return;
+      }
+
       const error = new Error(event.message || 'Rust audio engine error.');
       onStatus({ state: 'error', message: error.message });
       onError(error);
@@ -339,11 +344,30 @@ function getSourceForAudioEngineEvent(event = {}) {
   };
 }
 
+function isSystemAudioCaptureError(event = {}) {
+  const sourceId = String(event.sourceId || event.source_id || event.source || '').trim().toLowerCase();
+  const message = String(event.message || '');
+  return sourceId === 'others' || /^System audio capture failed:/i.test(message);
+}
+
+function formatSystemAudioCaptureError(message = '') {
+  const text = String(message || '').trim();
+  if (/0x8889000A/i.test(text)) {
+    return 'System audio unavailable. Windows reported the selected output device is busy or unavailable (0x8889000A). Close apps using exclusive audio, refresh devices, or select another system audio output in Settings.';
+  }
+
+  return text
+    ? `System audio unavailable. ${text}`
+    : 'System audio unavailable.';
+}
+
 module.exports = {
   AUDIO_ENGINE_EXECUTABLE,
   AUDIO_ENGINE_SAMPLE_RATE,
   createAudioEngineSidecar,
+  formatSystemAudioCaptureError,
   getSourceForAudioEngineEvent,
+  isSystemAudioCaptureError,
   normalizeAudioDeviceList,
   resolveAudioEnginePath
 };

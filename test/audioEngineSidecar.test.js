@@ -99,6 +99,28 @@ test('audio engine sidecar routes audio and level events by source', () => {
   assert.equal(audioChunks[0].chunk.toString('base64'), 'AQIDBA==');
 });
 
+test('audio engine sidecar keeps capture active when one source reports an error', () => {
+  const child = createFakeChild();
+  const statuses = [];
+  const errors = [];
+  const manager = createAudioEngineSidecar({
+    enginePath: 'C:\\Clyde\\clyde-audio-engine.exe',
+    spawn: createFakeSpawn(child),
+    logger: nullLogger(),
+    onStatus: (status) => statuses.push(status),
+    onError: (error) => errors.push(error)
+  });
+
+  manager.start();
+  child.stdout.emit('data', Buffer.from('{"type":"status","state":"capturing","message":"Microphone capture started: Default microphone."}\n'));
+  child.stdout.emit('data', Buffer.from('{"type":"error","sourceId":"others","message":"System audio capture failed: 0x8889000A"}\n'));
+
+  assert.equal(statuses[0].state, 'capturing');
+  assert.equal(statuses[1].state, 'warning');
+  assert.match(statuses[1].message, /System audio unavailable/);
+  assert.equal(errors.length, 0);
+});
+
 test('audio engine sidecar start, pause, resume, stop, and shutdown commands use selected devices', () => {
   const child = createFakeChild();
   const manager = createAudioEngineSidecar({

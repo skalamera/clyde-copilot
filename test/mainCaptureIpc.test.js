@@ -19,6 +19,17 @@ test('main process request-suggestion forwards prompt and screenshot options', (
   assert.match(source, /mode: payload && payload\.mode/);
 });
 
+test('main process logs assistant update card counts', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const start = source.indexOf('function sendAssistantUpdate');
+  const end = source.indexOf('\nfunction sendAudioLevelUpdate', start);
+  const sendAssistantSource = source.slice(start, end);
+
+  assert.match(sendAssistantSource, /assistant-update/);
+  assert.match(sendAssistantSource, /cards = Array\.isArray\(update\?\.cards\)/);
+  assert.match(sendAssistantSource, /Assistant update: .*cards/);
+});
+
 test('main process exposes hide-app handler', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
 
@@ -59,6 +70,18 @@ test('main process requests resizing on start-audio-capture', () => {
   assert.match(source, /saveActiveCaptureBounds\(mainWindow\.getBounds\(\)\)/);
 });
 
+test('main process ignores duplicate start capture requests while audio is active', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const start = source.indexOf("ipcMain.on('start-audio-capture'");
+  const end = source.indexOf("\n  ipcMain.on('stop-audio-capture'", start);
+  const block = source.slice(start, end);
+
+  assert.match(source, /let audioCaptureRunning = false/);
+  assert.match(block, /if \(audioCaptureRunning\)/);
+  assert.match(block, /sendAudioStatus\(\{ state: 'capturing', message: 'Audio capture is already running\.' \}\)/);
+  assert.match(block, /audioCaptureRunning = true/);
+});
+
 test('main process restores window bounds on stop-audio-capture', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
 
@@ -67,6 +90,7 @@ test('main process restores window bounds on stop-audio-capture', () => {
   assert.match(source, /mainWindow\.setBounds\(normalBounds\)/);
   assert.match(source, /mainWindow\.setHasShadow\(true\)/);
   assert.match(source, /normalBounds = null/);
+  assert.match(source, /audioCaptureRunning = false/);
 });
 
 test('reset-session clears transcript and keeps capture running', () => {

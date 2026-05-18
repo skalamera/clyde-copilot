@@ -2293,6 +2293,7 @@ function App() {
   const [mode, setMode] = useState('interview');
   const [status, setStatus] = useState('Awaiting initialization...');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [captureSessionActive, setCaptureSessionActive] = useState(false);
   const [transcript, setTranscript] = useState([]);
   const [assistantCards, setAssistantCards] = useState([]);
   const [askPending, setAskPending] = useState(false);
@@ -2707,6 +2708,7 @@ function App() {
     setCapturePaused(false);
     setStatus('Starting audio capture...');
     setWorkspaceView('live');
+    setCaptureSessionActive(true);
     console.log('📢 About to call setIsStreaming(true)');
     setIsStreaming(true);
     console.log('📢 About to call api?.showApp?()');
@@ -2719,6 +2721,7 @@ function App() {
   function stopCapture() {
     api?.stopTranscription?.();
     setIsStreaming(false);
+    setCaptureSessionActive(false);
     setOverlayHidden(false);
     setCapturePaused(false);
     setStatus('Capture stopped. Choose where to save the transcript.');
@@ -3022,7 +3025,7 @@ function App() {
     await reloadSessions(mode, record.entity.id || selectedEntity);
   }
 
-  const activeCapture = workspaceView === 'live' && isStreaming;
+  const activeCapture = workspaceView === 'live' && captureSessionActive;
   
   async function handleAppMinimizedPointerDown(event) {
     if (event.button !== 0) {
@@ -3170,6 +3173,7 @@ function App() {
             captureProtectionEnabled={settings?.captureProtectionEnabled}
             liveLevels={liveLevels}
             transcript={transcript}
+            status={status}
             onToggleCaptureProtection={toggleCaptureProtection}
             onOpenSettings={() => setSettingsOpen(true)}
             onUpdateSetting={updateSettingLive}
@@ -3800,6 +3804,7 @@ function ActiveCaptureView({
   onToggleCaptureProtection,
   liveLevels,
   transcript,
+  status,
   onOpenSettings,
   onUpdateSetting
 }) {
@@ -4179,7 +4184,7 @@ function ActiveCaptureView({
             </div>
           ) : null}
           {showTranscript ? <ActiveTranscriptPanel transcript={transcript} /> : null}
-          <AssistantCards cards={cards} variant="active" onDismissCard={onDismissCard} />
+          <AssistantCards cards={cards} variant="active" status={status} onDismissCard={onDismissCard} />
         </div>
       ) : null}
     </section>
@@ -4285,7 +4290,7 @@ function Transcript({ transcript }) {
   );
 }
 
-function AssistantCards({ cards, variant = 'default', onDismissCard }) {
+function AssistantCards({ cards, variant = 'default', status = '', onDismissCard }) {
   const active = variant === 'active';
   const [slideIndex, setSlideIndex] = useState(0);
 
@@ -4325,6 +4330,11 @@ function AssistantCards({ cards, variant = 'default', onDismissCard }) {
         <h3>Live assistant</h3>
         <span>{cards.length} cards</span>
       </div>}
+      {active ? (
+        <div className="active-assistant-status" aria-live="polite">
+          {displayCards.length ? `${cards.length} assistant card${cards.length === 1 ? '' : 's'}` : (status || 'Waiting for assistant cards.')}
+        </div>
+      ) : null}
       
       {groups.length > 1 && (
         <div className="carousel-nav">
@@ -4389,7 +4399,12 @@ function AssistantCards({ cards, variant = 'default', onDismissCard }) {
               {card.detail ? <small>{card.detail}</small> : null}
             </article>
           );
-        }) : active ? null : (
+        }) : active ? (
+          <EmptyState
+            title="Waiting for assistant cards"
+            body={status || 'Clyde will add an answer when it detects an interview question.'}
+          />
+        ) : (
           <EmptyState
             title="No assistant cards yet"
             body="Clyde will add answers, recaps, risks, and follow-ups here."

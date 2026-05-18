@@ -86,10 +86,14 @@ test('active capture view replaces the full live workspace while streaming', () 
   const activeEnd = appSource.indexOf('function LivePanel', activeStart);
   const activeSource = appSource.slice(activeStart, activeEnd);
 
-  assert.match(appSource, /const activeCapture = workspaceView === 'live' && isStreaming/);
+  assert.match(appSource, /const \[captureSessionActive, setCaptureSessionActive\] = useState\(false\)/);
+  assert.match(appSource, /const activeCapture = workspaceView === 'live' && captureSessionActive/);
   assert.match(appSource, /activeCapture \? null : \(\s*<TitleBar/);
   assert.match(appSource, /activeCapture \? \(/);
   assert.match(activeSource, /Ask about the screen/);
+  assert.match(appSource, /active-assistant-status/);
+  assert.match(appSource, /Waiting for assistant cards/);
+  assert.match(appSource, /<ActiveCaptureView[\s\S]*status=\{status\}/);
   assert.match(activeSource, /ghost-toggle/);
   assert.match(activeSource, /active-capture-icon ghost-emoji-icon/);
   assert.match(activeSource, />👻<\/span>/);
@@ -129,6 +133,7 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.equal(activeSource.includes('liveVoiceMeters'), false);
   assert.match(cssSource, /\.active-capture-shell/);
   assert.match(cssSource, /\.active-capture-bar/);
+  assert.match(cssSource, /\.active-assistant-status/);
   assert.match(cssSource, /\.active-capture-bar[\s\S]*cursor: grab/);
   assert.match(cssSource, /\.active-assistant-panel/);
   assert.match(cssSource, /\.active-source-menu[\s\S]*top: 34px/);
@@ -462,10 +467,25 @@ test('starting capture switches to the live workspace before streaming', () => {
   const startCaptureSource = appSource.slice(start, end);
 
   assert.match(startCaptureSource, /setWorkspaceView\('live'\)/);
+  assert.match(startCaptureSource, /setCaptureSessionActive\(true\)/);
   assert.ok(
     startCaptureSource.indexOf("setWorkspaceView('live')") < startCaptureSource.indexOf('setIsStreaming(true)'),
     'startCapture should enter the live workspace before streaming so the active capture UI renders immediately'
   );
+});
+
+test('audio errors do not collapse the active capture controls', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const audioStatusStart = appSource.indexOf('api?.onAudioStatus?');
+  const audioStatusEnd = appSource.indexOf('api?.onHealthUpdate?', audioStatusStart);
+  const audioStatusSource = appSource.slice(audioStatusStart, audioStatusEnd);
+  const stopStart = appSource.indexOf('function stopCapture()');
+  const stopEnd = appSource.indexOf('\n  useEffect(() => {', stopStart);
+  const stopCaptureSource = appSource.slice(stopStart, stopEnd);
+
+  assert.match(audioStatusSource, /nextStatus\.state === 'idle' \|\| nextStatus\.state === 'error'/);
+  assert.equal(audioStatusSource.includes('setCaptureSessionActive(false)'), false);
+  assert.match(stopCaptureSource, /setCaptureSessionActive\(false\)/);
 });
 
 test('mode tabs live in the title bar', () => {
