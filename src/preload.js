@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     requestSuggestion: (payload) => ipcRenderer.invoke('request-suggestion', payload),
     saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
     loadSettings: () => ipcRenderer.invoke('load-settings'),
+    listAudioDevices: () => ipcRenderer.invoke('list-audio-devices'),
+    setAudioDevices: (devices) => ipcRenderer.invoke('set-audio-devices', devices),
     getCompanies: () => ipcRenderer.invoke('get-companies'),
     getRoles: () => ipcRenderer.invoke('get-roles'),
     getInterviews: (company) => ipcRenderer.invoke('get-interviews', company),

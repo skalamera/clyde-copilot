@@ -8,13 +8,15 @@
     "start": "npm run renderer:build && node ./scripts/start-electron.js",
     "renderer:build": "vite build",
     "renderer:dev": "vite --host 127.0.0.1",
-    "prepack": "node ./scripts/generate-icon.js && npm run renderer:build",
+    "audio-engine:build": "node ./scripts/build-audio-engine.js",
+    "audio-engine:test": "cargo test --manifest-path ./native/audio-engine/Cargo.toml",
+    "prepack": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build",
     "whisper": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1",
     "whisper:cpu": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1 -Runtime cpu",
     "audio:check": "node ./scripts/check-audio-sources.js",
     "test": "node --test",
     "pack": "electron-builder --dir",
-    "predist": "node ./scripts/generate-icon.js && npm run renderer:build",
+    "predist": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build",
     "dist": "electron-builder"
   },
   "keywords": [],
@@ -37,7 +39,8 @@
     "playwright": "^1.61.0-alpha-1778188671000",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",
@@ -65,6 +68,10 @@
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "native/audio-engine/target/release/clyde-audio-engine.exe",
+        "to": "clyde-audio-engine.exe"
       },
       "scripts/**/*",
       "voicemeeter_banana_settings.xml"

@@ -51,6 +51,9 @@ const EMPTY_SETTINGS = {
   transcriptionProvider: 'local',
   transcriptionApiKey: '',
   localTranscriptionUrl: 'http://localhost:8000/v1/audio/transcriptions',
+  audioEngine: 'rust',
+  microphoneDeviceId: '',
+  systemAudioDeviceId: '',
   resumeText: '',
   currentCompany: '',
   currentRole: '',
@@ -3239,6 +3242,7 @@ function App() {
 
           {setupOpen ? (
             <SetupPanel
+              api={api}
               mode={mode}
               onClose={() => setSetupOpen(false)}
               onSave={saveSettings}
@@ -3264,6 +3268,7 @@ function App() {
 
       {settingsOpen ? (
           <SettingsDrawer
+            api={api}
             mode={mode}
             onClose={() => setSettingsOpen(false)}
             onSave={saveSettings}
@@ -3637,14 +3642,14 @@ function StatusStrip({ health, isStreaming, mode, provider, status }) {
   );
 }
 
-function SetupPanel({ mode, onClose, onSave, onValidate, serviceChecking, settings }) {
+function SetupPanel({ api, mode, onClose, onSave, onValidate, serviceChecking, settings }) {
   return (
     <section className="setup-panel">
       <div>
         <h2>First-run setup</h2>
         <p>Choose context, check providers, test audio, then start a live session.</p>
       </div>
-      <SetupFields mode={mode} onSave={onSave} settings={settings} compact />
+      <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} compact />
       <div className="setup-actions">
         <button type="button" onClick={onValidate} disabled={serviceChecking}>
           {serviceChecking ? 'Checking...' : 'Validate services'}
@@ -5009,7 +5014,7 @@ function EvaluationNotes({ mode = 'interview', summary, examples = [] }) {
 }
 
 function SettingsDrawer(props) {
-  const { mode, onClose, onSave, onValidate, serviceChecking, settings } = props;
+  const { api, mode, onClose, onSave, onValidate, serviceChecking, settings } = props;
 
   return (
     <div className="drawer-backdrop">
@@ -5021,7 +5026,7 @@ function SettingsDrawer(props) {
           </div>
           <button type="button" onClick={onClose}>Close</button>
         </div>
-        <SetupFields mode={mode} onSave={onSave} settings={settings} />
+        <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} />
         <div className="drawer-actions">
           <button type="button" onClick={onValidate} disabled={serviceChecking}>
             {serviceChecking ? 'Checking...' : 'Validate services'}
@@ -5032,9 +5037,11 @@ function SettingsDrawer(props) {
   );
 }
 
-function SetupFields({ compact = false, mode, onSave, settings }) {
+function SetupFields({ api, compact = false, mode, onSave, settings }) {
   const [draft, setDraft] = useState({ ...settings });
   const [activeTab, setActiveTab] = useState('context');
+  const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
+  const [audioDeviceStatus, setAudioDeviceStatus] = useState('');
 
   useEffect(() => {
     setDraft({ ...settings });
@@ -5052,6 +5059,46 @@ function SetupFields({ compact = false, mode, onSave, settings }) {
 
   function update(key, value) {
     setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function refreshAudioDevices() {
+    setAudioDeviceStatus('Refreshing devices...');
+    try {
+      const result = await api?.listAudioDevices?.();
+      if (!result || result.ok === false) {
+        setAudioDeviceStatus(result?.message || 'Device refresh failed.');
+        return;
+      }
+
+      setAudioDevices({
+        microphones: Array.isArray(result.microphones) ? result.microphones : [],
+        systemOutputs: Array.isArray(result.systemOutputs) ? result.systemOutputs : []
+      });
+      setDraft((current) => ({
+        ...current,
+        microphoneDeviceId: current.microphoneDeviceId || result.defaultMicrophoneId || '',
+        systemAudioDeviceId: current.systemAudioDeviceId || result.defaultSystemAudioId || ''
+      }));
+      setAudioDeviceStatus('Audio devices refreshed.');
+    } catch (error) {
+      setAudioDeviceStatus(`Device refresh failed: ${error.message}`);
+    }
+  }
+
+  async function persistAudioDeviceDraft(nextDraft) {
+    await api?.setAudioDevices?.({
+      audioEngine: nextDraft.audioEngine || 'rust',
+      microphoneDeviceId: nextDraft.microphoneDeviceId || '',
+      systemAudioDeviceId: nextDraft.systemAudioDeviceId || ''
+    });
+  }
+
+  function updateAudioSetting(key, value) {
+    const nextDraft = { ...draft, [key]: value };
+    setDraft(nextDraft);
+    persistAudioDeviceDraft(nextDraft).catch((error) => {
+      setAudioDeviceStatus(`Audio device save failed: ${error.message}`);
+    });
   }
 
   function renderLlmModelOptions() {
@@ -5167,10 +5214,48 @@ function SetupFields({ compact = false, mode, onSave, settings }) {
       {activeTab === 'transcription' && (
         <div className="form-grid">
           <label>
+            Audio engine
+            <select value={draft.audioEngine || 'rust'} onChange={(event) => updateAudioSetting('audioEngine', event.target.value)}>
+              <option value="rust">Rust native audio</option>
+              <option value="legacy">Legacy recorder</option>
+            </select>
+          </label>
+          {draft.audioEngine !== 'legacy' && (
+            <>
+              <label>
+                Microphone
+                <select value={draft.microphoneDeviceId || ''} onChange={(event) => updateAudioSetting('microphoneDeviceId', event.target.value)}>
+                  <option value="">Default microphone</option>
+                  {audioDevices.microphones.map((device) => (
+                    <option key={device.id || device.name} value={device.id || device.name}>
+                      {device.name || device.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                System audio
+                <select value={draft.systemAudioDeviceId || ''} onChange={(event) => updateAudioSetting('systemAudioDeviceId', event.target.value)}>
+                  <option value="">Default system audio</option>
+                  {audioDevices.systemOutputs.map((device) => (
+                    <option key={device.id || device.name} value={device.id || device.name}>
+                      {device.name || device.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="wide-field audio-device-actions">
+                <button type="button" className="ghost" onClick={refreshAudioDevices}>Refresh devices</button>
+                {audioDeviceStatus ? <small>{audioDeviceStatus}</small> : null}
+              </div>
+            </>
+          )}
+          <label>
             Transcription provider
             <select value={draft.transcriptionProvider || 'local'} onChange={(event) => update('transcriptionProvider', event.target.value)}>
               <option value="local">Local Whisper</option>
               <option value="openai">OpenAI Whisper</option>
+              <option value="openai-realtime-whisper">OpenAI Realtime Whisper</option>
             </select>
           </label>
           {draft.transcriptionProvider === 'local' ? (
@@ -5207,15 +5292,35 @@ function mergeTranscriptTurn(current, turn) {
   const normalized = {
     speaker: turn.speaker || 'Unknown',
     text: String(turn.text || '').trim(),
-    speakerColor: turn.speakerColor || ''
+    speakerColor: turn.speakerColor || '',
+    itemId: turn.itemId || '',
+    partial: Boolean(turn.partial)
   };
 
   if (!normalized.text) {
     return current;
   }
 
+  if (normalized.itemId) {
+    const existingIndex = current.findIndex((item) => item.itemId === normalized.itemId);
+
+    if (existingIndex >= 0) {
+      return current.map((item, index) => (
+        index === existingIndex ? normalized : item
+      ));
+    }
+
+    if (normalized.partial) {
+      return [...current, normalized];
+    }
+  }
+
+  if (normalized.partial) {
+    return [...current, normalized];
+  }
+
   const last = current[current.length - 1];
-  if (last && last.speaker === normalized.speaker) {
+  if (last && last.speaker === normalized.speaker && !last.partial) {
     return [
       ...current.slice(0, -1),
       { ...last, text: `${last.text} ${normalized.text}` }

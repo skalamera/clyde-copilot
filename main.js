@@ -13,6 +13,7 @@ console.warn = log.warn;
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { createAudioCapture } = require('./src/audioCapture');
+const { createAudioEngineSidecar, resolveAudioEnginePath } = require('./src/audioEngineSidecar');
 const { calculatePcmRms, createTranscriptionProcessor } = require('./src/transcriptionClient');
 const { createMeetingAssistant } = require('./src/meetingAssistant');
 const { createInterviewManager } = require('./src/interviewManager');
@@ -55,6 +56,8 @@ let sessionManager;
 let audioLevelTimer;
 let liveAudioLevelTimer;
 let liveAudioLevels;
+let audioEngineSidecar;
+let rustAudioLevelTestLevels;
 let healthCheckTimer;
 
 let fullSessionTranscript = [];
@@ -78,6 +81,14 @@ const healthState = {
     capture: { state: 'idle', label: 'Capture', detail: 'Stopped.' }
 };
 
+function isOpenAiTranscriptionProvider(provider) {
+    return provider === 'openai' || provider === 'openai-realtime-whisper';
+}
+
+function shouldUseRustAudioEngine(settings = loadSettings()) {
+    return (settings.audioEngine || (process.platform === 'win32' ? 'rust' : 'legacy')) === 'rust';
+}
+
 function configureElectronStorage() {
     const { sessionDataPath } = resolveElectronStoragePaths(app.getPath('userData'));
 
@@ -97,6 +108,9 @@ function loadSettings() {
         transcriptionProvider: store.get('transcriptionProvider', 'local'),
         transcriptionApiKey: store.get('transcriptionApiKey', ''),
         localTranscriptionUrl: store.get('localTranscriptionUrl', 'http://localhost:8000/v1/audio/transcriptions'),
+        audioEngine: store.get('audioEngine', process.platform === 'win32' ? 'rust' : 'legacy'),
+        microphoneDeviceId: store.get('microphoneDeviceId', ''),
+        systemAudioDeviceId: store.get('systemAudioDeviceId', ''),
         jobDescription: store.get('jobDescription', ''),
         resumeText: store.get('resumeText', ''),
         currentCompany: store.get('currentCompany', ''),
@@ -557,12 +571,12 @@ function moveAppWindowTo(bounds = {}) {
 /**
  * Creates the audio recording controller without starting SoX.
  */
-function initializeAudioCaptures() {
+function initializeAudioCaptures(settings = loadSettings()) {
     if (audioCaptures) {
         return audioCaptures;
     }
 
-    audioCaptures = getAudioSources().map((source) => createAudioCapture({
+    audioCaptures = getAudioSources(settings).map((source) => createAudioCapture({
         env: process.env,
         logger: console,
         recordOptions: {
@@ -575,7 +589,11 @@ function initializeAudioCaptures() {
     return audioCaptures;
 }
 
-function getAudioSources() {
+function getAudioSources(settings = loadSettings()) {
+    if (shouldUseRustAudioEngine(settings)) {
+        return getRustAudioSources(settings);
+    }
+
     const configured = process.env.CLYDE_AUDIO_SOURCES;
 
     if (!configured) {
@@ -600,6 +618,94 @@ function getAudioSources() {
             };
         })
         .filter((source) => source.device);
+}
+
+function getRustAudioSources(settings = loadSettings()) {
+    return [
+        {
+            id: 'you',
+            label: 'You',
+            device: settings.microphoneDeviceId || 'Default microphone',
+            color: '#8fff5f',
+            sampleRate: 48000
+        },
+        {
+            id: 'others',
+            label: 'System Audio',
+            device: settings.systemAudioDeviceId || 'Default system audio',
+            color: '#89c2ff',
+            sampleRate: 48000
+        }
+    ];
+}
+
+function getRustAudioEngineSidecar() {
+    if (audioEngineSidecar) {
+        return audioEngineSidecar;
+    }
+
+    audioEngineSidecar = createAudioEngineSidecar({
+        appPath: __dirname,
+        logger: console,
+        onAudioChunk: async (event) => {
+            try {
+                await processAudioChunk(event.source, event.chunk, event.sampleRate);
+            } catch (error) {
+                console.error('Rust audio engine chunk processing failed:', error);
+            }
+        },
+        onLevel: (event) => {
+            updateLiveAudioLevelFromRms(event.source, event.rms, event.peak);
+            updateRustAudioLevelTest(event);
+        },
+        onStatus: (status) => {
+            if (status && status.message) {
+                sendAudioStatus(status);
+            }
+        },
+        onError: (error) => {
+            updateHealth('capture', {
+                state: 'error',
+                detail: error && error.message ? error.message : 'Rust audio engine failed.'
+            });
+        }
+    });
+
+    return audioEngineSidecar;
+}
+
+async function startRustAudioEngineCapture(settings = loadSettings()) {
+    audioEngineSidecar = getRustAudioEngineSidecar();
+    const startResult = audioEngineSidecar.start();
+
+    if (!startResult.ok) {
+        return startResult;
+    }
+
+    const captureResult = audioEngineSidecar.startCapture({
+        microphoneDeviceId: settings.microphoneDeviceId || '',
+        systemAudioDeviceId: settings.systemAudioDeviceId || ''
+    });
+
+    if (!captureResult.ok) {
+        return captureResult;
+    }
+
+    audioCaptures = [{
+        pause: () => audioEngineSidecar.pause(),
+        resume: () => audioEngineSidecar.resume(),
+        stop: () => audioEngineSidecar.stop()
+    }];
+
+    return { ok: true };
+}
+
+function stopRustAudioEngineCapture() {
+    if (audioEngineSidecar) {
+        audioEngineSidecar.shutdown();
+        audioEngineSidecar = null;
+    }
+    rustAudioLevelTestLevels = null;
 }
 
 function sendSourceAudioStatus(source, status) {
@@ -661,12 +767,31 @@ async function checkServiceHealth(settings = loadSettings()) {
         checkLmStudioHealth(settings)
     ]);
 
-    checkAudioHealth();
+    checkRustAudioEngineHealth(settings);
     sendHealthUpdate();
 }
 
-function checkAudioHealth() {
-    const sources = getAudioSources();
+function checkRustAudioEngineHealth(settings = loadSettings()) {
+    if (!shouldUseRustAudioEngine(settings)) {
+        checkAudioHealth(settings);
+        return;
+    }
+
+    const enginePath = resolveAudioEnginePath({ appPath: __dirname });
+    const enginePresent = fs.existsSync(enginePath);
+    const mic = settings.microphoneDeviceId || 'Default microphone';
+    const systemAudio = settings.systemAudioDeviceId || 'Default system audio';
+
+    updateHealth('audio', {
+        state: enginePresent ? 'ready' : 'warning',
+        detail: enginePresent
+            ? `Rust audio engine ready. Mic: ${mic} | System audio: ${systemAudio}.`
+            : `Rust audio engine missing at ${enginePath}. Install Rust and run npm run audio-engine:build.`
+    });
+}
+
+function checkAudioHealth(settings = loadSettings()) {
+    const sources = getAudioSources(settings);
 
     updateHealth('audio', {
         state: sources.length ? 'ready' : 'error',
@@ -677,8 +802,11 @@ function checkAudioHealth() {
 }
 
 async function checkWhisperHealth(settings) {
-    if (settings.transcriptionProvider === 'openai') {
-        updateHealth('whisper', { state: 'ready', detail: 'Using OpenAI Cloud Transcription API.' });
+    if (isOpenAiTranscriptionProvider(settings.transcriptionProvider)) {
+        const detail = settings.transcriptionProvider === 'openai-realtime-whisper'
+            ? 'Using OpenAI Realtime Whisper.'
+            : 'Using OpenAI Cloud Transcription API.';
+        updateHealth('whisper', { state: 'ready', detail });
         return;
     }
 
@@ -760,6 +888,11 @@ function formatServiceError(error) {
 
 function sendTranscriptUpdate(transcript) {
     if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    if (transcript && transcript.partial) {
+        mainWindow.webContents.send('transcript-update', transcript);
         return;
     }
 
@@ -873,8 +1006,10 @@ function getTranscriptionProcessor(source) {
         hallucinationRms: Number(process.env.CLYDE_HALLUCINATION_RMS || 350),
         timeout: Number(process.env.TRANSCRIPTION_TIMEOUT_MS || 120000),
         diagnostics: process.env.CLYDE_AUDIO_DEBUG === '1',
+        sourceId: source.id,
         speaker: source.label,
         speakerColor: source.color,
+        sampleRate: source.sampleRate || 44100,
         axiosClient: axios,
         logger: console,
         sendStatus: (status) => sendTranscriptionStatus(source, status),
@@ -885,9 +1020,24 @@ function getTranscriptionProcessor(source) {
     return processor;
 }
 
-async function processAudioChunk(source, chunk) {
-    updateLiveAudioLevel(source, chunk);
-    await getTranscriptionProcessor(source).processAudioChunk(chunk);
+async function processAudioChunk(source, chunk, sampleRate) {
+    const sourceWithRate = sampleRate
+        ? { ...source, sampleRate }
+        : source;
+    updateLiveAudioLevel(sourceWithRate, chunk);
+    await getTranscriptionProcessor(sourceWithRate).processAudioChunk(chunk);
+}
+
+function closeTranscriptionProcessors() {
+    if (!transcriptionProcessors) {
+        return;
+    }
+
+    for (const processor of transcriptionProcessors.values()) {
+        if (processor && typeof processor.close === 'function') {
+            processor.close();
+        }
+    }
 }
 
 function stopAudioCaptures() {
@@ -898,6 +1048,8 @@ function stopAudioCaptures() {
         audioCaptures = null;
     }
 
+    stopRustAudioEngineCapture();
+    closeTranscriptionProcessors();
     transcriptionProcessors = null;
     meetingAssistant = null;
     stopLiveAudioLevels();
@@ -965,10 +1117,46 @@ function updateLiveAudioLevel(source, chunk) {
     current.speaking = rms >= Number(process.env.CLYDE_VOICE_ACTIVE_RMS || 450);
 }
 
+function updateLiveAudioLevelFromRms(source, rms, peak = 0) {
+    if (!liveAudioLevels || !source) {
+        return;
+    }
+
+    const current = liveAudioLevels.get(source.id);
+
+    if (!current) {
+        return;
+    }
+
+    current.rms = Number(rms) || 0;
+    current.peak = Number(peak) || 0;
+    current.level = rmsToMeterLevel(current.rms);
+    current.chunks += 1;
+    current.speaking = current.rms >= Number(process.env.CLYDE_VOICE_ACTIVE_RMS || 450);
+}
+
+function updateRustAudioLevelTest(event) {
+    if (!rustAudioLevelTestLevels || !event || !event.source) {
+        return;
+    }
+
+    const current = rustAudioLevelTestLevels.get(event.source.id);
+
+    if (!current) {
+        return;
+    }
+
+    current.rms = Number(event.rms) || 0;
+    current.peak = Number(event.peak) || 0;
+    current.level = rmsToMeterLevel(current.rms);
+    current.chunks += 1;
+}
+
 function startAudioLevelTest() {
     stopAudioLevelTest();
 
-    const sources = getAudioSources();
+    const settings = loadSettings();
+    const sources = getAudioSources(settings);
     const levels = new Map(sources.map((source) => [source.id, {
         label: source.label,
         color: source.color,
@@ -976,6 +1164,45 @@ function startAudioLevelTest() {
         level: 0,
         chunks: 0
     }]));
+
+    if (shouldUseRustAudioEngine(settings)) {
+        rustAudioLevelTestLevels = levels;
+        const sidecar = getRustAudioEngineSidecar();
+        const startResult = sidecar.start();
+        const captureResult = startResult.ok
+            ? sidecar.startCapture({
+                microphoneDeviceId: settings.microphoneDeviceId || '',
+                systemAudioDeviceId: settings.systemAudioDeviceId || ''
+            })
+            : startResult;
+
+        if (!captureResult.ok) {
+            sendAudioLevelUpdate({ type: 'error', message: captureResult.message });
+            stopAudioLevelTest();
+            return;
+        }
+
+        audioLevelCaptures = [{
+            stop: () => sidecar.stop()
+        }];
+        audioLevelTimer = setInterval(() => {
+            sendAudioLevelUpdate({
+                type: 'levels',
+                sources: Array.from(levels.entries()).map(([id, value]) => ({
+                    id,
+                    ...value
+                }))
+            });
+        }, 150);
+        sendAudioLevelUpdate({
+            type: 'started',
+            sources: Array.from(levels.entries()).map(([id, value]) => ({
+                id,
+                ...value
+            }))
+        });
+        return;
+    }
 
     audioLevelCaptures = sources.map((source) => createAudioCapture({
         env: process.env,
@@ -1040,6 +1267,7 @@ function stopAudioLevelTest() {
         audioLevelCaptures = null;
     }
 
+    rustAudioLevelTestLevels = null;
     sendAudioLevelUpdate({ type: 'stopped' });
 }
 
@@ -1107,15 +1335,17 @@ function createWindow () {
   });
 
   // Setup IPC communication for start/stop transcription
-  ipcMain.on('start-audio-capture', (event) => {
+  ipcMain.on('start-audio-capture', async (event) => {
       log.info('🎤 IPC: start-audio-capture received');
       log.info(`   Window state - Visible: ${mainWindow?.isVisible()}, Destroyed: ${mainWindow?.isDestroyed()}`);
       fullSessionTranscript = []; // Reset full session transcript on new start
       capturePaused = false;
       getMeetingAssistant(); // ensure initialized
+      const settings = loadSettings();
       startLiveAudioLevels();
-      const results = initializeAudioCaptures().map((capture) => capture.start());
-      const failed = results.find((result) => !result.ok);
+      const failed = shouldUseRustAudioEngine(settings)
+          ? await startRustAudioEngineCapture(settings).then((result) => result.ok ? null : result)
+          : initializeAudioCaptures(settings).map((capture) => capture.start()).find((result) => !result.ok);
 
       if (failed) {
           log.error(`❌ Audio capture failed: ${failed.message}`);
@@ -1178,11 +1408,15 @@ function createWindow () {
 
   ipcMain.on('reset-session', () => {
       fullSessionTranscript = [];
+      stopRustAudioEngineCapture();
+      closeTranscriptionProcessors();
+      transcriptionProcessors = null;
       if (meetingAssistant) {
           meetingAssistant.resetTranscript();
       }
-      const state = audioCaptures ? 'capturing' : 'idle';
-      sendAudioStatus({ state, message: 'Session reset.' });
+      audioCaptures = null;
+      stopLiveAudioLevels();
+      sendAudioStatus({ state: 'idle', message: 'Session reset.' });
       if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('session-reset');
       }
@@ -1225,6 +1459,45 @@ function createWindow () {
 
   ipcMain.handle('load-settings', (event) => {
       return loadSettings();
+  });
+
+  ipcMain.handle('list-audio-devices', async () => {
+      const sidecar = getRustAudioEngineSidecar();
+      const startResult = sidecar.start();
+
+      if (!startResult.ok) {
+          return {
+              ok: false,
+              message: startResult.message,
+              microphones: [],
+              systemOutputs: []
+          };
+      }
+
+      try {
+          const devices = await sidecar.listDevices({ timeoutMs: 5000 });
+          return { ok: true, ...devices };
+      } catch (error) {
+          return {
+              ok: false,
+              message: error.message,
+              microphones: [],
+              systemOutputs: []
+          };
+      }
+  });
+
+  ipcMain.handle('set-audio-devices', (event, devices = {}) => {
+      const currentSettings = loadSettings();
+      const nextSettings = {
+          ...currentSettings,
+          audioEngine: devices.audioEngine || currentSettings.audioEngine,
+          microphoneDeviceId: devices.microphoneDeviceId || '',
+          systemAudioDeviceId: devices.systemAudioDeviceId || ''
+      };
+
+      saveSettings(nextSettings);
+      return nextSettings;
   });
 
   ipcMain.handle('get-companies', (event) => {

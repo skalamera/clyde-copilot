@@ -72,8 +72,8 @@ test('main process restores window bounds on stop-audio-capture', () => {
 test('reset-session keeps active state', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
 
-  assert.match(source, /const state = audioCaptures \? 'capturing' : 'idle'/);
-  assert.match(source, /sendAudioStatus\(\{ state, message: 'Session reset\.' \}\)/);
+  assert.match(source, /stopRustAudioEngineCapture\(\)/);
+  assert.match(source, /sendAudioStatus\(\{ state: 'idle', message: 'Session reset\.' \}\)/);
 });
 
 test('active capture window can shrink to rendered content height', () => {
@@ -109,4 +109,56 @@ test('main process toggles capture pause without stopping the session', () => {
   assert.match(source, /capture\.pause\(\)/);
   assert.match(source, /capture\.resume\(\)/);
   assert.match(source, /state: capturePaused \? 'paused' : 'capturing'/);
+});
+
+test('main process treats realtime transcription as OpenAI cloud transcription', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /function isOpenAiTranscriptionProvider/);
+  assert.match(source, /provider === 'openai-realtime-whisper'/);
+  assert.match(source, /Using OpenAI Realtime Whisper/);
+});
+
+test('main process forwards partial transcripts without saving or sending them to assistant context', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /if \(transcript && transcript\.partial\)/);
+  assert.match(source, /mainWindow\.webContents\.send\('transcript-update', transcript\);\s*return;/);
+});
+
+test('main process closes transcription processors when capture stops', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /function closeTranscriptionProcessors/);
+  assert.match(source, /for \(const processor of transcriptionProcessors\.values\(\)\)/);
+  assert.match(source, /processor\.close\(\)/);
+  assert.match(source, /closeTranscriptionProcessors\(\);\s*transcriptionProcessors = null;/);
+});
+
+test('main process integrates the Rust audio engine sidecar', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /createAudioEngineSidecar/);
+  assert.match(source, /let audioEngineSidecar/);
+  assert.match(source, /function shouldUseRustAudioEngine\(settings = loadSettings\(\)\)/);
+  assert.match(source, /function startRustAudioEngineCapture/);
+  assert.match(source, /audioEngineSidecar\.startCapture/);
+  assert.match(source, /onAudioChunk: async \(event\) => \{/);
+  assert.match(source, /processAudioChunk\(event\.source, event\.chunk, event\.sampleRate\)/);
+  assert.match(source, /stopRustAudioEngineCapture\(\)/);
+  assert.match(source, /audioEngineSidecar\.shutdown\(\)/);
+  assert.match(source, /ipcMain\.handle\('list-audio-devices'/);
+  assert.match(source, /ipcMain\.handle\('set-audio-devices'/);
+  assert.match(source, /checkRustAudioEngineHealth\(settings\)/);
+});
+
+test('main process passes source sample rate into transcription processors', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const processorStart = source.indexOf('function getTranscriptionProcessor');
+  const processorEnd = source.indexOf('async function processAudioChunk', processorStart);
+  const processorSource = source.slice(processorStart, processorEnd);
+
+  assert.match(processorSource, /sampleRate: source\.sampleRate \|\| 44100/);
+  assert.match(source, /async function processAudioChunk\(source, chunk, sampleRate\)/);
+  assert.match(source, /const sourceWithRate = sampleRate/);
 });

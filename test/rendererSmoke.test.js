@@ -45,6 +45,40 @@ test('live panel no longer renders canned note controls', () => {
   assert.equal(appSource.includes("{ id: 'note', label: 'Save note' }"), false);
 });
 
+test('settings expose OpenAI realtime Whisper transcription provider', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+
+  assert.match(appSource, /<option value="openai-realtime-whisper">OpenAI Realtime Whisper<\/option>/);
+  assert.match(appSource, /draft\.transcriptionProvider === 'local' \?/);
+  assert.match(appSource, /OpenAI API Key/);
+});
+
+test('settings expose Rust audio engine and device controls', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+
+  assert.match(appSource, /audioEngine: 'rust'/);
+  assert.match(appSource, /Audio engine/);
+  assert.match(appSource, /<option value="rust">Rust native audio<\/option>/);
+  assert.match(appSource, /<option value="legacy">Legacy recorder<\/option>/);
+  assert.match(appSource, /Microphone/);
+  assert.match(appSource, /System audio/);
+  assert.match(appSource, /Refresh devices/);
+  assert.match(appSource, /api\?\.listAudioDevices\?\.\(\)/);
+  assert.match(appSource, /api\?\.setAudioDevices\?\.\(\{/);
+});
+
+test('renderer transcript merge handles realtime partials by item id', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const mergeStart = appSource.indexOf('function mergeTranscriptTurn');
+  const mergeEnd = appSource.indexOf('function normalizeCardForRender', mergeStart);
+  const mergeSource = appSource.slice(mergeStart, mergeEnd);
+
+  assert.match(mergeSource, /itemId: turn\.itemId \|\| ''/);
+  assert.match(mergeSource, /partial: Boolean\(turn\.partial\)/);
+  assert.match(mergeSource, /findIndex\(\(item\) => item\.itemId === normalized\.itemId\)/);
+  assert.match(mergeSource, /normalized\.partial/);
+});
+
 test('active capture view replaces the full live workspace while streaming', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
@@ -328,6 +362,18 @@ test('interview timeline groups rejected and offer opportunities below active op
   assert.match(cssSource, /\.opportunity-section-toggle/);
   assert.match(cssSource, /\.timeline-rail-resizer/);
   assert.match(cssSource, /grid-template-columns: var\(--timeline-rail-width, 390px\) 8px minmax\(0, 1fr\)/);
+});
+
+test('narrow interview timeline lets the full selected opportunity column scroll into view', () => {
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const narrowStart = cssSource.indexOf('@media (max-width: 1120px)');
+  const narrowEnd = cssSource.indexOf('@media (max-width: 980px)', narrowStart);
+  const narrowSource = cssSource.slice(narrowStart, narrowEnd);
+
+  assert.match(narrowSource, /\.workspace-timeline\s*\{[\s\S]*height: auto;[\s\S]*overflow: visible;[\s\S]*\}/);
+  assert.match(narrowSource, /\.timeline-view\s*\{[\s\S]*grid-template-rows: auto auto;[\s\S]*overflow: visible;[\s\S]*\}/);
+  assert.match(narrowSource, /\.timeline-main\s*\{[\s\S]*overflow: visible;[\s\S]*\}/);
+  assert.match(narrowSource, /\.timeline-main \.session-list\s*\{[\s\S]*max-height: none;[\s\S]*overflow: visible;[\s\S]*\}/);
 });
 
 test('timeline and trend views show outcome calibration diagnostics', () => {

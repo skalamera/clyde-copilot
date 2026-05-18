@@ -1,0 +1,17 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#030609"/>
+  <g opacity="0.44">
+    <path d="M0 96H1200M0 192H1200M0 288H1200M0 384H1200M0 480H1200" stroke="#4FE7FF" stroke-opacity="0.18"/>
+    <path d="M120 0V630M240 0V630M360 0V630M480 0V630M600 0V630M720 0V630M840 0V630M960 0V630M1080 0V630" stroke="#A6FF6A" stroke-opacity="0.1"/>
+  </g>
+  <rect x="96" y="92" width="1008" height="446" rx="34" fill="#071018" fill-opacity="0.82" stroke="#4FE7FF" stroke-opacity="0.28"/>
+  <text x="142" y="220" fill="#F5FBFF" font-family="Inter, Arial, sans-serif" font-size="82" font-weight="800">Clyde</text>
+  <text x="142" y="306" fill="#F5FBFF" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="700">Private AI help during meetings</text>
+  <text x="142" y="374" fill="#8AA2B3" font-family="Inter, Arial, sans-serif" font-size="31">Live answers, interview prep, transcript grading, and local-first memory.</text>
+  <rect x="142" y="424" width="280" height="66" rx="16" fill="#123F37" stroke="#4FE7FF" stroke-opacity="0.45"/>
+  <text x="174" y="467" fill="#F5FBFF" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">Download Windows</text>
+  <circle cx="940" cy="288" r="96" fill="#4FE7FF" fill-opacity="0.16"/>
+  <path d="M870 302C870 259.474 901.34 225 940 225C978.66 225 1010 259.474 1010 302V430C1010 447.673 990.64 458.472 975.6 449.2L958 438.351L940 452L922 438.351L904.4 449.2C889.36 458.472 870 447.673 870 430V302Z" fill="#F5FBFF"/>
+  <circle cx="916" cy="296" r="13" fill="#071018"/>
+  <circle cx="964" cy="296" r="13" fill="#071018"/>
+</svg>

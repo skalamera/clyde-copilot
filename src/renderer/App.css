@@ -2198,6 +2198,16 @@ label {
   grid-column: 1 / -1;
 }
 
+.audio-device-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.audio-device-actions small {
+  color: var(--muted);
+}
+
 .toggle-row {
   align-items: center;
   display: flex;
@@ -2221,10 +2231,17 @@ label {
 }
 
   @media (max-width: 1120px) {
+    .workspace-timeline {
+      height: auto;
+      min-height: calc(100vh - 44px);
+      overflow: visible;
+    }
+
     .live-grid,
     .timeline-view {
       grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto;
+      overflow: visible;
     }
 
     .workspace-nav {
@@ -2275,6 +2292,17 @@ label {
 
     .timeline-rail-resizer {
       display: none;
+    }
+
+    .timeline-main {
+      overflow: visible;
+    }
+
+    .timeline-main .session-list {
+      flex: initial;
+      max-height: none;
+      overflow: visible;
+      padding-bottom: 28px;
     }
 
   .brand-mark {
