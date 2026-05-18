@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
 const {
@@ -9,6 +10,55 @@ const {
   normalizeTranscriptText,
   isLikelyQuietHallucination
 } = require('../src/transcriptionClient');
+
+function createRealtimeWebSocketHarness() {
+  const sockets = [];
+
+  class FakeWebSocket extends EventEmitter {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor(url, options = {}) {
+      super();
+      this.url = url;
+      this.options = options;
+      this.readyState = FakeWebSocket.CONNECTING;
+      this.sent = [];
+      this.closed = false;
+      sockets.push(this);
+    }
+
+    send(message) {
+      this.sent.push(JSON.parse(message));
+    }
+
+    close() {
+      this.closed = true;
+      this.readyState = FakeWebSocket.CLOSED;
+      this.emit('close');
+    }
+
+    open() {
+      this.readyState = FakeWebSocket.OPEN;
+      this.emit('open');
+    }
+
+    receive(event) {
+      this.emit('message', Buffer.from(JSON.stringify(event)));
+    }
+  }
+
+  return { FakeWebSocket, sockets };
+}
+
+function createPcm16(samples, value = 1200) {
+  const pcm = Buffer.alloc(samples * 2);
+  for (let index = 0; index < samples; index += 1) {
+    pcm.writeInt16LE(value, index * 2);
+  }
+  return pcm;
+}
 
 test('simulates transcript updates when no transcription API URL is configured', async () => {
   const transcripts = [];
@@ -123,6 +173,161 @@ test('filters unclear audio sentinel even when the segment is not quiet', async 
   assert.equal(result.rms, 1000);
   assert.equal(result.text, 'clyde_unclear_audio');
   assert.deepEqual(transcripts, []);
+});
+
+test('realtime provider opens OpenAI websocket and appends 24 kHz PCM audio', async () => {
+  const { FakeWebSocket, sockets } = createRealtimeWebSocketHarness();
+  const processor = createTranscriptionProcessor({
+    settings: {
+      transcriptionProvider: 'openai-realtime-whisper',
+      transcriptionApiKey: 'test-key'
+    },
+    WebSocketImpl: FakeWebSocket,
+    sampleRate: 44100,
+    sourceId: 'mic',
+    minRms: 0,
+    sendTranscript: () => {},
+    logger: { log() {}, warn() {}, error() {} }
+  });
+
+  const result = await processor.processAudioChunk(createPcm16(4410));
+  assert.equal(result.skipped, 'connecting');
+  assert.equal(sockets.length, 1);
+    assert.equal(sockets[0].url, 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview');
+  assert.equal(sockets[0].options.headers.Authorization, 'Bearer test-key');
+
+  sockets[0].open();
+
+  assert.equal(sockets[0].sent[0].type, 'session.update');
+  assert.equal(sockets[0].sent[0].session.type, 'transcription');
+  assert.equal(sockets[0].sent[0].session.audio.input.format.rate, 24000);
+  assert.equal(sockets[0].sent[0].session.audio.input.transcription.model, 'gpt-realtime-whisper');
+  assert.equal(sockets[0].sent[1].type, 'input_audio_buffer.append');
+  assert.equal(Buffer.from(sockets[0].sent[1].audio, 'base64').length, 4800);
+});
+
+test('realtime provider streams partial deltas and final transcripts by item id', async () => {
+  const { FakeWebSocket, sockets } = createRealtimeWebSocketHarness();
+  const transcripts = [];
+  const processor = createTranscriptionProcessor({
+    settings: {
+      transcriptionProvider: 'openai-realtime-whisper',
+      transcriptionApiKey: 'test-key'
+    },
+    WebSocketImpl: FakeWebSocket,
+    sampleRate: 44100,
+    sourceId: 'mic',
+    speaker: 'You',
+    speakerColor: '#8fff5f',
+    minRms: 0,
+    sendTranscript: (transcript) => transcripts.push(transcript),
+    logger: { log() {}, warn() {}, error() {} }
+  });
+
+  await processor.processAudioChunk(createPcm16(4410));
+  sockets[0].open();
+  sockets[0].receive({
+    type: 'conversation.item.input_audio_transcription.delta',
+    item_id: 'item_003',
+    delta: 'Hel'
+  });
+  sockets[0].receive({
+    type: 'conversation.item.input_audio_transcription.delta',
+    item_id: 'item_003',
+    delta: 'lo'
+  });
+  sockets[0].receive({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: 'item_003',
+    transcript: 'Hello.'
+  });
+
+  assert.deepEqual(transcripts, [
+    {
+      text: 'Hel',
+      speaker: 'You',
+      speakerColor: '#8fff5f',
+      partial: true,
+      itemId: 'mic:item_003',
+      provider: 'openai-realtime-whisper'
+    },
+    {
+      text: 'Hello',
+      speaker: 'You',
+      speakerColor: '#8fff5f',
+      partial: true,
+      itemId: 'mic:item_003',
+      provider: 'openai-realtime-whisper'
+    },
+    {
+      text: 'Hello.',
+      speaker: 'You',
+      speakerColor: '#8fff5f',
+      partial: false,
+      itemId: 'mic:item_003',
+      provider: 'openai-realtime-whisper'
+    }
+  ]);
+});
+
+test('realtime provider filters unclear final transcript and closes websocket', async () => {
+  const { FakeWebSocket, sockets } = createRealtimeWebSocketHarness();
+  const transcripts = [];
+  const processor = createTranscriptionProcessor({
+    settings: {
+      transcriptionProvider: 'openai-realtime-whisper',
+      transcriptionApiKey: 'test-key'
+    },
+    WebSocketImpl: FakeWebSocket,
+    sampleRate: 44100,
+    sourceId: 'system',
+    minRms: 0,
+    hallucinationRms: 350,
+    sendTranscript: (transcript) => transcripts.push(transcript),
+    logger: { log() {}, warn() {}, error() {} }
+  });
+
+  await processor.processAudioChunk(createPcm16(4410, 1400));
+  sockets[0].open();
+  sockets[0].receive({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: 'item_004',
+    transcript: 'clyde_unclear_audio'
+  });
+  processor.close();
+
+  assert.deepEqual(transcripts, []);
+  assert.equal(sockets[0].closed, true);
+});
+
+test('realtime provider does not filter loud speech after trailing quiet audio', async () => {
+  const { FakeWebSocket, sockets } = createRealtimeWebSocketHarness();
+  const transcripts = [];
+  const processor = createTranscriptionProcessor({
+    settings: {
+      transcriptionProvider: 'openai-realtime-whisper',
+      transcriptionApiKey: 'test-key'
+    },
+    WebSocketImpl: FakeWebSocket,
+    sampleRate: 44100,
+    sourceId: 'mic',
+    minRms: 0,
+    hallucinationRms: 350,
+    sendTranscript: (transcript) => transcripts.push(transcript),
+    logger: { log() {}, warn() {}, error() {} }
+  });
+
+  await processor.processAudioChunk(createPcm16(4410, 1200));
+  sockets[0].open();
+  await processor.processAudioChunk(createPcm16(4410, 1));
+  sockets[0].receive({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: 'item_005',
+    transcript: 'Thank you.'
+  });
+
+  assert.equal(transcripts.length, 1);
+  assert.equal(transcripts[0].text, 'Thank you.');
 });
 
 test('corrects obvious first-person transcript fragments before sending turns', async () => {
