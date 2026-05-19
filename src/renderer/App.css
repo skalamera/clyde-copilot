@@ -2784,3 +2784,19 @@ body:has(.app-shell-active) {
   margin-left: 8px;
 }
 
+
+.knowledge-status.success {
+  color: var(--success);
+}
+
+.knowledge-status.uploading {
+  color: var(--violet);
+  animation: pulse-purple 1.5s infinite;
+}
+
+@keyframes pulse-purple {
+  0% { opacity: 1; text-shadow: 0 0 8px rgba(155, 140, 255, 0.4); }
+  50% { opacity: 0.6; text-shadow: 0 0 0px rgba(155, 140, 255, 0); }
+  100% { opacity: 1; text-shadow: 0 0 8px rgba(155, 140, 255, 0.4); }
+}
+

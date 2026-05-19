@@ -3691,7 +3691,8 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState('');
   const [type, setType] = useState('');
-  const [status, setStatus] = useState('');
+    const [status, setStatus] = useState('');
+    const [uploadingId, setUploadingId] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const pinnedKnowledgeIds = Array.isArray(settings.pinnedKnowledgeIds) ? settings.pinnedKnowledgeIds : [];
 
@@ -3763,6 +3764,7 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
   }
 
     async function uploadItemToPinecone(id) {
+      setUploadingId(id);
       setStatus('Uploading to Pinecone...');
       try {
         await api?.uploadKnowledgeToPinecone?.(id);
@@ -3770,6 +3772,8 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
         await loadKnowledge(query, type);
       } catch (error) {
         setStatus(`Upload failed: ${error.message}`);
+      } finally {
+        setUploadingId(null);
       }
     }
 
@@ -3829,7 +3833,7 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
         <span>{pinnedKnowledgeIds.length}/3 active</span>
       </div>
 
-      {status ? <div className="knowledge-status">{status}</div> : null}
+        {status ? <div className={`knowledge-status ${status.includes('successfully') ? 'success' : status.includes('Uploading') ? 'uploading' : ''}`}>{status}</div> : null}
 
       <div className="knowledge-list">
         {items.length ? items.map((item) => {
@@ -3849,7 +3853,9 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
                     {pinned ? 'Pinned' : 'Pin'}
                   </button>
                   {!item.metadata?.pinecone ? (
-                    <button type="button" onClick={() => uploadItemToPinecone(item.id)}>Upload to Pinecone</button>
+                    <button type="button" disabled={uploadingId === item.id} onClick={() => uploadItemToPinecone(item.id)}>
+                      {uploadingId === item.id ? 'Uploading...' : 'Upload to Pinecone'}
+                    </button>
                   ) : null}
                   <button type="button" onClick={() => deleteItem(item.id)}>Delete</button>
                 </div>
