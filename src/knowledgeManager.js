@@ -72,45 +72,57 @@ function createKnowledgeManager(options = {}) {
   const getStatement = db.prepare('SELECT * FROM knowledge_base WHERE id = ?');
   const deleteStatement = db.prepare('DELETE FROM knowledge_base WHERE id = ?');
 
-  function archiveSession(session = {}, settings = {}) {
-    const content = buildSessionKnowledgeContent(session);
-    if (!content) {
-      return null;
+    async function archiveSession(session = {}, settings = {}) {
+      const content = buildSessionKnowledgeContent(session);
+      if (!content) {
+        return null;
+      }
+
+      const now = new Date().toISOString();
+      const id = transcriptKnowledgeId(session);
+        const metadata = {
+          source: 'session',
+          sessionId: clean(session.id),
+          mode: normalizeMode(session.mode),
+          title: clean(session.title || session.phase),
+          entityId: clean(session.entity?.id || session.entity?.name || 'general'),
+          entityName: clean(session.entity?.name || session.entity?.id || 'General'),
+          date: clean(session.date)
+        };
+
+        const existing = getKnowledgeItem(id);
+
+        let item = upsertKnowledgeItem({
+          id,
+          filename: sessionKnowledgeFilename(session),
+          file_path: '',
+          content,
+          type: 'transcript',
+          metadata: {
+            ...metadata,
+            ...(existing?.metadata || {})
+          },
+          now
+        });
+
+      try {
+        const pinecone = await indexKnowledgeItem(item, settings);
+        if (pinecone && pinecone.status !== 'error') {
+          item = upsertKnowledgeItem({
+            ...item,
+            metadata: {
+              ...parseMetadata(item.metadata_json),
+              pinecone
+            },
+            now: new Date().toISOString()
+          });
+        }
+      } catch (error) {
+        logger.warn?.('Knowledge transcript indexing failed:', error);
+      }
+
+      return getKnowledgeItem(id);
     }
-
-    const now = new Date().toISOString();
-    const id = transcriptKnowledgeId(session);
-      const metadata = {
-        source: 'session',
-        sessionId: clean(session.id),
-        mode: normalizeMode(session.mode),
-        title: clean(session.title || session.phase),
-        entityId: clean(session.entity?.id || session.entity?.name || 'general'),
-        entityName: clean(session.entity?.name || session.entity?.id || 'General'),
-        date: clean(session.date)
-      };
-
-      const existing = getKnowledgeItem(id);
-
-      const item = upsertKnowledgeItem({
-        id,
-        filename: sessionKnowledgeFilename(session),
-        file_path: '',
-        content,
-        type: 'transcript',
-        metadata: {
-          ...metadata,
-          ...(existing?.metadata || {})
-        },
-        now
-      });
-
-    indexKnowledgeItem(item, settings).catch((error) => {
-      logger.warn?.('Knowledge transcript indexing failed:', error);
-    });
-
-    return getKnowledgeItem(id);
-  }
 
   async function ingestFile(filePath, settings = {}) {
     const resolvedPath = path.resolve(String(filePath || ''));
