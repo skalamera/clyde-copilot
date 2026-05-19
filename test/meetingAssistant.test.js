@@ -840,12 +840,150 @@ test('extracts assistant text from chat completion responses', () => {
 test('parses structured assistant cards', () => {
   const cards = parseAssistantCards(JSON.stringify({
     answers: [{ question: 'What changed?', bullets: ['Liquidity increased.'] }],
-    suggestions: [{ text: 'I would ask how this affects timing.', why: 'It moves the discussion forward.' }]
+    suggestions: [{ text: 'I would ask how this affects timing.', why: 'It moves the discussion forward.' }],
+    memory_cards: [{ fact: 'Cody mentioned Lambda.', source: 'Interview_with_Cody.txt' }]
   }));
 
-  assert.deepEqual(cards.map((card) => card.type), ['answer', 'suggestion']);
+  assert.deepEqual(cards.map((card) => card.type), ['answer', 'suggestion', 'memory']);
   assert.equal(cards[0].title, 'Answer');
   assert.equal(cards[1].title, 'Say next');
+  assert.equal(cards[2].agentic, true);
+});
+
+test('pro tier uses realtime agent and emits agentic memory cards', async () => {
+  const updates = [];
+  let proCalls = 0;
+
+  const assistant = createMeetingAssistant({
+      settings: {
+        userTier: 'pro',
+        proAgentEnabled: true,
+        transcriptionApiKey: 'openai-key',
+        llmApiKey: 'openai-key',
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'fallback-model'
+      },
+    proAgent: {
+      run: async (payload) => {
+        proCalls++;
+        assert.equal(payload.allowMemorySearch, true);
+        return {
+          ok: true,
+          text: '{"memory_cards":[{"fact":"Cody mentioned Lambda.","source":"Interview_with_Cody.txt"}]}',
+          cards: [{
+            type: 'memory',
+            title: 'Memory',
+            body: 'Cody mentioned Lambda.',
+            detail: 'Interview_with_Cody.txt',
+            agentic: true
+          }],
+          toolCalls: 1
+        };
+      }
+    },
+    axiosClient: {
+      post: async () => {
+        throw new Error('free path should not run');
+      }
+    },
+    intervalMs: 1,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  const result = await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you tell me about the My Career Max project?'
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(proCalls, 1);
+  assert.equal(updates[0].cards[0].agentic, true);
+});
+
+test('pro tier falls back to free assistant path when realtime agent fails', async () => {
+  const requests = [];
+  const statuses = [];
+
+  const assistant = createMeetingAssistant({
+      settings: {
+        userTier: 'pro',
+        proAgentEnabled: true,
+        transcriptionApiKey: 'openai-key',
+        llmApiKey: 'openai-key',
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'fallback-model'
+      },
+    proAgent: {
+      run: async () => {
+        throw new Error('socket dropped');
+      }
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"answers":[{"question":"Tell me about the project?","bullets":["Use the fallback answer."]}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1,
+    sendStatus: (status) => statuses.push(status)
+  });
+
+  const result = await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you tell me about the My Career Max project?'
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 1);
+  assert.match(statuses.map((status) => status.message).join('\n'), /Pro agent unavailable/);
+  assert.equal(result.cards[0].type, 'answer');
+});
+
+test('pro memory search is throttled across automatic transcript turns', async () => {
+  const allowFlags = [];
+
+  const assistant = createMeetingAssistant({
+      settings: {
+        userTier: 'pro',
+        proAgentEnabled: true,
+        transcriptionApiKey: 'openai-key',
+        llmApiKey: 'openai-key',
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'fallback-model'
+      },
+    proMemorySearchIntervalMs: 15000,
+    proAgent: {
+      run: async (payload) => {
+        allowFlags.push(payload.allowMemorySearch);
+        return {
+          ok: true,
+          text: '{"answers":[{"question":"Q","bullets":["A"]}]}',
+          cards: [{ type: 'answer', title: 'Answer', question: 'Q', bullets: ['A'] }],
+          toolCalls: payload.allowMemorySearch ? 1 : 0
+        };
+      }
+    },
+    axiosClient: {
+      post: async () => {
+        throw new Error('free path should not run');
+      }
+    },
+    intervalMs: 1
+  });
+
+  await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you tell me about the My Career Max project?' });
+  await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you tell me about your support career?' });
+
+  assert.deepEqual(allowFlags, [true, false]);
 });
 
 test('detects the user speaker label', () => {

@@ -1,6 +1,7 @@
 const { detectResumeQuestion, searchResumeVectors } = require('./pineconeClient');
 const { generateChat } = require('./llmClient');
 const { buildAssistantPrompt, getAssistantSchema, normalizeMode } = require('./assistantPrompts');
+const { createProRealtimeAgent } = require('./proRealtimeAgent');
 
 const DEFAULT_INTERVAL_MS = 30000;
 const DEFAULT_MAX_TURNS = 10;
@@ -24,6 +25,14 @@ function createMeetingAssistant(options = {}) {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
   const utteranceSettleMs = Math.max(0, Number(options.utteranceSettleMs ?? DEFAULT_UTTERANCE_SETTLE_MS) || 0);
+  const proMemorySearchIntervalMs = Number(options.proMemorySearchIntervalMs ?? 15000) || 15000;
+  const proAgent = options.proAgent || createProRealtimeAgent({
+    settings,
+    knowledgeManager: options.knowledgeManager,
+    logger,
+    sendStatus,
+    timeoutMs: options.proAgentTimeoutMs || timeout
+  });
 
   let transcriptTurns = [];
   let recentHistory = [];
@@ -32,6 +41,7 @@ function createMeetingAssistant(options = {}) {
   let intentSettleTimer = null;
   let nextIntentTurnId = 1;
   let lastRunAt = 0;
+  let lastProMemorySearchAt = 0;
   let inFlight = false;
   let rerunAfterInFlight = false;
   let lastDigest = '';
@@ -108,16 +118,17 @@ function createMeetingAssistant(options = {}) {
     const isScreenQuestionRequest = requestIntent === 'screen_question';
     const isCustomPromptRequest = requestIntent === 'custom_prompt';
     const isManualQuestion = !isSayNextRequest && Boolean(manualPrompt || screenshot || screenshotWarning);
+    const proCandidate = shouldUseProAgent(settings, { screenshot });
 
-    if (!model && provider === 'local') {
+    if (!proCandidate && !model && provider === 'local') {
       return { ok: true, skipped: 'not-configured' };
     }
 
-    if (!localUrl && provider === 'local') {
+    if (!proCandidate && !localUrl && provider === 'local') {
       return { ok: true, skipped: 'not-configured' };
     }
 
-    if (!apiKey && provider !== 'local') {
+    if (!proCandidate && !apiKey && provider !== 'local') {
       return { ok: true, skipped: 'not-configured' };
     }
 
@@ -131,7 +142,7 @@ function createMeetingAssistant(options = {}) {
 
     const now = Date.now();
 
-    if (!force && now - lastRunAt < intervalMs) {
+    if (!proCandidate && !force && now - lastRunAt < intervalMs) {
       return { ok: true, skipped: 'rate-limited' };
     }
 
@@ -184,11 +195,15 @@ function createMeetingAssistant(options = {}) {
                  }
              }
           } else {
+             if (proCandidate) {
+               logger.log(`[Intent] No explicit interview question detected; sending settled turn to Clyde Pro.`);
+             } else {
              logger.log(`[Intent] No interview-related question detected in current transcript window.`);
              inFlight = false;
              // Wait another tick, do not update lastRunAt or lastDigest to allow 
              // the transcript to accumulate more context for the next run
              return { ok: true, skipped: 'no-question' };
+             }
           }
         } catch (err) {
           logger.error('[RAG] Intent/retrieval error:', err);
@@ -260,6 +275,57 @@ function createMeetingAssistant(options = {}) {
         ],
         images: screenshot ? [screenshot] : []
       };
+
+      const allowMemorySearch = shouldAllowProMemorySearch({
+        now,
+        isManualQuestion,
+        isSuggestionRequest,
+        lastProMemorySearchAt,
+        proMemorySearchIntervalMs
+      });
+
+      if (proCandidate) {
+        try {
+          const proResult = await proAgent.run({
+            digest,
+            manualPrompt,
+            mode,
+            command,
+            context: currentContext,
+            targetQuestion,
+            selectedSources,
+            allowMemorySearch
+          });
+          const proCards = Array.isArray(proResult?.cards) ? proResult.cards : [];
+
+          if (proResult?.toolCalls && allowMemorySearch) {
+            lastProMemorySearchAt = now;
+          }
+
+          if (proCards.length) {
+            sendUpdate({
+              title: 'Live help',
+              text: proResult.text || '',
+              cards: proCards
+            });
+
+            transcriptTurns = [];
+            intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
+            lastDigest = '';
+            newlyAccumulatedTurns = 0;
+            sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
+            return { ok: true, text: proResult.text || '', cards: proCards };
+          }
+        } catch (error) {
+          logger.error('Clyde Pro agent failed:', describeAssistantError(error));
+          sendStatus({ state: 'warning', message: 'Pro agent unavailable; using local assistant fallback.' });
+        }
+      }
+
+      if (!isFreeAssistantConfigured({ provider, model, localUrl, apiKey })) {
+        sendStatus({ state: 'warning', message: 'Local assistant fallback is not configured.' });
+        return { ok: false, message: 'Local assistant fallback is not configured.' };
+      }
 
       let responseText;
       let imageFallbackWarning = '';
@@ -648,6 +714,21 @@ function parseAssistantCards(text) {
     }
   }
 
+  for (const item of toArray(parsed.memory_cards)) {
+    const textValue = cleanText(item.fact || item.text || item.body);
+    const source = cleanText(item.source || item.filename || item.session_title);
+
+    if (textValue) {
+      cards.push({
+        type: 'memory',
+        title: 'Memory',
+        body: textValue,
+        detail: source,
+        agentic: true
+      });
+    }
+  }
+
   for (const item of toArray(parsed.risks)) {
     const textValue = cleanText(item.text || item.risk);
 
@@ -862,6 +943,35 @@ function cleanText(value) {
   return String(value || '').trim();
 }
 
+function shouldUseProAgent(settings = {}, request = {}) {
+  return settings.userTier === 'pro'
+    && settings.proAgentEnabled !== false
+    && !request.screenshot
+    && Boolean(settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY);
+}
+
+function shouldAllowProMemorySearch({
+  now = Date.now(),
+  isManualQuestion = false,
+  isSuggestionRequest = false,
+  lastProMemorySearchAt = 0,
+  proMemorySearchIntervalMs = 15000
+} = {}) {
+  if (isManualQuestion || isSuggestionRequest) {
+    return true;
+  }
+
+  return now - lastProMemorySearchAt >= proMemorySearchIntervalMs;
+}
+
+function isFreeAssistantConfigured({ provider, model, localUrl, apiKey }) {
+  if (provider === 'local') {
+    return Boolean(model && localUrl);
+  }
+
+  return Boolean(apiKey);
+}
+
 function shouldStartNewIntentUtterance(currentText, nextText) {
   const current = normalizeUtteranceText(currentText);
   const next = normalizeUtteranceText(nextText);
@@ -935,5 +1045,7 @@ module.exports = {
   isUserSpeaker,
   normalizeSelectedSources,
   outputShapeFor,
-  parseAssistantCards
+  parseAssistantCards,
+  shouldAllowProMemorySearch,
+  shouldUseProAgent
 };
