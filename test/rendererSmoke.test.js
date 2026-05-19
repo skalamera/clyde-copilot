@@ -91,18 +91,24 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(appSource, /activeCapture \? null : \(\s*<TitleBar/);
   assert.match(appSource, /activeCapture \? \(/);
   assert.match(activeSource, /Ask about the screen/);
-  assert.match(appSource, /active-assistant-status/);
   assert.match(appSource, /Waiting for assistant cards/);
+  assert.equal(activeSource.includes('active-assistant-status'), false);
+  assert.equal(activeSource.includes('`${cards.length} assistant card'), false);
   assert.match(appSource, /<ActiveCaptureView[\s\S]*status=\{status\}/);
   assert.match(activeSource, /ghost-toggle/);
   assert.match(activeSource, /active-capture-icon ghost-emoji-icon/);
   assert.match(activeSource, />👻<\/span>/);
+  assert.match(activeSource, /active-capture-icon window-emoji-icon/);
+  assert.match(activeSource, />🪟<\/span>/);
   assert.match(activeSource, /Custom Prompt/);
   assert.match(activeSource, /active-source-button/);
   assert.match(activeSource, /Minimize Clyde/);
   assert.match(activeSource, /handleMinimizedPointerDown/);
   assert.match(activeSource, /handleControlBarPointerDown/);
   assert.match(activeSource, /handleControlBarClickCapture/);
+  assert.match(activeSource, /active-control-stack/);
+  assert.match(activeSource, /active-capture-drag-tab/);
+  assert.ok(activeSource.indexOf('<ActiveGhostMeters liveLevels={liveLevels}') > activeSource.indexOf('active-control-stack'));
   assert.match(activeSource, /window\.addEventListener\('pointermove', moveWindow/);
   assert.equal(activeSource.includes('controlBarTarget.setPointerCapture'), false);
   assert.match(activeSource, /intent: 'say_next'/);
@@ -133,7 +139,8 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.equal(activeSource.includes('liveVoiceMeters'), false);
   assert.match(cssSource, /\.active-capture-shell/);
   assert.match(cssSource, /\.active-capture-bar/);
-  assert.match(cssSource, /\.active-assistant-status/);
+  assert.match(cssSource, /\.active-control-stack[\s\S]*margin: 36px auto 0/);
+  assert.match(cssSource, /\.active-capture-drag-tab[\s\S]*top: -32px/);
   assert.match(cssSource, /\.active-capture-bar[\s\S]*cursor: grab/);
   assert.match(cssSource, /\.active-assistant-panel/);
   assert.match(cssSource, /\.active-source-menu[\s\S]*top: 34px/);
@@ -193,6 +200,7 @@ test('active capture UI uses compact icon buttons and new ghost meters', () => {
   assert.match(cssSource, /\.active-icon-btn\.camera-btn/);
   assert.match(cssSource, /\.active-icon-btn\.pause-btn/);
   assert.match(cssSource, /\.active-icon-btn\.ghost-toggle \.active-capture-icon[\s\S]*font-size: 23px/);
+  assert.match(cssSource, /\.active-icon-btn\.opacity-toggle-btn \.window-emoji-icon[\s\S]*justify-content: center/);
   assert.match(cssSource, /\.active-transcript-panel/);
   assert.match(cssSource, /\.active-capture-bar\s*\{[\s\S]*width: max-content/);
   assert.match(cssSource, /\.active-capture-bar\s*\{[\s\S]*box-shadow: none/);
@@ -701,6 +709,25 @@ test('calendar month cells use taller day squares for stacked events', () => {
   assert.match(calendarStylesSource, /\.calendar-days \{[\s\S]*grid-auto-rows: minmax\(160px, 1fr\)/);
 });
 
+test('calendar marks past events with muted styling', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const calendarStart = appSource.indexOf('function CalendarView');
+  const calendarEnd = appSource.indexOf('function CalendarEventModal', calendarStart);
+  const calendarSource = appSource.slice(calendarStart, calendarEnd);
+  const stylesStart = appSource.indexOf('const calendarStyles = `');
+  const stylesEnd = appSource.indexOf('`;\n\nfunction CalendarView', stylesStart);
+  const stylesSource = appSource.slice(stylesStart, stylesEnd);
+
+  assert.match(appSource, /function isPastCalendarEvent/);
+  assert.match(calendarSource, /const nowMs = useNowMs\(\)/);
+  assert.match(calendarSource, /isPastCalendarEvent\(evt, nowMs\)/);
+  assert.match(calendarSource, /calendar-event-chip \$\{isPast \? 'past' : ''\}/);
+  assert.match(calendarSource, /calendar-event-card \$\{isPast \? 'past' : ''\}/);
+  assert.match(stylesSource, /\.calendar-event-chip\.past/);
+  assert.match(stylesSource, /\.calendar-event-card\.past/);
+  assert.match(stylesSource, /saturate\(0\.35\)/);
+});
+
 test('trend analysis cache is keyed by the session signature', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const clientSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'trendAnalysisClient.js'), 'utf8');
@@ -727,6 +754,14 @@ test('trend analysis view loads saved analysis without auto-regenerating on navi
   assert.match(trendsSource, /Generate Analysis/);
   assert.match(trendsSource, /generateTrendAnalysis\?\.\(selected\.id, \{ force: true \}\)/);
   assert.equal(trendsSource.includes('setAnalysis(null);\n      generateAnalysis();'), false);
+});
+
+test('renderer reloads sessions after background session data changes', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+
+  assert.match(appSource, /api\?\.onSessionDataChanged\?\./);
+  assert.match(appSource, /change\?\.mode/);
+  assert.match(appSource, /reloadSessions\(mode, selectedEntity \|\| change\?\.entityId \|\| ''\)/);
 });
 
 test('upcoming event lists hide events after their scheduled date time passes', () => {

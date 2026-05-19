@@ -5,9 +5,18 @@ const test = require('node:test');
 
 const repoRoot = path.join(__dirname, '..');
 
+function sourceBetween(source, startMarker, endMarker) {
+  const afterStart = source.split(startMarker)[1] || '';
+  return endMarker ? afterStart.split(endMarker)[0] : afterStart;
+}
+
 test('interview grading leaves enough response budget for written evaluation', () => {
   const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
-  const gradingBlock = mainSource.split('async function processSessionGradingInBackground')[1] || '';
+  const gradingBlock = sourceBetween(
+    mainSource,
+    'async function processSessionGradingInBackground',
+    'async function processSessionConfidenceInBackground'
+  );
   const maxTokensMatch = gradingBlock.match(/maxTokens:\s*(\d+)/);
 
   assert.ok(maxTokensMatch, 'grading maxTokens is configured');
@@ -36,7 +45,7 @@ test('interview saves clean transcript text before grading', () => {
 
 test('trend analysis generation no longer requests per-interview confidence scores', () => {
   const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
-  const trendBlock = mainSource.split("ipcMain.handle('generate-trend-analysis'")[1] || '';
+  const trendBlock = sourceBetween(mainSource, "ipcMain.handle('generate-trend-analysis'");
 
   assert.equal(trendBlock.includes('confidence_scores'), false);
   assert.equal(trendBlock.includes('confidence score (0-100) for EACH phase'), false);
@@ -67,20 +76,80 @@ test('interview saves and deletes invalidate trend analysis and recompute overal
   assert.match(deleteBlock, /sessionManager\.updateEntityConfidence\(nextPayload\.entityId, 0, 'neutral'\)/);
 });
 
-test('interview grading and confidence prompts use outcome calibration examples', () => {
+test('confidence changes notify the renderer to reload session data', () => {
   const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
-  const gradingBlock = mainSource.split('async function processSessionGradingInBackground')[1] || '';
-  const confidenceBlock = mainSource.split('async function processSessionConfidenceInBackground')[1] || '';
-  const trendBlock = mainSource.split("ipcMain.handle('generate-trend-analysis'")[1] || '';
-  const updateBlock = mainSource.split("ipcMain.handle('update-session-entity'")[1] || '';
+  const saveBlock = mainSource.split("ipcMain.handle('save-session'")[1].split("async function processInterviewCleanupAndGradingInBackground")[0];
+  const deleteBlock = mainSource.split("ipcMain.handle('delete-session'")[1].split("ipcMain.handle('delete-session-entity'")[0];
+  const confidenceBlock = sourceBetween(
+    mainSource,
+    'async function processSessionConfidenceInBackground',
+    "ipcMain.handle('delete-session'"
+  );
+
+  assert.match(mainSource, /function sendSessionDataChanged/);
+  assert.match(mainSource, /mainWindow\.webContents\.send\('session-data-changed', change\)/);
+  assert.match(saveBlock, /sendSessionDataChanged\(\{\s*mode: 'interview',\s*entityId: record\.entity\.id,\s*reason: 'session-saved'\s*\}\)/);
+  assert.match(deleteBlock, /sendSessionDataChanged\(\{\s*mode: 'interview',\s*entityId: nextPayload\.entityId,\s*reason: 'session-deleted'\s*\}\)/);
+  assert.match(deleteBlock, /sendSessionDataChanged\(\{\s*mode: 'interview',\s*entityId: nextPayload\.entityId,\s*reason: 'confidence-reset'\s*\}\)/);
+  assert.match(confidenceBlock, /sendSessionDataChanged\(\{\s*mode: 'interview',\s*entityId: entity\.id,\s*reason: 'confidence-updated'\s*\}\)/);
+});
+
+test('interview entity lists refresh deterministic confidence before returning', () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const refreshBlock = sourceBetween(
+    mainSource,
+    'function refreshInterviewEntityConfidences',
+    "ipcMain.handle('get-outcome-calibration-summary'"
+  );
+  const entitiesBlock = sourceBetween(
+    mainSource,
+    "ipcMain.handle('get-session-entities'",
+    "ipcMain.handle('get-outcome-calibration-summary'"
+  );
+
+  assert.match(refreshBlock, /calculateEntityConfidence\(sessions, entity\)/);
+  assert.match(refreshBlock, /sessionManager\.updateEntityConfidence\(entity\.id, confidence\.confidence_score, confidence\.trend\)/);
+  assert.match(entitiesBlock, /refreshInterviewEntityConfidences\(\)/);
+});
+
+test('confidence recompute uses deterministic session ratings', () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const confidenceBlock = sourceBetween(
+    mainSource,
+    'async function processSessionConfidenceInBackground',
+    "ipcMain.handle('delete-session'"
+  );
+
+  assert.match(mainSource, /calculateEntityConfidence/);
+  assert.match(confidenceBlock, /const confidence = calculateEntityConfidence\(allSessions, entity\)/);
+  assert.match(confidenceBlock, /sessionManager\.updateEntityConfidence\(entity\.id, confidence\.confidence_score, confidence\.trend\)/);
+  assert.equal(confidenceBlock.includes("name: 'confidence'"), false);
+  assert.equal(confidenceBlock.includes('combinedSessionEvidence'), false);
+  assert.equal(confidenceBlock.includes('generateChat'), false);
+});
+
+test('interview grading and trend prompts use outcome calibration examples', () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const gradingBlock = sourceBetween(
+    mainSource,
+    'async function processSessionGradingInBackground',
+    'async function processSessionConfidenceInBackground'
+  );
+  const confidenceBlock = sourceBetween(
+    mainSource,
+    'async function processSessionConfidenceInBackground',
+    "ipcMain.handle('delete-session'"
+  );
+  const trendBlock = sourceBetween(mainSource, "ipcMain.handle('generate-trend-analysis'");
+  const updateBlock = sourceBetween(mainSource, "ipcMain.handle('update-session-entity'");
 
   assert.match(mainSource, /buildOutcomeCalibrationExamples/);
   assert.match(mainSource, /formatOutcomeCalibrationExamples/);
   assert.match(mainSource, /summarizeOutcomeCalibrationExamples/);
   assert.match(mainSource, /ipcMain\.handle\('get-outcome-calibration-summary'/);
   assert.match(gradingBlock, /Real outcome calibration examples/);
-  assert.match(confidenceBlock, /Real outcome calibration examples/);
   assert.match(trendBlock, /Real outcome calibration examples/);
-  assert.match(updateBlock, /patch\.outcome !== undefined/);
+  assert.equal(confidenceBlock.includes('Real outcome calibration examples'), false);
+  assert.match(updateBlock, /patch\.outcome !== undefined\s*\|\|\s*patch\.role !== undefined\s*\|\|\s*patch\.name !== undefined/);
   assert.match(updateBlock, /processSessionConfidenceInBackground\(nextEntity, loadSettings\(\)\)/);
 });

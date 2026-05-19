@@ -299,6 +299,11 @@ function useNowMs() {
   return nowMs;
 }
 
+function isPastCalendarEvent(event, nowMs = Date.now()) {
+  const eventTime = new Date(event?.date).getTime();
+  return Number.isFinite(eventTime) && eventTime < nowMs;
+}
+
 function cleanEvaluationText(value) {
   const text = String(value || '')
     .replace(/\*\*/g, '')
@@ -1760,6 +1765,18 @@ const calendarStyles = `
     filter: brightness(1.2);
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   }
+  .calendar-event-chip.past {
+    opacity: 0.62;
+    filter: saturate(0.35) grayscale(0.55);
+    color: rgba(229, 237, 246, 0.7);
+    text-shadow: none;
+  }
+  .calendar-month-grid .calendar-event-chip.past {
+    color: rgba(17, 24, 39, 0.72);
+  }
+  .calendar-event-chip.past:hover {
+    filter: saturate(0.45) grayscale(0.45) brightness(1.05);
+  }
   /* Week View */
   .calendar-week-view {
     display: grid;
@@ -1824,6 +1841,20 @@ const calendarStyles = `
     background: rgba(255, 255, 255, 0.08);
     transform: translateY(-3px);
     box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+  }
+  .calendar-event-card.past {
+    opacity: 0.62;
+    filter: saturate(0.35) grayscale(0.55);
+  }
+  .calendar-event-card.past:hover {
+    filter: saturate(0.45) grayscale(0.45) brightness(1.05);
+  }
+  .calendar-event-card.past .event-time,
+  .calendar-event-card.past .event-entity {
+    color: rgba(219, 239, 255, 0.52);
+  }
+  .calendar-event-card.past .event-title {
+    color: rgba(243, 251, 255, 0.62);
   }
   .calendar-event-card .event-time {
     font-size: 0.8rem;
@@ -1922,6 +1953,7 @@ const calendarStyles = `
 function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEvent, mode }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState('month'); // 'month', 'week', 'day'
+  const nowMs = useNowMs();
 
   const safeEvents = Array.isArray(events) ? events : [];
 
@@ -1966,11 +1998,12 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
           <div className="day-events">
             {dayEvents.map(evt => {
               const eventLabel = resolveEventEntityLabel(evt, entities);
+              const isPast = isPastCalendarEvent(evt, nowMs);
               return (
                 <div 
                   key={evt.id} 
-                  className="calendar-event-chip" 
-                  style={{ backgroundColor: evt.color || 'var(--cyan)' }}
+                  className={`calendar-event-chip ${isPast ? 'past' : ''}`}
+                  style={{ backgroundColor: isPast ? 'rgba(148, 163, 184, 0.48)' : (evt.color || 'var(--cyan)') }}
                   onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
                   title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
                 >
@@ -2013,11 +2046,12 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
               <div className="week-day-events" onClick={() => onEditEvent({ date: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0).toISOString(), isDraft: true })}>
                 {dayEvents.sort((a,b) => new Date(a.date) - new Date(b.date)).map(evt => {
                   const eventLabel = resolveEventEntityLabel(evt, entities);
+                  const isPast = isPastCalendarEvent(evt, nowMs);
                   return (
                     <div 
                       key={evt.id} 
-                      className="calendar-event-card" 
-                      style={{ borderLeftColor: evt.color || 'var(--cyan)' }}
+                      className={`calendar-event-card ${isPast ? 'past' : ''}`}
+                      style={{ borderLeftColor: isPast ? 'rgba(148, 163, 184, 0.55)' : (evt.color || 'var(--cyan)') }}
                       onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
                       title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
                     >
@@ -2047,11 +2081,12 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
         <div className="day-view-events">
           {dayEvents.length ? dayEvents.map(evt => {
              const eventLabel = resolveEventEntityLabel(evt, entities);
+             const isPast = isPastCalendarEvent(evt, nowMs);
              return (
               <div 
                 key={evt.id} 
-                className="calendar-event-card large" 
-                style={{ borderLeftColor: evt.color || 'var(--cyan)' }}
+                className={`calendar-event-card large ${isPast ? 'past' : ''}`}
+                style={{ borderLeftColor: isPast ? 'rgba(148, 163, 184, 0.55)' : (evt.color || 'var(--cyan)') }}
                 onClick={() => onEditEvent(evt)}
                 title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
               >
@@ -2521,6 +2556,23 @@ function App() {
     });
     setSessions(nextSessions);
   }, [api, mode]);
+
+  useEffect(() => {
+    const unsubscribe = api?.onSessionDataChanged?.((_event, change = {}) => {
+      if ((change?.mode || 'interview') !== mode) {
+        return;
+      }
+
+      reloadSessions(mode, selectedEntity || change?.entityId || '')
+        .catch((error) => setStatus(`Timeline failed: ${error.message}`));
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [api, mode, reloadSessions, selectedEntity]);
 
   useEffect(() => {
     let mounted = true;
@@ -4063,9 +4115,6 @@ function ActiveCaptureView({
       ) : null}
       {!hidden ? (
         <div className="active-assistant-panel" ref={panelRef} style={{ '--active-capture-opacity': (settings.activeCaptureOpacity ?? 88) / 100 }}>
-          <div style={{ width: '100%', height: '24px', WebkitAppRegion: 'drag', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'grab', marginBottom: '-4px' }}>
-            <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px' }} />
-          </div>
           {sourceMenuOpen && promptType === 'custom' ? (
             <ActiveSourceMenu
               includeScreenshot={includeScreenshot}
@@ -4077,65 +4126,73 @@ function ActiveCaptureView({
               sources={sources}
             />
           ) : null}
-          {showMeters ? <ActiveGhostMeters liveLevels={liveLevels} /> : null}
-          <div
-            className="active-capture-bar"
-            onClickCapture={handleControlBarClickCapture}
-            onPointerDownCapture={handleControlBarPointerDown}
-          >
-            <button 
-              type="button"
-              className={`active-icon-btn ghost-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
-              onClick={onToggleCaptureProtection}
-              aria-label="Toggle Capture Protection"
-              title="Toggle Capture Protection"
-              style={{ filter: captureProtectionEnabled ? 'none' : 'grayscale(1) opacity(0.5)' }}
+          <div className="active-control-stack">
+            <div
+              className="active-capture-drag-tab"
+              onClickCapture={handleControlBarClickCapture}
+              onPointerDown={handleControlBarPointerDown}
+              aria-hidden="true"
             >
-              <span className="active-capture-icon ghost-emoji-icon" aria-hidden="true">👻</span>
-            </button>
-            <button type="button" className={`active-icon-btn camera-btn ${promptType === 'camera' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'camera' ? null : 'camera'); setSourceMenuOpen(false); }} aria-label="Screenshot Prompt" title="Ask with Screenshot">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-            </button>
-            <button type="button" className="active-icon-btn nudge-btn" onClick={handleNudge} aria-label="Nudge AI" title="What should I say next?">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path><path d="M22 10l-2 -2m0 6l2 -2" stroke="var(--amber)" strokeWidth="2"></path></svg>
-            </button>
-            <button type="button" className={`active-icon-btn custom-prompt-btn ${promptType === 'custom' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'custom' ? null : 'custom'); setSourceMenuOpen(false); }} aria-label="Custom Prompt" title="Custom Prompt">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M14 6l4 4"></path><path d="M5 21v-4L15.5 6.5a2.828 2.828 0 1 1 4 4L9 21H5z"></path><path d="M3 10h5M3 14h5" strokeDasharray="2 2"></path></svg>
-            </button>
-            <button type="button" className={`active-icon-btn transcript-toggle-btn ${showTranscript ? 'active' : ''}`} onClick={() => setShowTranscript((value) => !value)} aria-label={showTranscript ? 'Hide live transcription' : 'Show live transcription'} title={showTranscript ? 'Hide Live Transcription' : 'Show Live Transcription'}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16"></path><path d="M4 10h10"></path><path d="M4 15h16"></path><path d="M4 20h9"></path></svg>
-            </button>
-            <button type="button" className={`active-icon-btn meter-toggle-btn ${showMeters ? 'active' : ''}`} onClick={() => setShowMeters((value) => !value)} aria-label={showMeters ? 'Hide audio meters' : 'Show audio meters'} title={showMeters ? 'Hide audio meters' : 'Show audio meters'}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <path d="M5 17V9"></path>
-                <path d="M10 17V5"></path>
-                <path d="M15 17v-7"></path>
-                <path d="M20 17V7"></path>
-              </svg>
-            </button>
-            <button type="button" className={`active-icon-btn opacity-toggle-btn ${promptType === 'opacity' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'opacity' ? null : 'opacity'); setSourceMenuOpen(false); }} aria-label="Adjust Opacity" title="Adjust Transparency">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{width: '24px', height: '24px'}}>
-                <path d="M12 2v20"></path>
-                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-              </svg>
-            </button>
-            <button type="button" className="active-icon-btn reset-btn" onClick={() => { setPromptType(null); onReset(); }} aria-label="Reset session" title="Reset Session">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '20px', height: '20px'}}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-            </button>
-            <button type="button" className={`active-icon-btn pause-btn ${isPaused ? 'active' : ''}`} onClick={onPauseToggle} aria-label={isPaused ? 'Resume capture' : 'Pause capture'} title={isPaused ? 'Resume Capture' : 'Pause Capture'}>
-              {isPaused ? (
-                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"></path></svg>
-              ) : (
-                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
-              )}
-            </button>
-            <button type="button" data-testid="stopBtn" className="active-icon-btn stop-btn" onClick={() => { setPromptType(null); onStop(); }} aria-label="Stop capture" title="Stop Capture">
-              <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect></svg>
-            </button>
-            <button type="button" className="active-icon-btn minimize-btn" onClick={() => { setPromptType(null); setSourceMenuOpen(false); onHide(); }} aria-label="Minimize Clyde" title="Minimize Clyde">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M7 12h10"></path></svg>
-            </button>
+              <span></span>
+              <span></span>
+            </div>
+            <div
+              className="active-capture-bar"
+              onClickCapture={handleControlBarClickCapture}
+              onPointerDownCapture={handleControlBarPointerDown}
+            >
+              <button 
+                type="button"
+                className={`active-icon-btn ghost-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
+                onClick={onToggleCaptureProtection}
+                aria-label="Toggle Capture Protection"
+                title="Toggle Capture Protection"
+                style={{ filter: captureProtectionEnabled ? 'none' : 'grayscale(1) opacity(0.5)' }}
+              >
+                <span className="active-capture-icon ghost-emoji-icon" aria-hidden="true">👻</span>
+              </button>
+              <button type="button" className={`active-icon-btn camera-btn ${promptType === 'camera' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'camera' ? null : 'camera'); setSourceMenuOpen(false); }} aria-label="Screenshot Prompt" title="Ask with Screenshot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+              </button>
+              <button type="button" className="active-icon-btn nudge-btn" onClick={handleNudge} aria-label="Nudge AI" title="What should I say next?">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path><path d="M22 10l-2 -2m0 6l2 -2" stroke="var(--amber)" strokeWidth="2"></path></svg>
+              </button>
+              <button type="button" className={`active-icon-btn custom-prompt-btn ${promptType === 'custom' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'custom' ? null : 'custom'); setSourceMenuOpen(false); }} aria-label="Custom Prompt" title="Custom Prompt">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{width: "24px", height: "24px"}}><path d="M14 6l4 4"></path><path d="M5 21v-4L15.5 6.5a2.828 2.828 0 1 1 4 4L9 21H5z"></path><path d="M3 10h5M3 14h5" strokeDasharray="2 2"></path></svg>
+              </button>
+              <button type="button" className={`active-icon-btn transcript-toggle-btn ${showTranscript ? 'active' : ''}`} onClick={() => setShowTranscript((value) => !value)} aria-label={showTranscript ? 'Hide live transcription' : 'Show live transcription'} title={showTranscript ? 'Hide Live Transcription' : 'Show Live Transcription'}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16"></path><path d="M4 10h10"></path><path d="M4 15h16"></path><path d="M4 20h9"></path></svg>
+              </button>
+              <button type="button" className={`active-icon-btn meter-toggle-btn ${showMeters ? 'active' : ''}`} onClick={() => setShowMeters((value) => !value)} aria-label={showMeters ? 'Hide audio meters' : 'Show audio meters'} title={showMeters ? 'Hide audio meters' : 'Show audio meters'}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M5 17V9"></path>
+                  <path d="M10 17V5"></path>
+                  <path d="M15 17v-7"></path>
+                  <path d="M20 17V7"></path>
+                </svg>
+              </button>
+              <button type="button" className={`active-icon-btn opacity-toggle-btn ${promptType === 'opacity' ? 'active' : ''}`} onClick={() => { setPromptType(p => p === 'opacity' ? null : 'opacity'); setSourceMenuOpen(false); }} aria-label="Adjust Opacity" title="Adjust Transparency">
+                <span className="active-capture-icon window-emoji-icon" aria-hidden="true">🪟</span>
+              </button>
+              <button type="button" className="active-icon-btn reset-btn" onClick={() => { setPromptType(null); onReset(); }} aria-label="Reset session" title="Reset Session">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '20px', height: '20px'}}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+              </button>
+              <button type="button" className={`active-icon-btn pause-btn ${isPaused ? 'active' : ''}`} onClick={onPauseToggle} aria-label={isPaused ? 'Resume capture' : 'Pause capture'} title={isPaused ? 'Resume Capture' : 'Pause Capture'}>
+                {isPaused ? (
+                  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"></path></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
+                )}
+              </button>
+              <button type="button" data-testid="stopBtn" className="active-icon-btn stop-btn" onClick={() => { setPromptType(null); onStop(); }} aria-label="Stop capture" title="Stop Capture">
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect></svg>
+              </button>
+              <button type="button" className="active-icon-btn minimize-btn" onClick={() => { setPromptType(null); setSourceMenuOpen(false); onHide(); }} aria-label="Minimize Clyde" title="Minimize Clyde">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M7 12h10"></path></svg>
+              </button>
+            </div>
           </div>
+          {showMeters ? <ActiveGhostMeters liveLevels={liveLevels} /> : null}
           
           {promptType ? (
             <div style={{ position: 'relative' }}>
@@ -4330,11 +4387,6 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
         <h3>Live assistant</h3>
         <span>{cards.length} cards</span>
       </div>}
-      {active ? (
-        <div className="active-assistant-status" aria-live="polite">
-          {displayCards.length ? `${cards.length} assistant card${cards.length === 1 ? '' : 's'}` : (status || 'Waiting for assistant cards.')}
-        </div>
-      ) : null}
       
       {groups.length > 1 && (
         <div className="carousel-nav">

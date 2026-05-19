@@ -26,7 +26,8 @@ test('preload exposes mode-aware session APIs', () => {
     'getActiveCaptureWindowBounds',
     'moveActiveCaptureWindow',
     'listAudioDevices',
-    'setAudioDevices'
+    'setAudioDevices',
+    'onSessionDataChanged'
   ]) {
     assert.match(source, new RegExp(`${api}:`));
   }
@@ -45,4 +46,7 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /moveActiveCaptureWindow:\s*\(bounds\)\s*=>\s*ipcRenderer\.invoke\('move-active-capture-window', bounds\)/);
   assert.match(source, /listAudioDevices:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-audio-devices'\)/);
   assert.match(source, /setAudioDevices:\s*\(devices\)\s*=>\s*ipcRenderer\.invoke\('set-audio-devices', devices\)/);
+  assert.match(source, /onSessionDataChanged:\s*\(callback\)\s*=>\s*\{/);
+  assert.match(source, /ipcRenderer\.on\('session-data-changed', callback\)/);
+  assert.match(source, /ipcRenderer\.off\('session-data-changed', callback\)/);
 });

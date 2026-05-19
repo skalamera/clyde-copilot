@@ -53,5 +53,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onHealthUpdate: (callback) => ipcRenderer.on('health-update', callback),
     onAudioLevelUpdate: (callback) => ipcRenderer.on('audio-level-update', callback),
     onSessionReset: (callback) => ipcRenderer.on('session-reset', callback),
-    onAudioStatus: (callback) => ipcRenderer.on('audio-status', callback)
+    onAudioStatus: (callback) => ipcRenderer.on('audio-status', callback),
+    onSessionDataChanged: (callback) => {
+        ipcRenderer.on('session-data-changed', callback);
+        return () => ipcRenderer.off('session-data-changed', callback);
+    }
 });

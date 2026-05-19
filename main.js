@@ -32,6 +32,7 @@ const { startAutoUpdater } = require('./src/autoUpdater');
 const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
 const { buildTrendAnalysisSessionSignature, directAddressFeedback, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
+const { calculateEntityConfidence } = require('./src/confidenceScoring');
 const {
     buildOutcomeCalibrationExamples,
     formatOutcomeCalibrationExamples,
@@ -746,6 +747,14 @@ function sendAudioStatus(status) {
     }
 
     mainWindow.webContents.send('audio-status', status);
+}
+
+function sendSessionDataChanged(change = {}) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+    }
+
+    mainWindow.webContents.send('session-data-changed', change);
 }
 
 function updateHealth(key, next) {
@@ -1573,8 +1582,27 @@ function createWindow () {
       return sessionManager.getSessions(filters || {});
   });
 
+  function refreshInterviewEntityConfidences() {
+      try {
+          const entities = sessionManager.getSessionEntities('interview');
+          for (const entity of entities) {
+              const sessions = sessionManager.getSessions({ mode: 'interview', entityId: entity.id });
+              const confidence = calculateEntityConfidence(sessions, entity);
+              if (entity.confidence !== confidence.confidence_score || entity.trend !== confidence.trend) {
+                  sessionManager.updateEntityConfidence(entity.id, confidence.confidence_score, confidence.trend);
+              }
+          }
+      } catch (error) {
+          console.warn('Failed to refresh interview confidence scores:', error);
+      }
+  }
+
   ipcMain.handle('get-session-entities', (event, mode) => {
-      return sessionManager.getSessionEntities(mode || 'interview');
+      const normalizedMode = mode || 'interview';
+      if (normalizedMode === 'interview') {
+          refreshInterviewEntityConfidences();
+      }
+      return sessionManager.getSessionEntities(normalizedMode);
   });
 
   ipcMain.handle('get-outcome-calibration-summary', (event, entity = {}) => {
@@ -1589,6 +1617,11 @@ function createWindow () {
       const isInterviewSession = record && record.mode === 'interview' && record.entity;
       if (isInterviewSession) {
          deleteTrendAnalysis(app.getPath('userData'), record.entity.id);
+         sendSessionDataChanged({
+             mode: 'interview',
+             entityId: record.entity.id,
+             reason: 'session-saved'
+         });
       }
 
       if (isInterviewSession && record.grading && record.grading.status === 'pending' && hasTranscript) {
@@ -1862,77 +1895,19 @@ function createWindow () {
       sendAudioStatus({ state: 'processing', message: `Computing confidence score for ${entity.name}...` });
       
       try {
-          // Get all interview sessions for this entity to analyze
           const allSessions = sessionManager.getSessions({ mode: 'interview', entityId: entity.id });
           if (allSessions.length === 0) {
               sendAudioStatus({ state: 'success', message: `Evaluation complete for ${entity.name}!` });
               return;
           }
 
-          const provider = settings.llmProvider || 'local';
-          const apiKey = settings.llmApiKey || '';
-          const model = settings.llmModel || '';
-          const localUrl = settings.localLlmUrl;
-
-          const combinedTranscripts = allSessions.map((inv, idx) => `\n--- Interview ${idx + 1} (${inv.title}) ---\n` + inv.transcript.map(t => `${t.speaker}: ${t.text}`).join('\n')).join('\n');
-
-          const roleStr = entity.role ? `\nRole/Job Title: ${entity.role}` : '';
-          const jd = interviewManager.getCompanyJobDescription(entity.name) || interviewManager.getCompanyJobDescription(entity.id);
-          const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
-          const outcomeCalibrationSection = buildOutcomeCalibrationSection(entity);
-
-          const confPrompt = `You are a strict, objective hiring manager evaluating a candidate across all their interviews for a company.
-          Company: ${entity.name}${roleStr}${jdStr}
-          
-          Review the transcripts of all their interviews so far.
-          Determine the likelihood of them receiving an offer or moving to the next round, as a percentage from 0 to 100.
-          CRITICAL: Be extremely precise and granular with your percentage. Do NOT default to round numbers or multiples of 5 (e.g. avoid exactly 80, 85, 90). Instead, give highly specific numbers based on a detailed analysis of their performance (e.g., 82, 87, 91, 74). Be highly realistic and critical.
-          Determine if their trend is "up", "down", or "neutral" compared to previous rounds (if only one round, default to neutral).
-          Real outcome calibration examples are included below when Clyde has labeled local examples. Use them as local context for what has led to rejection, advancement, or offers.
-
-          ${outcomeCalibrationSection}
-          
-          Transcripts:
-          ${combinedTranscripts}`;
-
-          const confText = await generateChat({
-              provider,
-              apiKey,
-              model,
-              temperature: 0.2,
-              maxTokens: 300,
-              axiosClient: axios,
-              localUrl,
-              jsonSchema: {
-                  name: 'confidence',
-                  schema: {
-                      type: 'object',
-                      properties: {
-                          confidence_score: { type: 'integer' },
-                          trend: { type: 'string', enum: ['up', 'down', 'neutral'] }
-                      },
-                      required: ['confidence_score', 'trend'],
-                      additionalProperties: false
-                  }
-              },
-              messages: [{ role: 'user', content: confPrompt }]
+          const confidence = calculateEntityConfidence(allSessions, entity);
+          sessionManager.updateEntityConfidence(entity.id, confidence.confidence_score, confidence.trend);
+          sendSessionDataChanged({
+              mode: 'interview',
+              entityId: entity.id,
+              reason: 'confidence-updated'
           });
-
-          let confData = { confidence_score: 0, trend: 'neutral' };
-          try {
-              let cleanedText = confText.trim();
-              if (cleanedText.startsWith('\`\`\`json')) {
-                  cleanedText = cleanedText.replace(/^\`\`\`json/g, '').replace(/\`\`\`$/g, '').trim();
-              } else if (cleanedText.startsWith('\`\`\`')) {
-                  cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
-              }
-              confData = JSON.parse(cleanedText);
-          } catch (e) {
-              console.error("Failed to parse confidence score JSON:", confText);
-          }
-
-          // Save the confidence to the entity's meta.json
-          sessionManager.updateEntityConfidence(entity.id, confData.confidence_score, confData.trend);
           sendAudioStatus({ state: 'success', message: `Evaluation complete for ${entity.name}!` });
 
       } catch (err) {
@@ -1947,11 +1922,21 @@ function createWindow () {
 
       if (nextPayload.mode === 'interview' && nextPayload.entityId) {
           deleteTrendAnalysis(app.getPath('userData'), nextPayload.entityId);
+          sendSessionDataChanged({
+              mode: 'interview',
+              entityId: nextPayload.entityId,
+              reason: 'session-deleted'
+          });
           const remaining = sessionManager.getSessions({ mode: 'interview', entityId: nextPayload.entityId });
           if (remaining.length > 0) {
               processSessionConfidenceInBackground(remaining[0].entity, loadSettings()).catch(console.error);
           } else {
               sessionManager.updateEntityConfidence(nextPayload.entityId, 0, 'neutral');
+              sendSessionDataChanged({
+                  mode: 'interview',
+                  entityId: nextPayload.entityId,
+                  reason: 'confidence-reset'
+              });
           }
       }
 
@@ -1983,7 +1968,8 @@ function createWindow () {
           if (patch.role !== undefined) {
               try { interviewManager.setCompanyRole(payload.entityId, patch.role); } catch (error) { console.warn(error.message); }
           }
-          if (patch.outcome !== undefined) {
+          const shouldRecomputeConfidence = patch.outcome !== undefined || patch.role !== undefined || patch.name !== undefined;
+          if (shouldRecomputeConfidence) {
               processSessionConfidenceInBackground(nextEntity, loadSettings()).catch(console.error);
           }
       }
