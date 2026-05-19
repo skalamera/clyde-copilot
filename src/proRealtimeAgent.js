@@ -71,8 +71,7 @@ function createProRealtimeAgent(options = {}) {
               context: payload.context,
               command: payload.command
             }),
-            modalities: ['text'],
-            output_modalities: ['text'],
+              output_modalities: ['text'],
             tool_choice: 'auto',
             tools: getProAgentTools()
           }
@@ -92,10 +91,9 @@ function createProRealtimeAgent(options = {}) {
 
         sendJson(ws, {
           type: 'response.create',
-          response: {
-            modalities: ['text'],
-            output_modalities: ['text']
-          }
+            response: {
+              output_modalities: ['text']
+            }
         });
       });
 
@@ -156,7 +154,6 @@ function createProRealtimeAgent(options = {}) {
           sendJson(ws, {
             type: 'response.create',
             response: {
-              modalities: ['text'],
               output_modalities: ['text']
             }
           });
