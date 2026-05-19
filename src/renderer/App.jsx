@@ -63,6 +63,14 @@ const EMPTY_SETTINGS = {
   ragEnabled: false,
   pineconeApiKey: '',
   pineconeHost: '',
+  userTier: 'free',
+  proAgentEnabled: false,
+  proRealtimeModel: 'gpt-realtime-2',
+  embeddingProvider: 'gemini',
+  embeddingModel: 'gemini-embedding-2',
+  embeddingApiKey: '',
+  pineconeNamespace: 'clyde-pro-knowledge',
+  pinnedKnowledgeIds: [],
   captureProtectionEnabled: true,
   uiOpacity: 100
 };
@@ -2686,29 +2694,35 @@ function App() {
   }
 
   async function saveSettings(nextSettings) {
-    const normalized = {
-      ...settings,
-      ...nextSettings,
-      appMode: mode,
-      uiOpacity: clampUiOpacity(nextSettings.uiOpacity ?? settings.uiOpacity),
-      meetingAttendees: parseAttendees(nextSettings.meetingAttendeesText ?? attendeeLines(nextSettings.meetingAttendees || settings.meetingAttendees))
-    };
+    try {
+      const normalized = {
+        ...settings,
+        ...nextSettings,
+        appMode: mode,
+        uiOpacity: clampUiOpacity(nextSettings.uiOpacity ?? settings.uiOpacity),
+        meetingAttendees: parseAttendees(nextSettings.meetingAttendeesText ?? attendeeLines(nextSettings.meetingAttendees || settings.meetingAttendees))
+      };
 
-    delete normalized.meetingAttendeesText;
-    await api?.saveSettings?.(normalized);
-    await api?.setActiveSessionContext?.({
-      mode,
-      company: normalized.currentCompany,
-      role: normalized.currentRole,
-      meetingTitle: normalized.meetingTitle,
-      attendees: normalized.meetingAttendees,
-      memory: normalized.meetingMemory
-    });
-    setSettings(normalized);
-    setSettingsOpen(false);
-    setSetupOpen(false);
-    setStatus('Settings saved.');
-    await reloadSessions(mode);
+      delete normalized.meetingAttendeesText;
+      await api?.saveSettings?.(normalized);
+      await api?.setActiveSessionContext?.({
+        mode,
+        company: normalized.currentCompany,
+        role: normalized.currentRole,
+        meetingTitle: normalized.meetingTitle,
+        attendees: normalized.meetingAttendees,
+        memory: normalized.meetingMemory
+      });
+      setSettings(normalized);
+      setSettingsOpen(false);
+      setSetupOpen(false);
+      setStatus('Settings saved.');
+      await reloadSessions(mode);
+    } catch (error) {
+      const message = error?.message || 'Unknown error';
+      setStatus(`Settings save failed: ${message}`);
+      throw error;
+    }
   }
 
   async function toggleCaptureProtection() {
@@ -3239,6 +3253,7 @@ function App() {
             onStartEvent={startCalendarEvent}
             view={workspaceView}
             onStartCapture={startCapture}
+            isProTier={settings.userTier === 'pro'}
           />
 
         {workspaceView === 'timeline' ? (
@@ -3299,6 +3314,14 @@ function App() {
               setCalendarModalOpen(true);
             }}
             mode={mode}
+          />
+        ) : workspaceView === 'knowledge' ? (
+          <KnowledgeView
+            settings={settings}
+            onPinnedChange={(ids) => setSettings((current) => ({
+              ...current,
+              pinnedKnowledgeIds: ids
+            }))}
           />
         ) : <>
             <StatusStrip
@@ -3602,7 +3625,7 @@ function GearIcon() {
   );
 }
 
-function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEvent }) {
+function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEvent, isProTier = false }) {
   const timelineLabel = mode === 'interview' ? 'Timeline' : 'Memory';
   const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
   const nextEventLabel = resolveEventEntityLabel(nextUpcomingEvent);
@@ -3610,6 +3633,7 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEven
     { id: 'live', eyebrow: 'Now', label: 'Assist' },
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav' },
     ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trends', testId: 'trendsNav' }] : []),
+    ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav' }] : []),
     { id: 'calendar', eyebrow: 'Schedule', label: 'Calendar', testId: 'calendarNav' }
   ];
 
@@ -3660,6 +3684,183 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEven
       </div>
     </nav>
   );
+}
+
+function KnowledgeView({ settings = {}, onPinnedChange }) {
+  const api = window.electronAPI;
+  const [items, setItems] = useState([]);
+  const [query, setQuery] = useState('');
+  const [type, setType] = useState('');
+  const [status, setStatus] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const pinnedKnowledgeIds = Array.isArray(settings.pinnedKnowledgeIds) ? settings.pinnedKnowledgeIds : [];
+
+  const loadKnowledge = useCallback(async (nextQuery = query, nextType = type) => {
+    try {
+      const rows = await api?.listKnowledge?.({ query: nextQuery, type: nextType });
+      setItems(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      setStatus(`Knowledge load failed: ${error.message}`);
+    }
+  }, [api, query, type]);
+
+  useEffect(() => {
+    loadKnowledge('', '').catch((error) => setStatus(`Knowledge load failed: ${error.message}`));
+  }, [loadKnowledge]);
+
+  async function runSearch(event) {
+    event?.preventDefault?.();
+    await loadKnowledge(query, type);
+  }
+
+  async function ingestPaths(paths = []) {
+    const filePaths = paths.filter(Boolean);
+    if (!filePaths.length) {
+      return;
+    }
+
+    setStatus(`Adding ${filePaths.length} file${filePaths.length === 1 ? '' : 's'}...`);
+    try {
+      for (const filePath of filePaths) {
+        await api?.ingestKnowledgeFile?.(filePath);
+      }
+      setStatus('Knowledge files added.');
+      await loadKnowledge(query, type);
+    } catch (error) {
+      setStatus(`Upload failed: ${error.message}`);
+    }
+  }
+
+  async function openPicker() {
+    setStatus('Opening file picker...');
+    try {
+      const rows = await api?.openKnowledgeFileDialog?.();
+      if (Array.isArray(rows) && rows.length) {
+        setStatus(`${rows.length} file${rows.length === 1 ? '' : 's'} added.`);
+        await loadKnowledge(query, type);
+      } else {
+        setStatus('');
+      }
+    } catch (error) {
+      setStatus(`Upload failed: ${error.message}`);
+    }
+  }
+
+  async function togglePin(id) {
+    const current = pinnedKnowledgeIds.includes(id);
+    const nextIds = current
+      ? pinnedKnowledgeIds.filter((itemId) => itemId !== id)
+      : [...pinnedKnowledgeIds, id].slice(0, 3);
+
+    if (!current && pinnedKnowledgeIds.length >= 3) {
+      setStatus('Pin up to 3 knowledge items.');
+      return;
+    }
+
+    await api?.setPinnedKnowledge?.(nextIds);
+    onPinnedChange?.(nextIds);
+    setStatus(nextIds.length ? 'Pinned context updated.' : 'Pinned context cleared.');
+  }
+
+  async function deleteItem(id) {
+    await api?.deleteKnowledgeItem?.(id);
+    const nextPinned = pinnedKnowledgeIds.filter((itemId) => itemId !== id);
+    if (nextPinned.length !== pinnedKnowledgeIds.length) {
+      await api?.setPinnedKnowledge?.(nextPinned);
+      onPinnedChange?.(nextPinned);
+    }
+    await loadKnowledge(query, type);
+  }
+
+  return (
+    <section className="knowledge-view">
+      <div className="knowledge-head">
+        <div>
+          <span className="section-kicker">Clyde Pro</span>
+          <h2>Knowledge</h2>
+        </div>
+        <button className="primary-action" type="button" onClick={openPicker}>Add files</button>
+      </div>
+
+      <div
+        className={`knowledge-dropzone ${dragActive ? 'active' : ''}`}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setDragActive(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+          ingestPaths(Array.from(event.dataTransfer.files || []).map((file) => file.path));
+        }}
+      >
+        <strong>Drop research files</strong>
+        <span>.txt, .md, and .pdf files are indexed locally and sent to Pinecone when configured.</span>
+      </div>
+
+      <form className="knowledge-search" onSubmit={runSearch}>
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search knowledge" />
+        <select value={type} onChange={(event) => setType(event.target.value)}>
+          <option value="">All types</option>
+          <option value="upload">Uploads</option>
+          <option value="transcript">Transcripts</option>
+        </select>
+        <button type="submit">Search</button>
+      </form>
+
+      <div className="knowledge-pinned">
+        <strong>Pinned context</strong>
+        <span>{pinnedKnowledgeIds.length}/3 active</span>
+      </div>
+
+      {status ? <div className="knowledge-status">{status}</div> : null}
+
+      <div className="knowledge-list">
+        {items.length ? items.map((item) => {
+          const pinned = pinnedKnowledgeIds.includes(item.id);
+          return (
+            <article className="knowledge-row" key={item.id}>
+              <div>
+                  <strong>{item.filename}</strong>
+                  <span>{item.type} • {formatKnowledgeDate(item.updated_at || item.created_at)}</span>
+                  {item.metadata?.pinecone ? (
+                    <span className="pinecone-badge">Pinecone</span>
+                  ) : null}
+                  <p>{previewKnowledgeText(item.content)}</p>
+              </div>
+              <div className="knowledge-row-actions">
+                <button type="button" className={pinned ? 'active' : ''} onClick={() => togglePin(item.id)}>
+                  {pinned ? 'Pinned' : 'Pin'}
+                </button>
+                <button type="button" onClick={() => deleteItem(item.id)}>Delete</button>
+              </div>
+            </article>
+          );
+        }) : (
+          <EmptyState title="No knowledge items" body="Add research files or save calls to build local memory." />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function previewKnowledgeText(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+function formatKnowledgeDate(value) {
+  if (!value) {
+    return 'Unknown date';
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toLocaleDateString();
 }
 
 function ModeToggle({ mode, onChange }) {
@@ -4428,7 +4629,7 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
           const showCardTitle = cardTitle && cardTitle.toLowerCase() !== cardLabel.toLowerCase();
 
           return (
-            <article className={`assistant-card ${card.type || 'note'}`} key={card.id || `${card.title}-${index}`}>
+            <article className={`assistant-card ${card.type || 'note'} ${card.agentic ? 'assistant-card-agentic' : ''}`} key={card.id || `${card.title}-${index}`}>
               {onDismissCard && (
                 <button 
                   type="button" 
@@ -4440,7 +4641,10 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
                   &times;
                 </button>
               )}
-              <div className="card-kicker">{cardLabel}</div>
+              <div className="card-kicker">
+                <span>{cardLabel}</span>
+                {card.agentic ? <span className="agentic-badge">Pro</span> : null}
+              </div>
               {showCardTitle ? <h4>{cardTitle}</h4> : null}
               {card.body ? <p>{card.body}</p> : null}
               {card.bullets?.length ? (
@@ -5209,10 +5413,20 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
   const [activeTab, setActiveTab] = useState('context');
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
   const [audioDeviceStatus, setAudioDeviceStatus] = useState('');
+  const [saveStatus, setSaveStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     setDraft({ ...settings });
+    setSaveStatus('');
   }, [settings]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     applyUiOpacityToRoot(draft.uiOpacity);
@@ -5226,6 +5440,23 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
 
   function update(key, value) {
     setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setSaveStatus('');
+
+    try {
+      await onSave(draft);
+    } catch (error) {
+      const message = error?.message || 'Unknown error';
+      setSaveStatus(`Save failed: ${message}`);
+    } finally {
+      if (mountedRef.current) {
+        setSaving(false);
+      }
+    }
   }
 
   async function refreshAudioDevices() {
@@ -5282,13 +5513,11 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
   }
 
   return (
-    <form className={`settings-form ${compact ? 'compact' : ''}`} onSubmit={(event) => {
-      event.preventDefault();
-      onSave(draft);
-    }}>
-      <div className="tabs" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+    <form className={`settings-form ${compact ? 'compact' : ''}`} onSubmit={handleSubmit}>
+      <div className="tabs" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <button type="button" className={activeTab === 'context' ? 'active' : ''} onClick={() => setActiveTab('context')}>Context</button>
         <button type="button" className={activeTab === 'llm' ? 'active' : ''} onClick={() => setActiveTab('llm')}>LLM</button>
+        <button type="button" className={activeTab === 'pro' ? 'active' : ''} onClick={() => setActiveTab('pro')}>Pro</button>
         <button type="button" className={activeTab === 'transcription' ? 'active' : ''} onClick={() => setActiveTab('transcription')}>Speech</button>
       </div>
 
@@ -5378,6 +5607,53 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
         </div>
       )}
 
+      {activeTab === 'pro' && (
+        <div className="form-grid">
+          <label>
+            User tier
+            <select value={draft.userTier || 'free'} onChange={(event) => update('userTier', event.target.value)}>
+              <option value="free">Free</option>
+              <option value="pro">Pro</option>
+            </select>
+          </label>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={Boolean(draft.proAgentEnabled)}
+              onChange={(event) => update('proAgentEnabled', event.target.checked)}
+            />
+            Enable Clyde Pro agent
+          </label>
+          <label>
+            Realtime model
+            <input value={draft.proRealtimeModel || ''} onChange={(event) => update('proRealtimeModel', event.target.value)} placeholder="gpt-realtime-2" />
+          </label>
+          <label>
+            Embedding provider
+            <select value={draft.embeddingProvider || 'gemini'} onChange={(event) => {
+              const provider = event.target.value;
+              update('embeddingProvider', provider);
+              update('embeddingModel', provider === 'openai' ? 'text-embedding-3-small' : 'gemini-embedding-2');
+            }}>
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <label>
+            Embedding model
+            <input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" />
+          </label>
+          <label>
+            Embedding API key
+            <input autoComplete="new-password" type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} placeholder="Uses Gemini or OpenAI key when empty" />
+          </label>
+          <label>
+            Pinecone namespace
+            <input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} placeholder="clyde-pro-knowledge" />
+          </label>
+        </div>
+      )}
+
       {activeTab === 'transcription' && (
         <div className="form-grid">
           <label>
@@ -5440,7 +5716,10 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
       )}
 
       <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        <button type="submit" data-testid="saveBtn" className="primary-action">Save setup</button>
+        <button type="submit" data-testid="saveBtn" className="primary-action" disabled={saving}>
+          {saving ? 'Saving...' : 'Save setup'}
+        </button>
+        {saveStatus ? <small className="settings-save-status" role="status">{saveStatus}</small> : null}
       </div>
     </form>
   );
@@ -5505,7 +5784,8 @@ function normalizeCardForRender(card) {
     body: card.body || card.text || '',
     question: card.question || '',
     bullets: Array.isArray(card.bullets) ? card.bullets : [],
-    detail: card.detail || card.why || ''
+    detail: card.detail || card.why || '',
+    agentic: Boolean(card.agentic)
   };
 }
 
@@ -5548,7 +5828,8 @@ function labelForCard(type) {
     insight: 'Insight',
     screen_description: 'Screen',
     risk: 'Watch',
-    note: 'Note'
+    note: 'Note',
+    memory: 'Memory'
   }[type] || 'Note';
 }
 
