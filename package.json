@@ -28,6 +28,7 @@
     "@pinecone-database/pinecone": "^7.2.0",
     "@playwright/mcp": "^0.0.75",
     "axios": "^1.16.0",
+    "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
     "electron-log": "^5.4.3",
     "electron-store": "^11.0.2",
@@ -43,8 +44,9 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@vitejs/plugin-react": "^6.0.1",
-    "electron": "^42.0.1",
+    "electron": "^41.6.1",
     "electron-builder": "^26.8.1",
     "vite": "^8.0.12"
   },
