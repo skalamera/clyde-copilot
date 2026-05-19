@@ -2879,3 +2879,45 @@ body:has(.app-shell-active) {
     }
   }
 
+
+.main-drag-tab {
+  -webkit-app-region: drag;
+  align-items: center;
+  background: var(--panel-strong);
+  border: 1px solid rgba(154, 202, 255, 0.12);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 18px;
+  justify-content: center;
+  left: 50%;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  transform-origin: top center;
+  width: 60px;
+  z-index: 30;
+  opacity: 0.35;
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.main-drag-tab:hover {
+  cursor: pointer;
+  opacity: 1;
+  transform: translateX(-50%) scale(1.15);
+}
+
+.main-drag-tab:active {
+  cursor: grabbing;
+}
+
+.main-drag-tab span {
+  background: var(--muted-2);
+  border-radius: 4px;
+  height: 2px;
+  width: 24px;
+}
+

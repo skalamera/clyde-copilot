@@ -3521,11 +3521,15 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
     ? ''
     : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
 
-    return (
-      <header className="title-bar">
-        <div className="title-brand">
-          <img src={settings?.userTier === 'pro' ? proFullLogoUrl : logoUrl} alt="" className="brand-mark" />
-        </div>
+      return (
+        <header className="title-bar">
+          <div className="main-drag-tab" aria-hidden="true">
+            <span></span>
+            <span></span>
+          </div>
+          <div className="title-brand">
+            <img src={settings?.userTier === 'pro' ? proFullLogoUrl : logoUrl} alt="" className="brand-mark" />
+          </div>
 
       <div className="title-center">
         <ModeToggle mode={mode} onChange={onModeChange} />
