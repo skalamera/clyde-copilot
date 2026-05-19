@@ -3523,7 +3523,7 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
 
       return (
         <header className="title-bar">
-          <div className="main-drag-tab" aria-hidden="true">
+          <div className="main-drag-tab" aria-hidden="true" title="Drag to move window">
             <span></span>
             <span></span>
           </div>
