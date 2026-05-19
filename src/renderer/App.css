@@ -2857,3 +2857,11 @@ body:has(.app-shell-active) {
   100% { opacity: 1; text-shadow: 0 0 8px rgba(155, 140, 255, 0.4); }
 }
 
+
+  @media (max-width: 980px) {
+    .workspace-timeline {
+      height: auto;
+      overflow: visible;
+    }
+  }
+

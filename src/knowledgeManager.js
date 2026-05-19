@@ -80,25 +80,30 @@ function createKnowledgeManager(options = {}) {
 
     const now = new Date().toISOString();
     const id = transcriptKnowledgeId(session);
-    const metadata = {
-      source: 'session',
-      sessionId: clean(session.id),
-      mode: normalizeMode(session.mode),
-      title: clean(session.title || session.phase),
-      entityId: clean(session.entity?.id || session.entity?.name || 'general'),
-      entityName: clean(session.entity?.name || session.entity?.id || 'General'),
-      date: clean(session.date)
-    };
+      const metadata = {
+        source: 'session',
+        sessionId: clean(session.id),
+        mode: normalizeMode(session.mode),
+        title: clean(session.title || session.phase),
+        entityId: clean(session.entity?.id || session.entity?.name || 'general'),
+        entityName: clean(session.entity?.name || session.entity?.id || 'General'),
+        date: clean(session.date)
+      };
 
-    const item = upsertKnowledgeItem({
-      id,
-      filename: sessionKnowledgeFilename(session),
-      file_path: '',
-      content,
-      type: 'transcript',
-      metadata,
-      now
-    });
+      const existing = getKnowledgeItem(id);
+
+      const item = upsertKnowledgeItem({
+        id,
+        filename: sessionKnowledgeFilename(session),
+        file_path: '',
+        content,
+        type: 'transcript',
+        metadata: {
+          ...metadata,
+          ...(existing?.metadata || {})
+        },
+        now
+      });
 
     indexKnowledgeItem(item, settings).catch((error) => {
       logger.warn?.('Knowledge transcript indexing failed:', error);

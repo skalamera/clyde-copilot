@@ -1418,13 +1418,20 @@ function createWindow () {
       appPath: app.getPath('userData')
   });
 
-  knowledgeManager = createKnowledgeManager({
-      appPath: app.getPath('userData'),
-      logger: console
-  });
-  backfillKnowledgeFromSessions(settings).catch((error) => {
-      console.warn('Knowledge base backfill failed:', error);
-  });
+    knowledgeManager = createKnowledgeManager({
+        appPath: app.getPath('userData'),
+        logger: console
+    });
+
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+    if (!store.get('knowledgeBackfillDone_v2')) {
+        backfillKnowledgeFromSessions(settings).then(() => {
+            store.set('knowledgeBackfillDone_v2', true);
+        }).catch((error) => {
+            console.warn('Knowledge base backfill failed:', error);
+        });
+    }
 
   // Setup IPC communication for start/stop transcription
   ipcMain.on('start-audio-capture', async (event) => {
