@@ -6,6 +6,9 @@ import {
 } from './trendAnalysisClient.js';
 
 const logoUrl = new URL('../../clyde.svg', import.meta.url).href;
+const proLogoUrl = new URL('../../clyde_pro.svg', import.meta.url).href;
+const proFullLogoUrl = new URL('../../clyde_pro_full_text_only.svg', import.meta.url).href;
+const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
 const ghostUrl = new URL('../../clyde_ghost.svg', import.meta.url).href;
 
 function unwrapTrendAnalysisRecord(record) {
@@ -3518,11 +3521,11 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
     ? ''
     : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
 
-  return (
-    <header className="title-bar">
-      <div className="title-brand">
-        <img src={logoUrl} alt="" className="brand-mark" />
-      </div>
+    return (
+      <header className="title-bar">
+        <div className="title-brand">
+          <img src={settings?.userTier === 'pro' ? proFullLogoUrl : logoUrl} alt="" className="brand-mark" />
+        </div>
 
       <div className="title-center">
         <ModeToggle mode={mode} onChange={onModeChange} />
@@ -3866,15 +3869,18 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEven
     await loadKnowledge(query, type);
   }
 
-  return (
-    <section className="knowledge-view">
-      <div className="knowledge-head">
-        <div>
-          <span className="section-kicker">Clyde Pro</span>
-          <h2>Knowledge</h2>
+    return (
+      <section className="knowledge-view">
+        <div className="knowledge-head">
+          <div>
+            <span className="section-kicker">Clyde Pro</span>
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <img src={proLogoUrl} alt="" style={{ height: '24px', width: 'auto', display: 'inline-block', filter: 'drop-shadow(0 0 8px rgba(79, 231, 255, 0.4))' }} />
+              Knowledge
+            </h2>
+          </div>
+          <button className="primary-action" type="button" onClick={openPicker}>Add files</button>
         </div>
-        <button className="primary-action" type="button" onClick={openPicker}>Add files</button>
-      </div>
 
       <div
         className={`knowledge-dropzone ${dragActive ? 'active' : ''}`}
@@ -4757,24 +4763,26 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
           const cardTitle = String(card.title || '').trim();
           const showCardTitle = cardTitle && cardTitle.toLowerCase() !== cardLabel.toLowerCase();
 
-          return (
-            <article className={`assistant-card ${card.type || 'note'} ${card.agentic ? 'assistant-card-agentic' : ''}`} key={card.id || `${card.title}-${index}`}>
-              {onDismissCard && (
-                <button 
-                  type="button" 
-                  className="card-dismiss-btn" 
-                  onClick={() => onDismissCard(card.id)}
-                  aria-label="Dismiss card"
-                  title="Dismiss"
-                >
-                  &times;
-                </button>
-              )}
-              <div className="card-kicker">
-                <span>{cardLabel}</span>
-                {card.agentic ? <span className="agentic-badge">Pro</span> : null}
-              </div>
-              {showCardTitle ? <h4>{cardTitle}</h4> : null}
+            return (
+              <article className={`assistant-card ${card.type || 'note'} ${card.agentic ? 'assistant-card-agentic' : ''}`} key={card.id || `${card.title}-${index}`}>
+                <div className="card-top-actions">
+                  {card.agentic ? <img src={proBadgeUrl} alt="Pro" className="agentic-badge-img" /> : null}
+                  {onDismissCard && (
+                    <button 
+                      type="button" 
+                      className="card-dismiss-btn" 
+                      onClick={() => onDismissCard(card.id)}
+                      aria-label="Dismiss card"
+                      title="Dismiss"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+                <div className="card-kicker">
+                  <span>{cardLabel}</span>
+                </div>
+                {showCardTitle ? <h4>{cardTitle}</h4> : null}
               {card.body ? <p>{card.body}</p> : null}
               {card.bullets?.length ? (
                 <ul>

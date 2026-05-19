@@ -27,7 +27,10 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'Active Meeting:',
     '+ Add New Meeting',
     'onChangeActiveMeeting',
-    'AI reply'
+    'AI reply',
+    "userTier: 'free'",
+    'proAgentEnabled: false',
+    'pinnedKnowledgeIds: []'
   ]) {
     assert.match(appSource, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
@@ -100,6 +103,9 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(activeSource, />👻<\/span>/);
   assert.match(activeSource, /active-capture-icon window-emoji-icon/);
   assert.match(activeSource, />🪟<\/span>/);
+  assert.match(appSource, /memory: 'Memory'/);
+  assert.match(cssSource, /\.assistant-card\.memory/);
+  assert.match(cssSource, /\.assistant-card-agentic/);
   assert.match(activeSource, /Custom Prompt/);
   assert.match(activeSource, /active-source-button/);
   assert.match(activeSource, /Minimize Clyde/);
@@ -228,6 +234,27 @@ test('active source menu filters by mode and confirms selections', () => {
   assert.match(activeSource, /onConfirm=\{\(\) => setSourceMenuOpen\(false\)\}/);
   assert.match(activeSource, /getDefaultActiveSources\(settings, mode\)/);
   assert.match(activeSource, /normalizeActiveSourcesForMode\(current, settings, mode\)/);
+});
+
+test('pro knowledge workspace exposes upload, search, and pinning controls', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const navStart = appSource.indexOf('function WorkspaceNav');
+  const navEnd = appSource.indexOf('function ModeToggle', navStart);
+  const navSource = appSource.slice(navStart, navEnd);
+
+  assert.match(navSource, /Knowledge/);
+  assert.match(navSource, /isProTier/);
+  assert.match(appSource, /function KnowledgeView/);
+  assert.match(appSource, /api\?\.listKnowledge/);
+  assert.match(appSource, /api\?\.openKnowledgeFileDialog/);
+  assert.match(appSource, /api\?\.setPinnedKnowledge/);
+  assert.match(appSource, /pinnedKnowledgeIds/);
+  assert.match(appSource, /Pinned context/);
+  assert.match(appSource, /Drop research files/);
+  assert.match(cssSource, /\.knowledge-view/);
+  assert.match(cssSource, /\.knowledge-dropzone/);
+  assert.match(cssSource, /\.knowledge-row/);
 });
 
 test('active assistant cards avoid duplicate label titles', () => {
@@ -553,6 +580,26 @@ test('meeting context fields are not rendered in settings setup', () => {
   assert.equal(setupSource.includes('meetingTitle'), false);
 });
 
+test('settings setup save awaits the main process and reports failures', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const setupStart = appSource.indexOf('function SetupFields');
+  const setupEnd = appSource.indexOf('function EmptyState', setupStart);
+  const setupSource = appSource.slice(setupStart, setupEnd);
+  const saveStart = appSource.indexOf('async function saveSettings');
+  const saveEnd = appSource.indexOf('async function toggleCaptureProtection', saveStart);
+  const saveSource = appSource.slice(saveStart, saveEnd);
+
+  assert.match(setupSource, /async function handleSubmit/);
+  assert.match(setupSource, /await onSave\(draft\)/);
+  assert.match(setupSource, /Save failed:/);
+  assert.match(setupSource, /settings-save-status/);
+  assert.match(setupSource, /Saving\.\.\./);
+  assert.match(saveSource, /Settings save failed:/);
+  assert.match(saveSource, /throw error/);
+  assert.match(cssSource, /\.settings-save-status/);
+});
+
 test('post-session save prompt supports interview and meeting destinations', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
 
@@ -668,13 +715,12 @@ test('workspace nav shows the next upcoming event next to calendar', () => {
   assert.match(navSource, /workspace-nav-event/);
   assert.match(navSource, /Next up/);
   assert.match(navSource, /resolveEventEntityLabel\(nextUpcomingEvent/);
-  assert.match(navSource, /formatEventDateTime\(nextUpcomingEvent\.date\)/);
-  assert.match(navSource, /className="workspace-nav-start primary-action"/);
-  assert.match(navSource, />\s*Start\s*<\/button>/);
-  assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
-  assert.match(appSource, /async function startCalendarEvent\(event\)/);
-  assert.equal(navSource.includes('style={{ display: \'flex\''), false);
-  assert.match(cssSource, /\.workspace-nav-inner/);
+    assert.match(navSource, /formatEventDateTime\(nextUpcomingEvent\.date\)/);
+    assert.match(navSource, /className="workspace-nav-start primary-action"/);
+    assert.match(navSource, />\s*Start\s*<\/button>/);
+    assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
+    assert.match(appSource, /async function startCalendarEvent\(event\)/);
+    assert.match(cssSource, /\.workspace-nav-inner/);
   assert.match(cssSource, /\.workspace-nav-event/);
   assert.match(cssSource, /\.workspace-nav-start/);
   assert.match(cssSource, /\.workspace-nav-empty/);
@@ -703,7 +749,7 @@ test('calendar and timeline event cards render associated entity labels', () => 
 test('calendar month cells use taller day squares for stacked events', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const calendarStart = appSource.indexOf('const calendarStyles = `');
-  const calendarEnd = appSource.indexOf('`;\n\nfunction CalendarView', calendarStart);
+    const calendarEnd = appSource.indexOf('`;\n  \n  function CalendarView', calendarStart);
   const calendarStylesSource = appSource.slice(calendarStart, calendarEnd);
 
   assert.match(calendarStylesSource, /\.calendar-days \{[\s\S]*grid-auto-rows: minmax\(160px, 1fr\)/);

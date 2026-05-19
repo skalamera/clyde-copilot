@@ -1740,24 +1740,39 @@ h1 {
   padding: 10px 12px;
 }
 
-.card-dismiss-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-size: 1.2rem;
-  line-height: 1;
-  padding: 4px;
-  cursor: pointer;
-  border-radius: 4px;
-  -webkit-app-region: no-drag;
-}
-.card-dismiss-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text);
-}
+  .card-dismiss-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 1.2rem;
+    line-height: 1;
+    padding: 4px;
+    cursor: pointer;
+    border-radius: 4px;
+    -webkit-app-region: no-drag;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-dismiss-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+  }
+
+  .card-top-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .agentic-badge-img {
+    height: 18px;
+    width: auto;
+    filter: drop-shadow(0 0 6px rgba(155, 140, 255, 0.25));
+  }
 
 .assistant-card h4 {
   font-size: 1rem;
