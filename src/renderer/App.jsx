@@ -3762,7 +3762,18 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
     setStatus(nextIds.length ? 'Pinned context updated.' : 'Pinned context cleared.');
   }
 
-  async function deleteItem(id) {
+    async function uploadItemToPinecone(id) {
+      setStatus('Uploading to Pinecone...');
+      try {
+        await api?.uploadKnowledgeToPinecone?.(id);
+        setStatus('Uploaded to Pinecone successfully.');
+        await loadKnowledge(query, type);
+      } catch (error) {
+        setStatus(`Upload failed: ${error.message}`);
+      }
+    }
+
+    async function deleteItem(id) {
     await api?.deleteKnowledgeItem?.(id);
     const nextPinned = pinnedKnowledgeIds.filter((itemId) => itemId !== id);
     if (nextPinned.length !== pinnedKnowledgeIds.length) {
@@ -3833,12 +3844,15 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
                   ) : null}
                   <p>{previewKnowledgeText(item.content)}</p>
               </div>
-              <div className="knowledge-row-actions">
-                <button type="button" className={pinned ? 'active' : ''} onClick={() => togglePin(item.id)}>
-                  {pinned ? 'Pinned' : 'Pin'}
-                </button>
-                <button type="button" onClick={() => deleteItem(item.id)}>Delete</button>
-              </div>
+                <div className="knowledge-row-actions">
+                  <button type="button" className={pinned ? 'active' : ''} onClick={() => togglePin(item.id)}>
+                    {pinned ? 'Pinned' : 'Pin'}
+                  </button>
+                  {!item.metadata?.pinecone ? (
+                    <button type="button" onClick={() => uploadItemToPinecone(item.id)}>Upload to Pinecone</button>
+                  ) : null}
+                  <button type="button" onClick={() => deleteItem(item.id)}>Delete</button>
+                </div>
             </article>
           );
         }) : (

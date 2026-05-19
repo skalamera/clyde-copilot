@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const axios = require('axios');
@@ -18,6 +18,7 @@ const { calculatePcmRms, createTranscriptionProcessor } = require('./src/transcr
 const { createMeetingAssistant } = require('./src/meetingAssistant');
 const { createInterviewManager } = require('./src/interviewManager');
 const { createSessionManager } = require('./src/sessionManager');
+const { createKnowledgeManager } = require('./src/knowledgeManager');
 const { generateChat } = require('./src/llmClient');
 const {
     buildTranscriptCleanupPrompt,
@@ -55,6 +56,7 @@ let transcriptionProcessors;
 let meetingAssistant;
 let interviewManager;
 let sessionManager;
+let knowledgeManager;
 let audioLevelTimer;
 let liveAudioLevelTimer;
 let liveAudioLevels;
@@ -121,6 +123,14 @@ function loadSettings() {
         pineconeApiKey: store.get('pineconeApiKey', ''),
         pineconeHost: store.get('pineconeHost', ''),
         ragEnabled: store.get('ragEnabled', false),
+        userTier: process.env.CLYDE_USER_TIER || store.get('userTier', 'free'),
+        proAgentEnabled: store.get('proAgentEnabled', false),
+        proRealtimeModel: store.get('proRealtimeModel', 'gpt-realtime-2'),
+        embeddingProvider: store.get('embeddingProvider', 'gemini'),
+        embeddingModel: store.get('embeddingModel', 'gemini-embedding-2'),
+        embeddingApiKey: store.get('embeddingApiKey', ''),
+        pineconeNamespace: store.get('pineconeNamespace', 'clyde-pro-knowledge'),
+        pinnedKnowledgeIds: store.get('pinnedKnowledgeIds', []),
         appMode: store.get('appMode', 'interview'),
         meetingTitle: store.get('meetingTitle', ''),
         meetingAttendees: store.get('meetingAttendees', []),
@@ -156,13 +166,13 @@ function saveSettings(newSettings) {
     // Update process.env immediately
     if (newSettings.geminiApiKey) process.env.GEMINI_API_KEY = newSettings.geminiApiKey;
     
-    if (newSettings.ragEnabled && newSettings.pineconeApiKey) {
+    if ((newSettings.ragEnabled || newSettings.userTier === 'pro') && newSettings.pineconeApiKey) {
         process.env.PINECONE_API_KEY = newSettings.pineconeApiKey;
     } else {
         delete process.env.PINECONE_API_KEY;
     }
     
-    if (newSettings.ragEnabled && newSettings.pineconeHost) {
+    if ((newSettings.ragEnabled || newSettings.userTier === 'pro') && newSettings.pineconeHost) {
         process.env.PINECONE_HOST = newSettings.pineconeHost;
     } else {
         delete process.env.PINECONE_HOST;
@@ -179,6 +189,7 @@ function saveSettings(newSettings) {
             timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
             axiosClient: axios,
             logger: console,
+            knowledgeManager,
             sendStatus: sendAudioStatus,
             sendUpdate: sendAssistantUpdate
         });
@@ -257,6 +268,63 @@ function buildOutcomeCalibrationSummary(entity = {}) {
 function getSettingsStore() {
     const Store = require('electron-store').default || require('electron-store');
     return new Store();
+}
+
+async function archiveSessionKnowledge(record, settings = loadSettings()) {
+    if (!knowledgeManager || !recordHasTranscript(record)) {
+        return null;
+    }
+
+    try {
+        return await knowledgeManager.archiveSession(record, settings);
+    } catch (error) {
+        console.warn('Failed to archive session in knowledge base:', error);
+        return null;
+    }
+}
+
+async function backfillKnowledgeFromSessions(settings = loadSettings()) {
+    if (!knowledgeManager || !sessionManager) {
+        return { ok: false, count: 0 };
+    }
+
+    let count = 0;
+    for (const mode of ['interview', 'meeting']) {
+        const sessions = sessionManager.getSessions({ mode });
+        for (const session of sessions) {
+            if (!recordHasTranscript(session)) {
+                continue;
+            }
+
+            const archived = await archiveSessionKnowledge(session, settings);
+            if (archived) {
+                count += 1;
+            }
+        }
+    }
+
+    return { ok: true, count };
+}
+
+function recordHasTranscript(record) {
+    return Boolean(record && Array.isArray(record.transcript) && record.transcript.length > 0);
+}
+
+function getTierStatus() {
+    const settings = loadSettings();
+    const tier = settings.userTier === 'pro' ? 'pro' : 'free';
+    return {
+        tier,
+        userTier: tier,
+        pro: tier === 'pro',
+        proAgentEnabled: Boolean(settings.proAgentEnabled)
+    };
+}
+
+function getPinnedKnowledgeIds(settings = loadSettings()) {
+    return Array.isArray(settings.pinnedKnowledgeIds)
+        ? settings.pinnedKnowledgeIds.slice(0, 3)
+        : [];
 }
 
 function normalizeWindowBounds(bounds) {
@@ -985,6 +1053,7 @@ function getMeetingAssistant() {
         timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
         axiosClient: axios,
         logger: console,
+        knowledgeManager,
         sendStatus: sendAudioStatus,
         sendUpdate: sendAssistantUpdate
     });
@@ -1349,6 +1418,14 @@ function createWindow () {
       appPath: app.getPath('userData')
   });
 
+  knowledgeManager = createKnowledgeManager({
+      appPath: app.getPath('userData'),
+      logger: console
+  });
+  backfillKnowledgeFromSessions(settings).catch((error) => {
+      console.warn('Knowledge base backfill failed:', error);
+  });
+
   // Setup IPC communication for start/stop transcription
   ipcMain.on('start-audio-capture', async (event) => {
       log.info('🎤 IPC: start-audio-capture received');
@@ -1480,6 +1557,79 @@ function createWindow () {
 
   ipcMain.handle('load-settings', (event) => {
       return loadSettings();
+  });
+
+  ipcMain.handle('get-tier-status', () => {
+      return getTierStatus();
+  });
+
+  ipcMain.handle('list-knowledge', (event, filters = {}) => {
+      return knowledgeManager ? knowledgeManager.listKnowledge(filters || {}) : [];
+  });
+
+  ipcMain.handle('ingest-knowledge-file', async (event, filePath) => {
+      if (!knowledgeManager) {
+          throw new Error('Knowledge base is not ready.');
+      }
+
+      return knowledgeManager.ingestFile(filePath, loadSettings());
+  });
+
+    ipcMain.handle('upload-knowledge-to-pinecone', async (event, id) => {
+        if (!knowledgeManager) {
+            throw new Error('Knowledge base is not ready.');
+        }
+
+        return knowledgeManager.uploadToPinecone(id, loadSettings());
+    });
+
+    ipcMain.handle('delete-knowledge-item', (event, id) => {
+      if (!knowledgeManager) {
+          return false;
+      }
+
+      return knowledgeManager.deleteKnowledgeItem(id);
+  });
+
+  ipcMain.handle('set-pinned-knowledge', (event, ids = []) => {
+      const settings = loadSettings();
+      const pinnedKnowledgeIds = Array.isArray(ids) ? ids.filter(Boolean).slice(0, 3) : [];
+      const nextSettings = {
+          ...settings,
+          pinnedKnowledgeIds
+      };
+      saveSettings(nextSettings);
+      return knowledgeManager ? knowledgeManager.getPinnedKnowledge(pinnedKnowledgeIds) : [];
+  });
+
+  ipcMain.handle('get-pinned-knowledge', () => {
+      const ids = getPinnedKnowledgeIds();
+      return knowledgeManager ? knowledgeManager.getPinnedKnowledge(ids) : [];
+  });
+
+  ipcMain.handle('open-knowledge-file-dialog', async () => {
+      if (!knowledgeManager) {
+          return [];
+      }
+
+      const result = await dialog.showOpenDialog(mainWindow, {
+          title: 'Add knowledge files',
+          properties: ['openFile', 'multiSelections'],
+          filters: [
+              { name: 'Knowledge files', extensions: ['txt', 'md', 'pdf'] }
+          ]
+      });
+
+      if (result.canceled || !result.filePaths?.length) {
+          return [];
+      }
+
+      const settings = loadSettings();
+      const ingested = [];
+      for (const filePath of result.filePaths) {
+          ingested.push(await knowledgeManager.ingestFile(filePath, settings));
+      }
+      return ingested;
   });
 
   ipcMain.handle('list-audio-devices', async () => {
@@ -1615,6 +1765,10 @@ function createWindow () {
       // If it's an interview session that needs grading, trigger background grading
       const hasTranscript = record && Array.isArray(record.transcript) && record.transcript.length > 0;
       const isInterviewSession = record && record.mode === 'interview' && record.entity;
+      const currentSettings = loadSettings();
+      if (hasTranscript) {
+         archiveSessionKnowledge(record, currentSettings).catch(console.error);
+      }
       if (isInterviewSession) {
          deleteTrendAnalysis(app.getPath('userData'), record.entity.id);
          sendSessionDataChanged({
@@ -1625,9 +1779,9 @@ function createWindow () {
       }
 
       if (isInterviewSession && record.grading && record.grading.status === 'pending' && hasTranscript) {
-         processInterviewCleanupAndGradingInBackground(sessionId, record, loadSettings()).catch(console.error);
+         processInterviewCleanupAndGradingInBackground(sessionId, record, currentSettings).catch(console.error);
       } else if (record && record.mode === 'meeting' && hasTranscript) {
-         await processMeetingCleanupAndNotesInBackground(sessionId, record, loadSettings());
+         await processMeetingCleanupAndNotesInBackground(sessionId, record, currentSettings);
       } else if (isInterviewSession && !hasTranscript) {
          sessionManager.updateEntityConfidence(record.entity.id, 0, 'neutral');
       } else if (isInterviewSession && hasTranscript) {
@@ -1646,6 +1800,7 @@ function createWindow () {
 
           if (cleanedTranscript && cleanedTranscript.length) {
               sessionManager.saveSession(nextRecord);
+              await archiveSessionKnowledge(nextRecord, settings);
           }
 
           await processSessionGradingInBackground(sessionId, nextRecord, settings);
@@ -1662,11 +1817,13 @@ function createWindow () {
               return;
           }
 
-          sessionManager.saveSession({
+          const processedRecord = {
               ...record,
               transcript: processed.transcript,
               notes: processed.notes
-          });
+          };
+          sessionManager.saveSession(processedRecord);
+          await archiveSessionKnowledge(processedRecord, settings);
       } catch (error) {
           console.error(`Meeting post-processing failed for session ${sessionId}`, error);
       }
@@ -1876,6 +2033,7 @@ function createWindow () {
               scoredAt: new Date().toISOString()
           };
           sessionManager.saveSession(record);
+          await archiveSessionKnowledge(record, settings);
           deleteTrendAnalysis(app.getPath('userData'), record.entity.id);
 
           // Now recompute confidence score
@@ -1885,6 +2043,7 @@ function createWindow () {
           console.error("Grading processing error:", error);
           record.grading = { status: 'failed' };
           sessionManager.saveSession(record);
+          await archiveSessionKnowledge(record, settings);
           deleteTrendAnalysis(app.getPath('userData'), record.entity.id);
           await processSessionConfidenceInBackground(record.entity, settings);
           sendAudioStatus({ state: 'error', message: `Grading failed for ${record.entity.name}` });
