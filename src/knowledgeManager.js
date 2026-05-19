@@ -290,18 +290,27 @@ function createKnowledgeManager(options = {}) {
     }
 
     async function deleteKnowledgeItem(id, settings = {}) {
-      const item = getKnowledgeItem(id);
-      if (item && item.metadata?.pinecone && typeof pineconeClient?.deleteKnowledgeVectors === 'function') {
-        try {
-          await pineconeClient.deleteKnowledgeVectors(item.id, settings);
-        } catch (error) {
-          logger.warn?.(`Failed to delete pinecone vectors for ${item.id}:`, error);
+        const item = getKnowledgeItem(id);
+        if (item && item.metadata?.pinecone && typeof pineconeClient?.deleteKnowledgeVectors === 'function') {
+          try {
+            logger.log?.(`[Pinecone] Initiating deletion of vectors for knowledge item: ${item.id}`);
+            const result = await pineconeClient.deleteKnowledgeVectors(item.id, settings);
+            if (result && result.ok !== false) {
+              logger.log?.(`[Pinecone] Successfully deleted vectors for knowledge item: ${item.id}`);
+            } else {
+              logger.warn?.(`[Pinecone] Deletion skipped or failed for ${item.id}:`, result?.skipped || result?.message || 'Unknown reason');
+            }
+          } catch (error) {
+            logger.warn?.(`[Pinecone] Failed to delete pinecone vectors for ${item.id}:`, error);
+          }
+        } else {
+          logger.log?.(`[Pinecone] Skipping remote deletion for ${id} (no pinecone metadata or missing client)`);
         }
-      }
 
-      deleteStatement.run(id);
-      return true;
-    }
+        deleteStatement.run(id);
+        logger.log?.(`[Knowledge] Deleted local item: ${id}`);
+        return true;
+      }
 
   function getPinnedKnowledge(ids = []) {
     const pinnedIds = Array.isArray(ids) ? ids.slice(0, 3) : [];
