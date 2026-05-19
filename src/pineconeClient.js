@@ -2,17 +2,64 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Pinecone } = require('@pinecone-database/pinecone');
 const axios = require('axios');
 
-async function getEmbedding(text) {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function getEmbedding(text, options = {}) {
+  const resolved = options.provider
+    ? {
+        provider: options.provider,
+        model: options.model,
+        apiKey: options.apiKey
+      }
+    : resolveEmbeddingConfig(options);
+  const provider = resolved.provider || 'gemini';
+  const apiKey = resolved.apiKey || process.env.GEMINI_API_KEY;
+
   if (!apiKey) {
-    console.warn("GEMINI_API_KEY is not set, skipping embedding generation");
+    console.warn(`${provider.toUpperCase()} embedding API key is not set, skipping embedding generation`);
     return [];
   }
+
+  if (provider === 'openai') {
+    const client = options.axiosClient || axios;
+    const response = await client.post('https://api.openai.com/v1/embeddings', {
+      model: resolved.model || 'text-embedding-3-small',
+      input: text
+    }, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    return response.data?.data?.[0]?.embedding || [];
+  }
+
   const genAI = new GoogleGenerativeAI(apiKey);
-  // Matches the model used in cv-site ingest script
-  const embeddingModel = genAI.getGenerativeModel({ model: "gemini-embedding-2" });
+  const embeddingModel = genAI.getGenerativeModel({ model: resolved.model || "gemini-embedding-2" });
   const result = await embeddingModel.embedContent(text);
   return result.embedding.values;
+}
+
+function resolveEmbeddingConfig(settings = {}) {
+  const provider = settings.embeddingProvider === 'openai' ? 'openai' : 'gemini';
+  const defaultModel = provider === 'openai' ? 'text-embedding-3-small' : 'gemini-embedding-2';
+  const apiKey = settings.embeddingApiKey
+    || (provider === 'openai'
+      ? (settings.llmApiKey || process.env.OPENAI_API_KEY || '')
+      : (settings.geminiApiKey || process.env.GEMINI_API_KEY || ''));
+
+  return {
+    provider,
+    model: settings.embeddingModel || defaultModel,
+    apiKey
+  };
+}
+
+function resolvePineconeConfig(settings = {}) {
+  return {
+    apiKey: settings.pineconeApiKey || process.env.PINECONE_API_KEY || '',
+    host: normalizeHost(settings.pineconeHost || process.env.PINECONE_HOST || ''),
+    namespace: settings.pineconeNamespace || 'clyde-pro-knowledge'
+  };
 }
 
 async function searchResumeVectors(queryText, topK = 3) {
@@ -56,6 +103,114 @@ async function searchResumeVectors(queryText, topK = 3) {
   console.log(`[RAG] Successfully retrieved ${matches.length} context chunks from Pinecone for question: "${queryText}"`);
   
   return matches;
+}
+
+async function upsertKnowledgeChunks({
+  knowledgeItem,
+  chunks = [],
+  settings = {},
+  axiosClient = axios,
+  getEmbeddingFn
+} = {}) {
+  const config = resolvePineconeConfig(settings);
+  if (!config.apiKey || !config.host) {
+    return { ok: false, skipped: 'missing-pinecone-config' };
+  }
+
+  const cleanChunks = chunks.map((chunk) => String(chunk || '').trim()).filter(Boolean);
+  if (!knowledgeItem?.id || !cleanChunks.length) {
+    return { ok: false, skipped: 'missing-knowledge-content' };
+  }
+
+  const embeddingConfig = resolveEmbeddingConfig(settings);
+  const vectors = [];
+
+  for (let index = 0; index < cleanChunks.length; index += 1) {
+    const text = cleanChunks[index];
+    const vector = getEmbeddingFn
+      ? await getEmbeddingFn(text, embeddingConfig)
+      : await getEmbedding(text, { ...embeddingConfig, axiosClient });
+
+    if (!Array.isArray(vector) || vector.length === 0) {
+      continue;
+    }
+
+    vectors.push({
+      id: `${knowledgeItem.id}:chunk:${index}`,
+      values: vector,
+      metadata: {
+        ...(knowledgeItem.metadata || {}),
+        knowledgeId: knowledgeItem.id,
+        filename: knowledgeItem.filename || '',
+        source: knowledgeItem.filename || knowledgeItem.file_path || 'knowledge',
+        type: knowledgeItem.type || 'upload',
+        text
+      }
+    });
+  }
+
+  if (!vectors.length) {
+    return { ok: false, skipped: 'missing-embeddings' };
+  }
+
+  const response = await axiosClient.post(`${config.host}/vectors/upsert`, {
+    vectors,
+    namespace: config.namespace
+  }, {
+    headers: {
+      'Api-Key': config.apiKey,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  return {
+    ok: true,
+    count: Number(response.data?.upsertedCount || vectors.length) || vectors.length,
+    namespace: config.namespace
+  };
+}
+
+async function searchKnowledgeVectors(queryText, settings = {}, options = {}) {
+  const config = resolvePineconeConfig(settings);
+  if (!config.apiKey || !config.host) {
+    return [];
+  }
+
+  const embeddingConfig = resolveEmbeddingConfig(settings);
+  const vector = options.getEmbeddingFn
+    ? await options.getEmbeddingFn(queryText, embeddingConfig)
+    : await getEmbedding(queryText, { ...embeddingConfig, axiosClient: options.axiosClient || axios });
+
+  if (!Array.isArray(vector) || vector.length === 0) {
+    return [];
+  }
+
+  const client = options.axiosClient || axios;
+  const response = await client.post(`${config.host}/query`, {
+    vector,
+    topK: options.topK || 5,
+    includeMetadata: true,
+    namespace: config.namespace,
+    ...(options.filter ? { filter: options.filter } : {})
+  }, {
+    headers: {
+      'Api-Key': config.apiKey,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  return (response.data?.matches || []).map((match) => ({
+    score: match.score,
+    text: match.metadata?.text || '',
+    source: match.metadata?.source || match.metadata?.filename || 'knowledge',
+    knowledgeId: match.metadata?.knowledgeId || '',
+    type: match.metadata?.type || '',
+    metadata: match.metadata || {}
+  }));
+}
+
+function normalizeHost(host) {
+  return String(host || '').replace(/\/+$/, '');
 }
 
 async function detectResumeQuestion(transcript) {
@@ -310,9 +465,41 @@ function isLikelyInterviewQuestionText(text) {
   ].some((pattern) => pattern.test(normalized));
 }
 
-module.exports = {
-  getEmbedding,
+  async function deleteKnowledgeVectors(knowledgeId, settings = {}, options = {}) {
+    const config = resolvePineconeConfig(settings);
+    if (!config.apiKey || !config.host) {
+      return { ok: false, skipped: 'missing-pinecone-config' };
+    }
+    
+    if (!knowledgeId) {
+      return { ok: false, skipped: 'missing-knowledge-id' };
+    }
+
+    const client = options.axiosClient || axios;
+    try {
+      const response = await client.post(`${config.host}/vectors/delete`, {
+        filter: { knowledgeId: { "$eq": knowledgeId } },
+        namespace: config.namespace
+      }, {
+        headers: {
+          'Api-Key': config.apiKey,
+          'Content-Type': 'application/json'
+        }
+      });
+      return { ok: response.status >= 200 && response.status < 300 };
+    } catch (error) {
+      return { ok: false, message: error.response?.data?.message || error.message };
+    }
+  }
+
+  module.exports = {
+    deleteKnowledgeVectors,
+    getEmbedding,
   searchResumeVectors,
   detectResumeQuestion,
-  extractLikelyInterviewQuestion
+  extractLikelyInterviewQuestion,
+  resolveEmbeddingConfig,
+  resolvePineconeConfig,
+  searchKnowledgeVectors,
+  upsertKnowledgeChunks
 };

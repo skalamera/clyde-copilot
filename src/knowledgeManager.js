@@ -277,10 +277,19 @@ function createKnowledgeManager(options = {}) {
       throw new Error(pinecone?.reason || pinecone?.message || 'Failed to index item in Pinecone.');
     }
 
-    function deleteKnowledgeItem(id) {
-    deleteStatement.run(id);
-    return true;
-  }
+    async function deleteKnowledgeItem(id, settings = {}) {
+      const item = getKnowledgeItem(id);
+      if (item && item.metadata?.pinecone && typeof pineconeClient?.deleteKnowledgeVectors === 'function') {
+        try {
+          await pineconeClient.deleteKnowledgeVectors(item.id, settings);
+        } catch (error) {
+          logger.warn?.(`Failed to delete pinecone vectors for ${item.id}:`, error);
+        }
+      }
+
+      deleteStatement.run(id);
+      return true;
+    }
 
   function getPinnedKnowledge(ids = []) {
     const pinnedIds = Array.isArray(ids) ? ids.slice(0, 3) : [];

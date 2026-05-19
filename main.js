@@ -1590,13 +1590,13 @@ function createWindow () {
         return knowledgeManager.uploadToPinecone(id, loadSettings());
     });
 
-    ipcMain.handle('delete-knowledge-item', (event, id) => {
-      if (!knowledgeManager) {
-          return false;
-      }
+    ipcMain.handle('delete-knowledge-item', async (event, id) => {
+        if (!knowledgeManager) {
+            return false;
+        }
 
-      return knowledgeManager.deleteKnowledgeItem(id);
-  });
+        return knowledgeManager.deleteKnowledgeItem(id, loadSettings());
+    });
 
   ipcMain.handle('set-pinned-knowledge', (event, ids = []) => {
       const settings = loadSettings();
