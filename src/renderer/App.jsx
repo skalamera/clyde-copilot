@@ -3686,17 +3686,96 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEven
   );
 }
 
-function KnowledgeView({ settings = {}, onPinnedChange }) {
-  const api = window.electronAPI;
-  const [items, setItems] = useState([]);
-  const [query, setQuery] = useState('');
-  const [type, setType] = useState('');
-    const [status, setStatus] = useState('');
-    const [uploadingId, setUploadingId] = useState(null);
-  const [dragActive, setDragActive] = useState(false);
-  const pinnedKnowledgeIds = Array.isArray(settings.pinnedKnowledgeIds) ? settings.pinnedKnowledgeIds : [];
+  function KnowledgeView({ settings = {}, onPinnedChange }) {
+    const api = window.electronAPI;
+    const [items, setItems] = useState([]);
+    const [query, setQuery] = useState('');
+    const [type, setType] = useState('');
+      const [status, setStatus] = useState('');
+      const [uploadingId, setUploadingId] = useState(null);
+    const [dragActive, setDragActive] = useState(false);
+    const [selectedIds, setSelectedIds] = useState([]);
+    const pinnedKnowledgeIds = Array.isArray(settings.pinnedKnowledgeIds) ? settings.pinnedKnowledgeIds : [];
 
-  const loadKnowledge = useCallback(async (nextQuery = query, nextType = type) => {
+    function toggleSelectAll() {
+      if (selectedIds.length === items.length && items.length > 0) {
+        setSelectedIds([]);
+      } else {
+        setSelectedIds(items.map(i => i.id));
+      }
+    }
+
+    function toggleSelection(id) {
+      if (selectedIds.includes(id)) {
+        setSelectedIds(selectedIds.filter(x => x !== id));
+      } else {
+        setSelectedIds([...selectedIds, id]);
+      }
+    }
+
+    async function handleBulkUpload() {
+      const unindexedIds = selectedIds.filter(id => {
+        const item = items.find(i => i.id === id);
+        return item && !item.metadata?.pinecone;
+      });
+
+      if (unindexedIds.length === 0) {
+        setStatus('Selected items are already in Pinecone.');
+        return;
+      }
+
+      setStatus(`Uploading ${unindexedIds.length} items to Pinecone...`);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const id of unindexedIds) {
+        setUploadingId(id);
+        try {
+          await api?.uploadKnowledgeToPinecone?.(id);
+          successCount++;
+        } catch (error) {
+          failCount++;
+        }
+      }
+
+      setUploadingId(null);
+      if (failCount === 0) {
+        setStatus(`Uploaded ${successCount} items to Pinecone successfully.`);
+      } else {
+        setStatus(`Uploaded ${successCount} items successfully. ${failCount} failed.`);
+      }
+      setSelectedIds([]);
+      await loadKnowledge(query, type);
+    }
+
+    async function handleBulkDelete() {
+      for (const id of selectedIds) {
+        await api?.deleteKnowledgeItem?.(id);
+      }
+      const nextPinned = pinnedKnowledgeIds.filter((itemId) => !selectedIds.includes(itemId));
+      if (nextPinned.length !== pinnedKnowledgeIds.length) {
+        await api?.setPinnedKnowledge?.(nextPinned);
+        onPinnedChange?.(nextPinned);
+      }
+      setStatus(`Deleted ${selectedIds.length} items.`);
+      setSelectedIds([]);
+      await loadKnowledge(query, type);
+    }
+
+    async function handleBulkPin() {
+      const nextPinnedArray = [...pinnedKnowledgeIds];
+      for (const id of selectedIds) {
+        if (!nextPinnedArray.includes(id) && nextPinnedArray.length < 3) {
+          nextPinnedArray.push(id);
+        }
+      }
+      await api?.setPinnedKnowledge?.(nextPinnedArray);
+      onPinnedChange?.(nextPinnedArray);
+      setSelectedIds([]);
+      setStatus(nextPinnedArray.length > 3 ? 'Pinned context updated. (Max 3 allowed)' : 'Pinned context updated.');
+    }
+
+    const loadKnowledge = useCallback(async (nextQuery = query, nextType = type) => {
     try {
       const rows = await api?.listKnowledge?.({ query: nextQuery, type: nextType });
       setItems(Array.isArray(rows) ? rows : []);
@@ -3833,14 +3912,44 @@ function KnowledgeView({ settings = {}, onPinnedChange }) {
         <span>{pinnedKnowledgeIds.length}/3 active</span>
       </div>
 
-        {status ? <div className={`knowledge-status ${status.includes('successfully') ? 'success' : status.includes('Uploading') ? 'uploading' : ''}`}>{status}</div> : null}
+          {status ? <div className={`knowledge-status ${status.includes('successfully') ? 'success' : status.includes('Uploading') ? 'uploading' : ''}`}>{status}</div> : null}
 
-      <div className="knowledge-list">
-        {items.length ? items.map((item) => {
-          const pinned = pinnedKnowledgeIds.includes(item.id);
-          return (
-            <article className="knowledge-row" key={item.id}>
-              <div>
+        {items.length > 0 && (
+          <div className="knowledge-bulk-actions">
+            <label>
+              <input 
+                type="checkbox" 
+                checked={selectedIds.length > 0 && selectedIds.length === items.length}
+                onChange={toggleSelectAll}
+              />
+              <span className="selected-count">
+                {selectedIds.length === 0 ? 'Select all' : `${selectedIds.length} selected`}
+              </span>
+            </label>
+            
+            {selectedIds.length > 0 && (
+              <div className="bulk-buttons">
+                <button type="button" onClick={handleBulkUpload}>Upload to Pinecone</button>
+                <button type="button" onClick={handleBulkPin}>Pin</button>
+                <button type="button" onClick={handleBulkDelete}>Delete</button>
+              </div>
+            )}
+          </div>
+        )}
+  
+        <div className="knowledge-list">
+          {items.length ? items.map((item) => {
+            const pinned = pinnedKnowledgeIds.includes(item.id);
+            return (
+              <article className="knowledge-row" key={item.id}>
+                <div className="knowledge-row-checkbox">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedIds.includes(item.id)} 
+                    onChange={() => toggleSelection(item.id)} 
+                  />
+                </div>
+                <div>
                   <strong>{item.filename}</strong>
                   <span>{item.type} • {formatKnowledgeDate(item.updated_at || item.created_at)}</span>
                   {item.metadata?.pinecone ? (
