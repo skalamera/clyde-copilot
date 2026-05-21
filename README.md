@@ -7,13 +7,15 @@ Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Bu
 ## 🌟 Core Features
 
 ### 🎙️ Real-Time Audio Capture & Transcription
-*   **Multi-channel Capture**: Records both your microphone ("You") and system audio ("Others") using `native-audio-node`.
+*   **Multi-channel Capture**: Records both your microphone ("You") and system audio ("Others") via a robust, custom Rust-based audio engine (`clyde-audio-engine`), alongside legacy fallback support via `native-audio-node`.
 *   **Live Transcription**: Streams audio chunks to a local Whisper server or OpenAI's Cloud API to generate a continuous transcript.
 *   **Visual Audio Meters**: Integrated directly into the sidebar to provide live audio levels (RMS) and speaking indicators for local and remote participants without obscuring your view.
 
 ### 🤖 Live AI Assistant (Active Capture)
-*   **Sidebar & Top Control Bar**: A streamlined top control bar and sidebar layout that sits nicely alongside your video calls.
-*   **Calendar Integration**: Quickly launch active capture for upcoming meetings via the integrated start button and calendar modal actions.
+*   **Pro Realtime Agent**: Connects to OpenAI's real-time WebSockets API (e.g., `gpt-realtime-2`) for ultra-low latency, agentic interactions (searching memory, retrieving pinned documents) directly mid-meeting.
+*   **Interactive Agent Chat**: A dedicated chat agent that can list calendar events, ingest files, interact with your vector database, update opportunity/meeting statuses, delete sessions, and perform CRUD actions on your meeting/interview data seamlessly through conversation.
+*   **Sidebar & Top Control Bar**: A streamlined top control bar and sidebar layout that sits nicely alongside your video calls, featuring adjustable UI opacity settings.
+*   **Calendar Integration**: View, save, import, and delete calendar events, and quickly launch active capture for upcoming meetings via the integrated start button or agent actions.
 *   **Contextual Nudges**: Click the "Nudge" button to get immediate AI suggestions on what to say next based on the live transcript.
 *   **Screenshot Awareness**: Capture your current screen context alongside your prompt to get help with code, presentations, or technical questions.
 *   **Custom Prompts**: Query the AI manually at any time during the meeting.
@@ -30,7 +32,8 @@ Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Bu
 *   **Pre-Call Prep**: Analyzes past interviews for the same company to generate cumulative summaries, probable focus areas, interviewer question patterns, and questions you should ask.
 
 ### 🧠 Long-Term Memory & RAG
-*   **Vector Database Integration**: Connects to Pinecone to index and retrieve context from your Resume, past meetings, and long-term memory.
+*   **Vector Database Integration**: Connects to Pinecone (via Gemini embeddings) to index and retrieve context from your Resume, past meetings, and long-term memory.
+*   **Pinned Knowledge**: Explicitly pin core documents (like your resume or core company specs) so they are persistently loaded into context for the Pro Realtime Agent or standard chat.
 *   **Source Toggling**: Selectively include/exclude your Resume, Memory, RAG, or Web Search for specific queries mid-call.
 
 ---
@@ -66,7 +69,9 @@ Clyde follows a standard Electron multi-process architecture, heavily relying on
 ```
 
 ### Main Process (`main.js` & `src/`)
-*   **`audioCapture.js` / `native-audio-node`**: Hooks into OS-level audio devices.
+*   **`audioEngineSidecar.js` & `audioCapture.js`**: Hooks into OS-level audio devices using either the custom Rust engine or legacy `native-audio-node`.
+*   **`agentChat.js` & `agentActionRegistry.js`**: Powers the conversational agent that has tools to modify Clyde's local database and calendar.
+*   **`autoUpdater.js`**: Built-in automatic updates for the application via `electron-updater`.
 *   **`llmClient.js` & `meetingAssistant.js`**: Constructs dynamic prompts utilizing the transcript digest, job descriptions, and user inputs. Calls LM Studio (Local LLM) or Cloud APIs.
 *   **`transcriptionClient.js`**: Handles audio chunk buffering, RMS calculation (to drop silent chunks), and requests to the Whisper API.
 *   **`sessionManager.js` & `interviewManager.js`**: Handles local SQLite/JSON persistence of sessions, entities (companies), and transcripts using `electron-store`.
