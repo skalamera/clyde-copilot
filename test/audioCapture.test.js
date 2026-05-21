@@ -4,7 +4,10 @@ const test = require('node:test');
 
 const {
   createAudioCapture,
+  createNativeAudioRecorder,
+  createWindowsFfmpegRecorder,
   createWindowsSoxRecorder,
+  convertFloat32PcmToInt16,
   ensureDirectoryOnPath
 } = require('../src/audioCapture');
 
@@ -76,6 +79,38 @@ test('uses the recorder stream and handles child process errors', () => {
   assert.equal(stopped, true);
 });
 
+test('pause suppresses audio chunks until capture resumes', () => {
+  const stream = new EventEmitter();
+  const chunks = [];
+  const statuses = [];
+
+  const capture = createAudioCapture({
+    env: { Path: 'C:\\Tools' },
+    pathExists: (candidate) => candidate === 'C:\\Tools\\sox.exe',
+    record: {
+      record: () => ({
+        process: new EventEmitter(),
+        stream: () => stream,
+        stop: () => {}
+      })
+    },
+    processAudioChunk: (chunk) => chunks.push(chunk),
+    onStatus: (status) => statuses.push(status),
+    logger: { log() {}, warn() {}, error() {} },
+    platform: 'win32'
+  });
+
+  capture.start();
+  stream.emit('data', Buffer.from('first'));
+  capture.pause();
+  stream.emit('data', Buffer.from('paused'));
+  capture.resume();
+  stream.emit('data', Buffer.from('second'));
+
+  assert.deepEqual(chunks.map((chunk) => chunk.toString()), ['first', 'second']);
+  assert.equal(statuses.some((status) => status.state === 'paused'), true);
+});
+
 test('includes SoX stderr in stream error status', () => {
   const stream = new EventEmitter();
   const childProcess = new EventEmitter();
@@ -103,6 +138,168 @@ test('includes SoX stderr in stream error status', () => {
   stream.emit('error', 'sox has exited with error code 1.');
 
   assert.match(statuses.at(-1).message, /no default audio device configured/);
+});
+
+test('reports recorder process exits with stderr details', () => {
+  const stream = new EventEmitter();
+  const childProcess = new EventEmitter();
+  childProcess.stderr = new EventEmitter();
+  const statuses = [];
+
+  const capture = createAudioCapture({
+    env: { Path: 'C:\\Tools' },
+    pathExists: (candidate) => candidate === 'C:\\Tools\\sox.exe',
+    record: {
+      record: () => ({
+        process: childProcess,
+        stream: () => stream,
+        stop: () => {}
+      })
+    },
+    processAudioChunk: () => {},
+    onStatus: (status) => statuses.push(status),
+    logger: { log() {}, warn() {}, error() {} },
+    platform: 'win32'
+  });
+
+  capture.start();
+  childProcess.stderr.emit('data', Buffer.from('Could not find audio device'));
+  childProcess.emit('close', 1);
+
+  assert.equal(statuses.at(-1).state, 'error');
+  assert.match(statuses.at(-1).message, /Could not find audio device/);
+});
+
+test('uses ffmpeg on Windows without requiring SoX when selected', () => {
+  const stream = new EventEmitter();
+  const childProcess = new EventEmitter();
+  childProcess.stdout = stream;
+  childProcess.stderr = new EventEmitter();
+  const statuses = [];
+  let spawned;
+
+  const capture = createAudioCapture({
+    env: {
+      Path: 'C:\\Tools',
+      CLYDE_AUDIO_RECORDER: 'ffmpeg'
+    },
+    pathExists: (candidate) => candidate === 'C:\\Tools\\ffmpeg.exe',
+    spawn: (command, args, options) => {
+      spawned = { command, args, options };
+      return {
+        stdout: stream,
+        stderr: childProcess.stderr,
+        kill: () => {},
+        on: childProcess.on.bind(childProcess)
+      };
+    },
+    recordOptions: {
+      device: 'Voicemeeter Out B2'
+    },
+    processAudioChunk: () => {},
+    onStatus: (status) => statuses.push(status),
+    logger: { log() {}, warn() {}, error() {} },
+    platform: 'win32'
+  });
+
+  const result = capture.initialize();
+
+  assert.equal(result.ok, true);
+  assert.equal(spawned.command, 'C:\\Tools\\ffmpeg.exe');
+  assert.match(statuses.at(-1).message, /ffmpeg/i);
+  assert.equal(statuses.at(-1).audioDevice, 'Voicemeeter Out B2');
+});
+
+test('uses native system audio recorder without requiring external executables', async () => {
+  const nativeEvents = new EventEmitter();
+  let startCalls = 0;
+  let recorderOptions;
+
+  class FakeSystemAudioRecorder extends EventEmitter {
+    constructor(options) {
+      super();
+      recorderOptions = options;
+    }
+
+    async start() {
+      startCalls += 1;
+      nativeEvents.emit('started');
+    }
+
+    async stop() {}
+  }
+
+  const capture = createAudioCapture({
+    env: {
+      CLYDE_AUDIO_RECORDER: 'native'
+    },
+    pathExists: () => false,
+    recordOptions: {
+      device: 'system'
+    },
+    record: createNativeAudioRecorder({
+      importNativeAudio: async () => ({
+        SystemAudioRecorder: FakeSystemAudioRecorder
+      })
+    }),
+    processAudioChunk: () => {},
+    onStatus: () => {},
+    logger: { log() {}, warn() {}, error() {} },
+    platform: 'win32'
+  });
+
+  const result = capture.start();
+  await new Promise((resolve) => nativeEvents.once('started', resolve));
+
+  assert.equal(result.ok, true);
+  assert.equal(startCalls, 1);
+  assert.equal(recorderOptions.sampleRate, 44100);
+  assert.equal(recorderOptions.stereo, false);
+});
+
+test('converts native float PCM chunks to signed 16-bit PCM', async () => {
+  const nativeEvents = new EventEmitter();
+  const chunks = [];
+
+  class FakeMicrophoneRecorder extends EventEmitter {
+    async start() {
+      this.emit('metadata', {
+        sampleRate: 44100,
+        channelsPerFrame: 1,
+        bitsPerChannel: 32,
+        isFloat: true,
+        encoding: 'pcm_f32le'
+      });
+
+      const floatChunk = Buffer.alloc(12);
+      floatChunk.writeFloatLE(-1, 0);
+      floatChunk.writeFloatLE(0, 4);
+      floatChunk.writeFloatLE(1, 8);
+      this.emit('data', { data: floatChunk });
+      nativeEvents.emit('data');
+    }
+
+    async stop() {}
+  }
+
+  const recorder = createNativeAudioRecorder({
+    importNativeAudio: async () => ({
+      MicrophoneRecorder: FakeMicrophoneRecorder,
+      listAudioDevices: () => []
+    })
+  }).record({ device: 'Microphone Array (AMD Audio Device)' });
+
+  recorder.stream().on('data', (chunk) => chunks.push(chunk));
+  await new Promise((resolve) => nativeEvents.once('data', resolve));
+
+  assert.deepEqual(Array.from(chunks[0]), Array.from(convertFloat32PcmToInt16(Buffer.from([
+    0, 0, 128, 191,
+    0, 0, 0, 0,
+    0, 0, 128, 63
+  ]))));
+  assert.equal(chunks[0].readInt16LE(0), -32768);
+  assert.equal(chunks[0].readInt16LE(2), 0);
+  assert.equal(chunks[0].readInt16LE(4), 32767);
 });
 
 test('adds a discovered SoX directory to both Windows path env keys', () => {
@@ -147,6 +344,46 @@ test('windows recorder uses the waveaudio driver and selected input device', () 
   assert.deepEqual(spawned.args.slice(0, 3), ['-t', 'waveaudio', 'CABLE Output']);
   assert.equal(spawned.args.includes('--default-device'), false);
   assert.equal(spawned.args.includes('raw'), true);
+  assert.equal(recording.stream(), stdout);
+
+  recording.stop();
+
+  assert.equal(killed, true);
+});
+
+test('windows ffmpeg recorder uses DirectShow and outputs raw PCM', () => {
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  let spawned;
+  let killed = false;
+  const recorder = createWindowsFfmpegRecorder({
+    command: 'C:\\Tools\\ffmpeg.exe',
+    spawn: (command, args, options) => {
+      spawned = { command, args, options };
+
+      return {
+        stdout,
+        stderr,
+        kill: () => {
+          killed = true;
+        },
+        on: () => {}
+      };
+    }
+  });
+
+  const recording = recorder.record({
+    sampleRate: 44100,
+    channels: 1,
+    sampleSizeInBits: 16,
+    device: 'Voicemeeter Out B2'
+  });
+
+  assert.equal(spawned.command, 'C:\\Tools\\ffmpeg.exe');
+  assert.deepEqual(spawned.args.slice(0, 4), ['-hide_banner', '-loglevel', 'warning', '-f']);
+  assert.deepEqual(spawned.args.slice(4, 7), ['dshow', '-i', 'audio=Voicemeeter Out B2']);
+  assert.deepEqual(spawned.args.slice(-9), ['-f', 's16le', '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '44100', '-']);
+  assert.equal(spawned.args.at(-1), '-');
   assert.equal(recording.stream(), stdout);
 
   recording.stop();

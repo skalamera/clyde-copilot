@@ -5,6 +5,70 @@
     <title>Meeting Transcriber</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Righteous&display=swap" rel="stylesheet">
     <style>
+        /* ... keeping existing styles ... */
+        .company-card {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .company-card:hover {
+            border-color: var(--primary);
+            background: rgba(239, 112, 33, 0.1);
+        }
+        .company-card.active {
+            border-color: var(--primary);
+            background: rgba(239, 112, 33, 0.2);
+        }
+        .confidence-badge {
+            background: rgba(0,0,0,0.3);
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+        
+        .interview-block {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .interview-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 8px;
+        }
+        .grade-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid var(--primary);
+        }
+        .grade-a { border-left-color: var(--success); }
+        .grade-b { border-left-color: #3b82f6; }
+        .grade-c { border-left-color: var(--warning); }
+        .grade-d { border-left-color: #f97316; }
+        .grade-f { border-left-color: var(--danger); }
+        
+        .grade-letter {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        
+        .trend-up { color: var(--success); }
+        .trend-down { color: var(--danger); }
+        .trend-neutral { color: #94a3b8; }
+
         :root {
             --background: rgba(41, 41, 39, 0.85); /* Dark slate */
             --foreground: #f8fafc;
@@ -347,6 +411,60 @@
             font-size: 0.85rem;
         }
 
+        #liveVoiceMeters {
+            width: min(720px, 100%);
+            margin: 14px auto 0;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            gap: 10px;
+        }
+
+        .voice-meter-card {
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(15, 23, 42, 0.28);
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .voice-meter-card.active {
+            border-color: rgba(34, 197, 94, 0.5);
+            box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.16);
+        }
+
+        .voice-meter-topline {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .voice-meter-label {
+            color: #e2e8f0;
+            font-weight: 700;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .voice-meter-state {
+            color: #94a3b8;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .voice-meter-card.active .voice-meter-state {
+            color: #86efac;
+        }
+
+        @media (max-width: 720px) {
+            #liveVoiceMeters {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .panel-stack {
             min-height: 0;
         }
@@ -542,7 +660,7 @@
             transition: opacity 0.3s ease;
         }
 
-        #settingsModal.show {
+        #settingsModal.show, #saveModal.show {
             display: flex;
             opacity: 1;
         }
@@ -580,6 +698,26 @@
         
         .modal-close:hover {
             color: var(--foreground);
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            padding: 10px 0;
+            cursor: pointer;
+            font-size: 1rem;
+            border-bottom: 2px solid transparent;
+            font-weight: 500;
+        }
+
+        .tab-btn.active {
+            color: #f8fafc;
+            border-bottom-color: var(--primary);
+        }
+        
+        .tab-btn:hover {
+            color: #f8fafc;
         }
 
         /* Top Bar */
@@ -624,20 +762,50 @@
             color: var(--danger);
         }
 
+        .context-input {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--foreground);
+            padding: 4px 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+            width: 180px;
+            -webkit-app-region: no-drag;
+            position: relative;
+            z-index: 1001;
+        }
+        .context-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: rgba(0, 0, 0, 0.4);
+        }
     </style>
 </head>
 <body>
 
     
     <div id="topBar">
-        <button class="topbar-btn" onclick="document.getElementById('settingsModal').classList.add('show')">Context / Resume</button>
+        <button class="topbar-btn" onclick="toggleDashboard()" style="margin-right: 10px; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #bbf7d0;">Dashboard</button>
+        <button class="topbar-btn" onclick="openSettingsModal()">Settings</button>
         <button id="closeAppBtn" onclick="window.close()">&times;</button>
     </div>
 
     <div id="container">
         <div class="header-section">
-            <h1><img src="../Clyde.svg" alt="Clyde Logo" class="logo"> clyde</h1>
-            <p>Status: <span id="statusIndicator">Awaiting initialization...</span></p>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
+                <div>
+                    <h1><img src="../Clyde.svg" alt="Clyde Logo" class="logo"></h1>
+                    <p style="margin-top: 1px;">Status: <span id="statusIndicator">Awaiting initialization...</span></p>
+                </div>
+                <div style="margin-top: 15px; display: flex; gap: 8px; align-items: center; font-size: 0.95rem; color: #94a3b8;">
+                    <span>Interviewing for:</span>
+                    <span id="activeInterviewDisplay" style="color: #f8fafc; font-weight: 600;">None</span>
+                    <button class="topbar-btn" onclick="openActiveInterviewModal()" style="padding: 4px 8px; font-size: 0.8rem;">Change / Add New</button>
+                </div>
+            </div>
+            <div id="liveVoiceMeters"></div>
             <div id="healthGrid">
                 <div class="health-item unknown" data-health-key="audio">
                     <div class="health-topline"><span class="health-dot"></span><span>Audio</span></div>
@@ -667,35 +835,179 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
                 Stop
             </button>
-            <button id="testOutputBtn" onclick="testOutputAudio()">
-                Test Output
+            <button id="saveBtn" onclick="openSaveModal()" disabled style="background-color: var(--success); color: white; border: none; box-shadow: 0 0 10px rgba(34,197,94,0.4);">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                End & Save
             </button>
-            <button id="testInputBtn" onclick="toggleAudioLevelTest()">
-                Test Inputs
+            <button id="resetBtn" onclick="resetSession()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                Reset Session
             </button>
         </div>
 
         
     <div id="settingsModal">
         <div class="modal-content glass-panel">
-            <button class="modal-close" onclick="document.getElementById('settingsModal').classList.remove('show')">&times;</button>
-            <h2 style="margin-top:0;">Context Settings</h2>
-            <div class="input-group">
-                <label for="jobDescription">Job Description</label>
-                <textarea id="jobDescription" placeholder="Paste the job description here to help Clyde tailor its suggestions..."></textarea>
+            <button class="modal-close" onclick="closeSettingsModal()">&times;</button>
+            <h2 style="margin-top:0;">Settings</h2>
+            
+            <div style="display: flex; gap: 20px; border-bottom: 1px solid var(--border); margin-bottom: 20px;">
+                <button class="tab-btn active" onclick="switchTab('contextTab')">Context</button>
+                <button class="tab-btn" onclick="switchTab('llmTab')">Assistant & LLM</button>
+                <button class="tab-btn" onclick="switchTab('transcriptionTab')">Transcription</button>
+                <button class="tab-btn" onclick="switchTab('audioTab')">Audio</button>
             </div>
-            <button class="topbar-btn" style="align-self: flex-end; padding: 10px 20px;" onclick="document.getElementById('settingsModal').classList.remove('show')">Save & Close</button>
+
+            <div id="contextTab" class="tab-content active">
+                <p style="color: #94a3b8; font-size: 0.9rem; margin-top: 0; margin-bottom: 20px;">
+                    Provide your resume or background details here. The assistant uses this context to give highly personalized, relevant suggestions during interviews.
+                </p>
+                <div class="input-group">
+                    <label for="resumeText">Resume / Background (Optional)</label>
+                    <textarea id="resumeText" placeholder="Paste your resume or key background info here. If you don't have Pinecone RAG setup, Clyde will use this text directly for context..." style="height: 150px;"></textarea>
+                </div>
+                
+                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                        <label style="margin: 0; font-weight: 600;">Enable Advanced RAG (Pinecone)</label>
+                        <label class="switch">
+                            <input type="checkbox" id="ragToggle" onchange="toggleRagFields()">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 0; margin-bottom: 15px;">
+                        <strong>Tip:</strong> The standard Resume text field above is highly recommended for normal resumes (under 5-10 pages or roughly 10,000 words). Only enable Pinecone RAG if you have a massive dataset of past work, extensive code repositories, or hundreds of pages of documentation that would exceed standard LLM context limits or make generation too slow.
+                    </p>
+                    
+                    <div id="ragSettingsGroup" style="display: none; flex-direction: column; gap: 15px; margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label for="pineconeApiKey">Pinecone API Key</label>
+                            <input type="password" id="pineconeApiKey" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;">
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label for="pineconeHost">Pinecone Host URL</label>
+                            <input type="text" id="pineconeHost" placeholder="e.g. https://your-index-12345.svc.gcp-starter.pinecone.io" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="llmTab" class="tab-content" style="display: none;">
+                <div class="input-group">
+                    <label for="llmProvider">LLM Provider</label>
+                    <select id="llmProvider" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;" onchange="toggleLlmFields(true)">
+                        <option value="local">Local (LM Studio)</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="gemini">Google Gemini</option>
+                    </select>
+                </div>
+                
+                <div class="input-group" id="llmApiKeyGroup" style="display: none;">
+                    <label for="llmApiKey">API Key</label>
+                    <input type="password" id="llmApiKey" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;">
+                </div>
+
+                <div class="input-group">
+                    <label for="llmModel">Model Name</label>
+                    <input type="text" id="llmModel" list="llmModelList" placeholder="e.g. gpt-4o, claude-3-5-sonnet-20240620, gemini-1.5-flash" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;">
+                    <datalist id="llmModelList"></datalist>
+                </div>
+                
+                <div class="input-group" id="localLlmUrlGroup">
+                    <label for="localLlmUrl">Local API URL</label>
+                    <input type="text" id="localLlmUrl" placeholder="http://localhost:1234/v1/chat/completions" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;">
+                </div>
+            </div>
+
+            <div id="transcriptionTab" class="tab-content" style="display: none;">
+                <div class="input-group">
+                    <label for="transcriptionProvider">Transcription Provider</label>
+                    <select id="transcriptionProvider" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;" onchange="toggleTranscriptionFields()">
+                        <option value="local">Local Whisper (LM Studio)</option>
+                        <option value="openai">OpenAI (Whisper API)</option>
+                    </select>
+                </div>
+                
+                <div class="input-group" id="transcriptionApiKeyGroup" style="display: none;">
+                    <label for="transcriptionApiKey">OpenAI API Key</label>
+                    <input type="password" id="transcriptionApiKey" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;">
+                </div>
+                
+                <div class="input-group" id="localTranscriptionUrlGroup">
+                    <label for="localTranscriptionUrl">Local API URL</label>
+                    <input type="text" id="localTranscriptionUrl" placeholder="http://localhost:8000/v1/audio/transcriptions" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 10px;">
+                </div>
+            </div>
+
+            <div id="audioTab" class="tab-content" style="display: none;">
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+                    <button id="testOutputBtn" class="topbar-btn" style="padding: 10px 16px;" onclick="testOutputAudio()">
+                        Test Output
+                    </button>
+                    <button id="testInputBtn" class="topbar-btn" style="padding: 10px 16px;" onclick="toggleAudioLevelTest()">
+                        Test Inputs
+                    </button>
+                </div>
+
+                <div id="audioDiagnostics" class="glass-panel">
+                    <div class="transcript-header">
+                        <h2>Audio Test</h2>
+                        <span id="audioTestStatus" class="health-detail">Click Test Inputs, then speak and play audio.</span>
+                    </div>
+                    <div id="audioMeters"></div>
+                </div>
+            </div>
+
+            <button class="topbar-btn" style="align-self: flex-end; padding: 10px 20px; background: var(--primary); color: #fff; border: none;" onclick="saveAndCloseSettings()">Save & Close</button>
         </div>
     </div>
 
-
-        <div id="audioDiagnostics" class="glass-panel">
-            <div class="transcript-header">
-                <h2>Audio Test</h2>
-                <span id="audioTestStatus" class="health-detail">Click Test Inputs, then speak and play audio.</span>
+    <!-- Save Interview Modal -->
+    <div id="saveModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 500px;">
+            <button class="modal-close" onclick="closeSaveModal()">&times;</button>
+            <h2 style="margin-top:0;">Save Interview Session</h2>
+            
+            <div class="input-group">
+                <label for="saveCompanySelect">Company Name</label>
+                <select id="saveCompanySelect" onchange="toggleSaveCompanyInput()" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+                    <!-- Options injected by JS -->
+                </select>
+                <input type="text" id="saveCompanyInput" placeholder="Enter new company name..." style="display:none; margin-top:10px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
             </div>
-            <div id="audioMeters"></div>
+            
+            <div class="input-group">
+                <label for="savePhaseSelect">Interview Phase</label>
+                <select id="savePhaseSelect" onchange="toggleSavePhaseInput()" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+                    <option value="Recruiter Screen">Recruiter Screen</option>
+                    <option value="Interview #1">Interview #1</option>
+                    <option value="Interview #2">Interview #2</option>
+                    <option value="Interview #3">Interview #3</option>
+                    <option value="Interview #4">Interview #4</option>
+                    <option value="Interview #5">Interview #5</option>
+                    <option value="Interview #6">Interview #6</option>
+                    <option value="Other">Other</option>
+                </select>
+                <input type="text" id="savePhaseInput" placeholder="e.g. Technical Round 1" style="display:none; margin-top:10px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <div class="input-group">
+                <label for="saveInterviewerName">Interviewer Name (Optional)</label>
+                <input type="text" id="saveInterviewerName" placeholder="John Doe" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <div class="input-group">
+                <label for="saveInterviewerTitle">Interviewer Title (Optional)</label>
+                <input type="text" id="saveInterviewerTitle" placeholder="Senior Engineer" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                <button class="topbar-btn" onclick="closeSaveModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitSaveInterview()">Save & Grade</button>
+            </div>
         </div>
+    </div>
 
         <div class="work-grid" id="workGrid">
             <div class="panel-stack" id="transcriptPanel">
@@ -723,10 +1035,272 @@
         </div>
     </div>
 
+    <!-- Dashboard View -->
+        <div id="dashboardContainer" style="display:none; width: 100%; max-width: 1200px; height: 85vh; margin-top: 50px; gap: 20px;">
+        <!-- Left Sidebar: Companies -->
+        <div class="glass-panel" style="width: 300px; padding: 20px; display:flex; flex-direction:column; gap: 15px; overflow-y:auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
+                <h2 style="font-size: 1.5rem; margin: 0;">Leaderboard</h2>
+            </div>
+            <div style="display:flex; gap: 10px;">
+                <button class="topbar-btn" style="flex:1; background: var(--primary); border: none; color: white;" onclick="openNewOpportunityModal()">+ Add New Opportunity</button>
+                <button class="topbar-btn" style="padding:4px 8px; font-size:0.75rem;" onclick="loadDashboard()">Refresh</button>
+            </div>
+            <div id="companyList" style="display:flex; flex-direction:column; gap: 10px;">
+                <!-- Companies will be injected here -->
+                <p class="empty-state">No interviews saved yet.</p>
+            </div>
+        </div>
+
+        <!-- Right Content: Transcripts & Grades -->
+        <div class="glass-panel" style="flex:1; padding: 20px; display:flex; flex-direction:column; overflow:hidden;">
+            <div id="companyDetailHeader" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+                <div style="display:flex; align-items:center; gap: 10px;">
+                    <div style="display:flex; flex-direction: column;">
+                        <div style="display:flex; align-items:center; gap: 10px;">
+                            <h2 id="selectedCompanyName" style="font-size: 1.8rem; margin: 0;">Select a Company</h2>
+                            <span id="activeCompanyBadge" style="display:none; background: rgba(34, 197, 94, 0.2); color: #bbf7d0; border: 1px solid rgba(34, 197, 94, 0.4); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem;">Active</span>
+                            <button id="editCompanyBtn" class="topbar-btn" style="display:none; padding: 4px; background: transparent; border: none; font-size: 1.1rem; cursor: pointer;" onclick="editCompanyPrompt()" title="Rename Company">✏️</button>
+                            <button id="deleteCompanyBtn" class="topbar-btn" style="display:none; padding: 4px; background: transparent; border: none; font-size: 1.1rem; cursor: pointer;" onclick="deleteCompanyPrompt()" title="Delete Company">🗑️</button>
+                        </div>
+                        <div id="selectedCompanyRoleContainer" style="display:none; align-items:center; gap: 8px; margin-top: 4px;">
+                            <span id="selectedCompanyRole" style="font-size: 1rem; color: #94a3b8;"></span>
+                            <button id="editRoleBtn" class="topbar-btn" style="padding: 2px; background: transparent; border: none; font-size: 0.9rem; cursor: pointer;" onclick="editRolePrompt()" title="Edit Role">✏️</button>
+                            <button id="jobDescriptionBtn" class="topbar-btn" style="padding: 2px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.1); border: 1px solid var(--border); color: #cbd5e1; margin-left: 10px;" onclick="openJobDescriptionModal()">Attach Job Description</button>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap: 10px;">
+                    <button id="setActiveInterviewBtn" class="topbar-btn" style="display:none; background: var(--primary); border: none; color: white;" onclick="setAsActiveInterview()">Set as Active Interview</button>
+                    <button class="topbar-btn" style="background: rgba(255,255,255,0.1); border: 1px solid var(--border); color: white;" onclick="openManualTranscriptModal()">+ Add Manual Transcript</button>
+                    <div id="companyTrend" style="font-size: 1.2rem; display:none;"></div>
+                </div>
+            </div>
+            
+            <div id="interviewList" style="overflow-y:auto; padding-right:10px; display:flex; flex-direction:column; gap: 20px;">
+                <p class="empty-state">Select a company from the leaderboard to view its transcripts and grades.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add New Opportunity Modal -->
+    <div id="newOpportunityModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto;">
+            <button class="modal-close" onclick="closeNewOpportunityModal()">&times;</button>
+            <h2 style="margin-top:0;">Add New Opportunity</h2>
+            
+            <div class="input-group">
+                <label for="oppCompanyInput">Company Name <span style="color: var(--danger);">*</span></label>
+                <input type="text" id="oppCompanyInput" placeholder="e.g. Acme Corp" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div class="input-group">
+                <label for="oppRoleInput">Job Title <span style="color: var(--danger);">*</span></label>
+                <input type="text" id="oppRoleInput" placeholder="e.g. Senior Software Engineer" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <hr style="border: none; border-top: 1px solid var(--border); margin: 20px 0;">
+            <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 15px;">Optional: You can log an initial interview transcript for this opportunity now, or leave these fields blank to add them later.</p>
+            
+            <div class="input-group">
+                <label for="oppPhaseSelect">Interview Phase</label>
+                <select id="oppPhaseSelect" onchange="toggleOppPhaseInput()" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+                    <option value="Recruiter Screen">Recruiter Screen</option>
+                    <option value="Interview #1">Interview #1</option>
+                    <option value="Interview #2">Interview #2</option>
+                    <option value="Interview #3">Interview #3</option>
+                    <option value="Interview #4">Interview #4</option>
+                    <option value="Interview #5">Interview #5</option>
+                    <option value="Interview #6">Interview #6</option>
+                    <option value="Other">Other</option>
+                </select>
+                <input type="text" id="oppPhaseInput" placeholder="e.g. Technical Screen" style="display:none; margin-top:10px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <div class="input-group">
+                <label for="oppInterviewerName">Interviewer Name (Optional)</label>
+                <input type="text" id="oppInterviewerName" placeholder="John Doe" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div class="input-group">
+                <label for="oppInterviewerTitle">Interviewer Title (Optional)</label>
+                <input type="text" id="oppInterviewerTitle" placeholder="Senior Engineer" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <div class="input-group">
+                <label for="oppTranscript">Transcript Text</label>
+                <textarea id="oppTranscript" placeholder="Paste the full transcript here. Example format:\nInterviewer: Hello how are you?\nYou: I am doing great!" style="height: 150px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif; resize: vertical;"></textarea>
+                <small style="color: #94a3b8; display: block; margin-top: 5px;">Format ideally should clearly denote speakers, like "SpeakerName: Text"</small>
+            </div>
+
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+                <button class="topbar-btn" onclick="closeNewOpportunityModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitNewOpportunity()">Create Opportunity</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Job Description Modal -->
+    <div id="jobDescriptionModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 600px; width: 100%;">
+            <button class="modal-close" onclick="closeJobDescriptionModal()">&times;</button>
+            <h2 style="margin-top:0;">Job Description</h2>
+            <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 15px;">Paste the job description for this company. This will be used as context by the AI.</p>
+            
+            <div class="input-group">
+                <textarea id="companyJobDescription" placeholder="Paste the job description here..." style="height: 300px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif; resize: vertical;"></textarea>
+            </div>
+            
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+                <button class="topbar-btn" onclick="closeJobDescriptionModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitJobDescription()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rename Company Modal -->
+    <div id="renameCompanyModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 400px; width: 100%;">
+            <button class="modal-close" onclick="closeRenameCompanyModal()">&times;</button>
+            <h2 style="margin-top:0;">Rename Company</h2>
+            
+            <div class="input-group">
+                <label for="renameCompanyInput">New Company Name</label>
+                <input type="text" id="renameCompanyInput" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+                <button class="topbar-btn" onclick="closeRenameCompanyModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitRenameCompany()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Role Modal -->
+    <div id="editRoleModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 400px; width: 100%;">
+            <button class="modal-close" onclick="closeEditRoleModal()">&times;</button>
+            <h2 style="margin-top:0;">Edit Job Title / Role</h2>
+            
+            <div class="input-group">
+                <label for="editRoleInput">Job Title</label>
+                <input type="text" id="editRoleInput" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+                <button class="topbar-btn" onclick="closeEditRoleModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitEditRole()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Interview Modal -->
+    <div id="activeInterviewModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 500px; width: 100%;">
+            <button class="modal-close" onclick="closeActiveInterviewModal()">&times;</button>
+            <h2 style="margin-top:0;">Set Active Interview</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display:block; margin-bottom: 8px;">Select Existing Company</label>
+                <select id="existingCompanySelect" class="context-input" style="width: 100%; padding: 10px;" onchange="handleExistingCompanySelect()">
+                    <option value="">-- Select --</option>
+                </select>
+            </div>
+            
+            <div style="text-align: center; margin: 15px 0; color: #94a3b8;">OR ADD NEW</div>
+            
+            <div class="input-group">
+                <label>New Company Name</label>
+                <input type="text" id="newActiveCompanyInput" placeholder="e.g. Acme Corp" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div class="input-group">
+                <label>Job Title / Role</label>
+                <input type="text" id="newActiveRoleInput" placeholder="e.g. Senior Software Engineer" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 25px;">
+                <button class="topbar-btn" onclick="closeActiveInterviewModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitActiveInterview()">Set Active</button>
+            </div>
+        </div>
+    </div>
+    <div id="editRoleModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 400px; width: 100%;">
+            <button class="modal-close" onclick="closeEditRoleModal()">&times;</button>
+            <h2 style="margin-top:0;">Edit Job Title / Role</h2>
+            
+            <div class="input-group">
+                <label for="editRoleInput">Job Title</label>
+                <input type="text" id="editRoleInput" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+                <button class="topbar-btn" onclick="closeEditRoleModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitEditRole()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Transcript Modal -->
+    <div id="manualTranscriptModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:2000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.3s ease;">
+        <div class="modal-content glass-panel" style="max-width: 600px; width: 100%;">
+            <button class="modal-close" onclick="closeManualTranscriptModal()">&times;</button>
+            <h2 id="manualTranscriptModalTitle" style="margin-top:0;">Add Manual Transcript</h2>
+            <input type="hidden" id="manualInterviewId" value="">
+            <input type="hidden" id="manualOriginalCompany" value="">
+            
+            <div class="input-group">
+                <label for="manualCompanySelect">Company Name</label>
+                <select id="manualCompanySelect" onchange="toggleManualCompanyInput()" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+                    <!-- Options injected by JS -->
+                </select>
+                <input type="text" id="manualCompanyInput" placeholder="Enter new company name..." style="display:none; margin-top:10px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div class="input-group">
+                <label for="manualPhaseSelect">Interview Phase</label>
+                <select id="manualPhaseSelect" onchange="toggleManualPhaseInput()" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+                    <option value="Recruiter Screen">Recruiter Screen</option>
+                    <option value="Interview #1">Interview #1</option>
+                    <option value="Interview #2">Interview #2</option>
+                    <option value="Interview #3">Interview #3</option>
+                    <option value="Interview #4">Interview #4</option>
+                    <option value="Interview #5">Interview #5</option>
+                    <option value="Interview #6">Interview #6</option>
+                    <option value="Other">Other</option>
+                </select>
+                <input type="text" id="manualPhaseInput" placeholder="e.g. Technical Screen" style="display:none; margin-top:10px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <div class="input-group">
+                <label for="manualInterviewerName">Interviewer Name (Optional)</label>
+                <input type="text" id="manualInterviewerName" placeholder="John Doe" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+            
+            <div class="input-group">
+                <label for="manualInterviewerTitle">Interviewer Title (Optional)</label>
+                <input type="text" id="manualInterviewerTitle" placeholder="Senior Engineer" style="background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif;">
+            </div>
+
+            <div class="input-group">
+                <label for="manualTranscript">Transcript Text</label>
+                <textarea id="manualTranscript" placeholder="Paste the full transcript here. Example format:\nInterviewer: Hello how are you?\nYou: I am doing great!" style="height: 200px; background: rgba(41, 41, 39, 0.5); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); padding: 12px; font-family: 'Inter', sans-serif; resize: vertical;"></textarea>
+                <small style="color: #94a3b8; display: block; margin-top: 5px;">Format ideally should clearly denote speakers, like "SpeakerName: Text"</small>
+            </div>
+
+            <div style="display:flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+                <button class="topbar-btn" onclick="closeManualTranscriptModal()">Cancel</button>
+                <button class="topbar-btn" style="background: var(--success); color: #fff; border-color: var(--success);" onclick="submitManualTranscript()">Save & Grade</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let isStreaming = false;
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const saveBtn = document.getElementById('saveBtn');
         const suggestNextBtn = document.getElementById('suggestNextBtn');
         const testInputBtn = document.getElementById('testInputBtn');
         const statusIndicator = document.getElementById('statusIndicator');
@@ -735,6 +1309,7 @@
         const healthGrid = document.getElementById('healthGrid');
         const audioDiagnostics = document.getElementById('audioDiagnostics');
         const audioMeters = document.getElementById('audioMeters');
+        const liveVoiceMeters = document.getElementById('liveVoiceMeters');
         const audioTestStatus = document.getElementById('audioTestStatus');
         let audioLevelTesting = false;
         let assistantCardSerial = 0;
@@ -743,26 +1318,197 @@
 
         window.addEventListener('DOMContentLoaded', async () => {
             try {
-                const context = await window.electronAPI.loadContext();
-                if (context) {
-                    document.getElementById('jobDescription').value = context.jobDescription || '';
+                const settings = await window.electronAPI.loadSettings();
+                if (settings) {
+                    await updateActiveInterviewDisplay(settings);
+
+                    document.getElementById('resumeText').value = settings.resumeText || '';
+                    document.getElementById('llmProvider').value = settings.llmProvider || 'local';
+                    document.getElementById('llmApiKey').value = settings.llmApiKey || '';
+                    document.getElementById('llmModel').value = settings.llmModel || '';
+                    document.getElementById('localLlmUrl').value = settings.localLlmUrl || '';
+                    document.getElementById('transcriptionProvider').value = settings.transcriptionProvider || 'local';
+                    document.getElementById('transcriptionApiKey').value = settings.transcriptionApiKey || '';
+                    document.getElementById('localTranscriptionUrl').value = settings.localTranscriptionUrl || '';
+                    
+                    document.getElementById('pineconeApiKey').value = settings.pineconeApiKey || '';
+                    document.getElementById('pineconeHost').value = settings.pineconeHost || '';
+                    
+                    if (settings.ragEnabled) {
+                        document.getElementById('ragToggle').checked = true;
+                    } else {
+                        document.getElementById('ragToggle').checked = false;
+                    }
                 }
+                toggleLlmFields();
+                toggleTranscriptionFields();
+                toggleRagFields();
             } catch (err) {
-                console.error("Failed to load context:", err);
+                console.error("Failed to load settings:", err);
             }
         });
 
-        function saveCurrentContext() {
-            const jobDescription = document.getElementById('jobDescription').value;
-            window.electronAPI.saveContext({ jobDescription }).catch(err => {
-                console.error("Failed to save context:", err);
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById(tabId).style.display = 'block';
+            event.currentTarget.classList.add('active');
+        }
+
+        function toggleLlmFields(userInitiated = false) {
+            const provider = document.getElementById('llmProvider').value;
+            document.getElementById('llmApiKeyGroup').style.display = provider === 'local' ? 'none' : 'flex';
+            document.getElementById('localLlmUrlGroup').style.display = provider === 'local' ? 'flex' : 'none';
+            
+            const modelInput = document.getElementById('llmModel');
+            const dataList = document.getElementById('llmModelList');
+            
+            let options = [];
+            if (provider === 'openai') {
+                if(userInitiated || !modelInput.value) modelInput.value = 'gpt-4o';
+                options = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-preview', 'o1-mini', 'o3-mini'];
+            } else if (provider === 'anthropic') {
+                if(userInitiated || !modelInput.value) modelInput.value = 'claude-3-7-sonnet-20250219';
+                options = ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
+            } else if (provider === 'gemini') {
+                if(userInitiated || !modelInput.value) modelInput.value = 'gemini-3.1-flash-lite';
+                options = ['gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+            } else {
+                if(userInitiated) modelInput.value = '';
+                options = []; // Local uses whatever they type
+            }
+            
+            dataList.innerHTML = '';
+            options.forEach(opt => {
+                const el = document.createElement('option');
+                el.value = opt;
+                dataList.appendChild(el);
             });
         }
 
-        document.getElementById('jobDescription').addEventListener('input', () => {
-            clearTimeout(saveTimeout);
-            saveTimeout = setTimeout(saveCurrentContext, 1000);
-        });
+        function toggleTranscriptionFields() {
+            const provider = document.getElementById('transcriptionProvider').value;
+            document.getElementById('transcriptionApiKeyGroup').style.display = provider === 'local' ? 'none' : 'flex';
+            document.getElementById('localTranscriptionUrlGroup').style.display = provider === 'local' ? 'flex' : 'none';
+        }
+
+        function toggleRagFields() {
+            const isEnabled = document.getElementById('ragToggle').checked;
+            document.getElementById('ragSettingsGroup').style.display = isEnabled ? 'flex' : 'none';
+        }
+
+        function openSettingsModal() {
+            document.getElementById('settingsModal').classList.add('show');
+        }
+        
+        function closeSettingsModal() {
+            document.getElementById('settingsModal').classList.remove('show');
+        }
+
+        async function updateActiveInterviewDisplay(settings) {
+            const display = document.getElementById('activeInterviewDisplay');
+            if (settings && settings.currentCompany && settings.currentCompany !== 'Extracting...') {
+                const roleStr = settings.currentRole ? ` - ${settings.currentRole}` : '';
+                display.textContent = `${settings.currentCompany}${roleStr}`;
+            } else if (settings && settings.currentCompany === 'Extracting...') {
+                display.textContent = "Extracting...";
+            } else {
+                display.textContent = "None";
+            }
+        }
+
+        async function openActiveInterviewModal() {
+            const companies = await window.electronAPI.getCompanies();
+            const select = document.getElementById('existingCompanySelect');
+            select.innerHTML = '<option value="">-- Select Existing --</option>';
+            companies.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.name;
+                opt.textContent = c.role ? `${c.name} - ${c.role}` : c.name;
+                // Add role to dataset so we can retrieve it
+                opt.dataset.role = c.role || '';
+                select.appendChild(opt);
+            });
+            
+            document.getElementById('newActiveCompanyInput').value = '';
+            document.getElementById('newActiveRoleInput').value = '';
+            
+            const modal = document.getElementById('activeInterviewModal');
+            modal.style.display = 'flex';
+            requestAnimationFrame(() => modal.style.opacity = 1);
+        }
+
+        function closeActiveInterviewModal() {
+            document.getElementById('activeInterviewModal').style.opacity = 0;
+            setTimeout(() => {
+                document.getElementById('activeInterviewModal').style.display = 'none';
+            }, 300);
+        }
+        
+        function handleExistingCompanySelect() {
+            const select = document.getElementById('existingCompanySelect');
+            if (select.value) {
+                document.getElementById('newActiveCompanyInput').value = select.value;
+                document.getElementById('newActiveRoleInput').value = select.options[select.selectedIndex].dataset.role || '';
+            }
+        }
+
+        async function submitActiveInterview() {
+            const company = document.getElementById('newActiveCompanyInput').value.trim();
+            const role = document.getElementById('newActiveRoleInput').value.trim();
+            
+            if (!company) {
+                alert("Company name is required.");
+                return;
+            }
+            
+            try {
+                // Ensure the company exists and role is set
+                await window.electronAPI.setCompanyRole(company, role);
+                
+                // Save it to settings as current
+                const settings = await window.electronAPI.loadSettings();
+                settings.currentCompany = company;
+                settings.currentRole = role;
+                await window.electronAPI.saveSettings(settings);
+                
+                await updateActiveInterviewDisplay(settings);
+                closeActiveInterviewModal();
+                loadDashboard(); // Refresh dashboard if open
+            } catch(e) {
+                console.error("Failed to set active interview", e);
+            }
+        }
+
+        async function saveAndCloseSettings() {
+            const settings = await window.electronAPI.loadSettings();
+
+            const newSettings = {
+                ...settings,
+                resumeText: document.getElementById('resumeText').value,
+                pineconeApiKey: document.getElementById('pineconeApiKey').value,
+                pineconeHost: document.getElementById('pineconeHost').value,
+                llmProvider: document.getElementById('llmProvider').value,
+                llmApiKey: document.getElementById('llmApiKey').value,
+                llmModel: document.getElementById('llmModel').value,
+                localLlmUrl: document.getElementById('localLlmUrl').value,
+                transcriptionProvider: document.getElementById('transcriptionProvider').value,
+                transcriptionApiKey: document.getElementById('transcriptionApiKey').value,
+                localTranscriptionUrl: document.getElementById('localTranscriptionUrl').value,
+                ragEnabled: document.getElementById('ragToggle').checked,
+                currentCompany: settings.currentCompany,
+                currentRole: settings.currentRole
+            };
+            
+            try {
+                await window.electronAPI.saveSettings(newSettings);
+                closeSettingsModal();
+            } catch (err) {
+                console.error("Failed to save settings:", err);
+                alert("Failed to save settings.");
+            }
+        }
 
         let isTranscriptCollapsed = false;
 
@@ -785,14 +1531,13 @@
             isStreaming = streaming;
             startBtn.disabled = streaming;
             stopBtn.disabled = !streaming;
+            saveBtn.disabled = !streaming;
             if (suggestNextBtn) suggestNextBtn.disabled = !streaming;
         }
 
         function toggleStreaming(start) {
             if (start) {
-                const jobDescription = document.getElementById('jobDescription').value;
-                
-                window.electronAPI.startTranscription({ jobDescription });
+                window.electronAPI.startTranscription();
                 setStreamingState(true);
                 statusIndicator.textContent = "Starting audio capture...";
                 transcriptContainer.innerHTML = '';
@@ -819,6 +1564,18 @@
                 suggestNextBtn.disabled = false;
             }, 3000);
         }
+
+        function resetSession() {
+            if (confirm('Are you sure you want to reset the session? This will clear the current transcript.')) {
+                window.electronAPI.resetSession();
+            }
+        }
+
+        window.electronAPI.onSessionReset(() => {
+            transcriptContainer.innerHTML = '<p class="empty-state">Press Start to begin capturing and transcribing audio.</p>';
+            assistantContainer.innerHTML = '<p class="empty-state">LM Studio suggestions will appear here.</p>';
+            dismissedCards.clear();
+        });
 
         function testOutputAudio() {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -915,6 +1672,16 @@
                 return;
             }
 
+            if (update.type === 'live-stopped') {
+                renderLiveVoiceMeters([]);
+                return;
+            }
+
+            if ((update.type === 'live-started' || update.type === 'live-levels') && Array.isArray(update.sources)) {
+                renderLiveVoiceMeters(update.sources);
+                return;
+            }
+
             if (Array.isArray(update.sources)) {
                 audioDiagnostics.classList.add('active');
                 renderAudioMeters(update.sources);
@@ -959,6 +1726,62 @@
             }
         }
 
+        function renderLiveVoiceMeters(sources) {
+            if (!liveVoiceMeters) return;
+
+            const seen = new Set();
+
+            for (const source of sources) {
+                seen.add(source.id);
+                let card = liveVoiceMeters.querySelector(`[data-source-id="${source.id}"]`);
+
+                if (!card) {
+                    card = document.createElement('div');
+                    card.className = 'voice-meter-card';
+                    card.dataset.sourceId = source.id;
+
+                    const topLine = document.createElement('div');
+                    const label = document.createElement('div');
+                    const state = document.createElement('div');
+                    const track = document.createElement('div');
+                    const fill = document.createElement('div');
+
+                    topLine.className = 'voice-meter-topline';
+                    label.className = 'voice-meter-label';
+                    state.className = 'voice-meter-state';
+                    track.className = 'meter-track';
+                    fill.className = 'meter-fill';
+                    label.textContent = source.label || 'Audio';
+                    fill.style.background = source.color
+                        ? `linear-gradient(90deg, ${source.color}, var(--warning), var(--danger))`
+                        : '';
+
+                    topLine.appendChild(label);
+                    topLine.appendChild(state);
+                    track.appendChild(fill);
+                    card.appendChild(topLine);
+                    card.appendChild(track);
+                    liveVoiceMeters.appendChild(card);
+                }
+
+                const fill = card.querySelector('.meter-fill');
+                const state = card.querySelector('.voice-meter-state');
+                const speaking = Boolean(source.speaking);
+
+                card.classList.toggle('active', speaking);
+                fill.style.width = `${source.level || 0}%`;
+                state.textContent = speaking
+                    ? `Speaking · ${Math.round(source.rms || 0)}`
+                    : `${Math.round(source.rms || 0)} RMS`;
+            }
+
+            for (const card of Array.from(liveVoiceMeters.querySelectorAll('.voice-meter-card'))) {
+                if (!seen.has(card.dataset.sourceId)) {
+                    card.remove();
+                }
+            }
+        }
+
         window.electronAPI.onTranscriptUpdate((event, data) => {
             if (typeof data !== 'object' || !data.text) return;
 
@@ -966,6 +1789,20 @@
             const emptyState = transcriptContainer.querySelector('.empty-state');
             if (emptyState) {
                 emptyState.remove();
+            }
+
+            // Smart merge: if the last block was the same speaker, just append the text
+            const lastBlock = transcriptContainer.lastElementChild;
+            if (lastBlock && lastBlock.classList.contains('transcript-block')) {
+                const lastSpeaker = lastBlock.querySelector('.speaker-name').textContent;
+                const incomingSpeaker = `${data.speaker || 'Unknown'}:`;
+                
+                if (lastSpeaker === incomingSpeaker) {
+                    const textNode = lastBlock.querySelector('.speaking-text');
+                    textNode.textContent += ' ' + data.text;
+                    transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+                    return;
+                }
             }
 
             const block = document.createElement('div');
@@ -1139,6 +1976,739 @@
             if (lastIndex < text.length) {
                 target.appendChild(document.createTextNode(text.slice(lastIndex)));
             }
+        }
+
+        function toggleOppPhaseInput() {
+            const select = document.getElementById('oppPhaseSelect');
+            const input = document.getElementById('oppPhaseInput');
+            input.style.display = select.value === 'Other' ? 'block' : 'none';
+        }
+
+        function openNewOpportunityModal() {
+            document.getElementById('oppCompanyInput').value = '';
+            document.getElementById('oppRoleInput').value = '';
+            document.getElementById('oppPhaseSelect').value = 'Recruiter Screen';
+            toggleOppPhaseInput();
+            document.getElementById('oppPhaseInput').value = '';
+            document.getElementById('oppInterviewerName').value = '';
+            document.getElementById('oppInterviewerTitle').value = '';
+            document.getElementById('oppTranscript').value = '';
+            
+            const modal = document.getElementById('newOpportunityModal');
+            modal.style.display = 'flex';
+            requestAnimationFrame(() => modal.style.opacity = 1);
+        }
+
+        function closeNewOpportunityModal() {
+            document.getElementById('newOpportunityModal').style.opacity = 0;
+            setTimeout(() => {
+                document.getElementById('newOpportunityModal').style.display = 'none';
+            }, 300);
+        }
+
+        async function submitNewOpportunity() {
+            const company = document.getElementById('oppCompanyInput').value.trim();
+            const role = document.getElementById('oppRoleInput').value.trim();
+            const phaseSelect = document.getElementById('oppPhaseSelect').value;
+            const phase = phaseSelect === 'Other' ? document.getElementById('oppPhaseInput').value.trim() : phaseSelect;
+            const interviewerName = document.getElementById('oppInterviewerName').value.trim();
+            const interviewerTitle = document.getElementById('oppInterviewerTitle').value.trim();
+            const textRaw = document.getElementById('oppTranscript').value.trim();
+            
+            if (!company || !role) {
+                alert("Company Name and Job Title are required.");
+                return;
+            }
+            
+            try {
+                // Ensure the company exists and role is set
+                await window.electronAPI.setCompanyRole(company, role);
+                
+                if (textRaw) {
+                    const turns = [];
+                    const lines = textRaw.split('\n');
+                    let currentSpeaker = 'Unknown';
+                    let currentText = [];
+
+                    for (const line of lines) {
+                        const match = line.match(/^([^:]+):\s*(.*)$/);
+                        if (match) {
+                            if (currentText.length > 0) {
+                                turns.push({ speaker: currentSpeaker, text: currentText.join('\n').trim() });
+                            }
+                            currentSpeaker = match[1].trim();
+                            currentText = [match[2].trim()];
+                        } else {
+                            currentText.push(line.trim());
+                        }
+                    }
+                    if (currentText.length > 0 && currentText.join('').trim() !== '') {
+                        turns.push({ speaker: currentSpeaker, text: currentText.join('\n').trim() });
+                    }
+
+                    await window.electronAPI.saveManualInterview({
+                        company,
+                        phase,
+                        interviewerName,
+                        interviewerTitle,
+                        transcript: turns
+                    });
+                }
+                
+                closeNewOpportunityModal();
+                selectCompany(company, null);
+                loadDashboard();
+            } catch(e) {
+                console.error("Failed to create opportunity", e);
+                alert("Could not create opportunity: " + e.message);
+            }
+        }
+
+        // ------------------ Dashboard & Save Logic ------------------ //
+        async function populateCompanyDropdowns(defaultSelect = '') {
+            try {
+                const companies = await window.electronAPI.getCompanies();
+                const saveSelect = document.getElementById('saveCompanySelect');
+                const manualSelect = document.getElementById('manualCompanySelect');
+                
+                let optionsHtml = '';
+                companies.forEach(comp => {
+                    const display = comp.role ? `${comp.name} - ${comp.role}` : comp.name;
+                    optionsHtml += `<option value="${comp.name}">${display}</option>`;
+                });
+                optionsHtml += `<option value="NEW" style="font-weight: bold;">+ New Company</option>`;
+                
+                saveSelect.innerHTML = optionsHtml;
+                manualSelect.innerHTML = optionsHtml;
+
+                if (defaultSelect && companies.some(c => c.name === defaultSelect)) {
+                    saveSelect.value = defaultSelect;
+                    manualSelect.value = defaultSelect;
+                } else if (companies.length === 0) {
+                    saveSelect.value = 'NEW';
+                    manualSelect.value = 'NEW';
+                }
+                
+                toggleSaveCompanyInput();
+                toggleManualCompanyInput();
+            } catch (err) {
+                console.error("Failed to populate dropdowns:", err);
+            }
+        }
+
+        function toggleSaveCompanyInput() {
+            const select = document.getElementById('saveCompanySelect');
+            const input = document.getElementById('saveCompanyInput');
+            input.style.display = select.value === 'NEW' ? 'block' : 'none';
+        }
+
+        function toggleSavePhaseInput() {
+            const select = document.getElementById('savePhaseSelect');
+            const input = document.getElementById('savePhaseInput');
+            input.style.display = select.value === 'Other' ? 'block' : 'none';
+        }
+
+        function toggleManualCompanyInput() {
+            const select = document.getElementById('manualCompanySelect');
+            const input = document.getElementById('manualCompanyInput');
+            input.style.display = select.value === 'NEW' ? 'block' : 'none';
+        }
+
+        function toggleManualPhaseInput() {
+            const select = document.getElementById('manualPhaseSelect');
+            const input = document.getElementById('manualPhaseInput');
+            input.style.display = select.value === 'Other' ? 'block' : 'none';
+        }
+
+        function toggleDashboard() {
+            const container = document.getElementById('container');
+            const dashboard = document.getElementById('dashboardContainer');
+            
+            if (dashboard.style.display === 'none') {
+                // Open Dashboard
+                container.style.display = 'none';
+                dashboard.style.display = 'flex';
+                loadDashboard();
+            } else {
+                // Close Dashboard
+                dashboard.style.display = 'none';
+                container.style.display = 'flex';
+            }
+        }
+
+        async function openSaveModal() {
+            // Pause transcription but do not clear the UI yet
+            window.electronAPI.stopTranscription();
+            setStreamingState(false);
+            statusIndicator.textContent = "Interview Ended. Ready to save.";
+            
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            await populateCompanyDropdowns(currentCompany !== 'Select a Company' ? currentCompany : '');
+
+            document.getElementById('savePhaseSelect').value = 'Recruiter Screen';
+            toggleSavePhaseInput();
+            document.getElementById('savePhaseInput').value = '';
+
+            document.getElementById('saveModal').classList.add('show');
+            document.getElementById('saveModal').style.display = 'flex';
+            
+            // Give the browser a tick to apply display:flex before transitioning opacity
+            setTimeout(() => {
+                document.getElementById('saveModal').style.opacity = '1';
+            }, 10);
+        }
+
+        function closeSaveModal() {
+            document.getElementById('saveModal').classList.remove('show');
+            document.getElementById('saveModal').style.opacity = '0';
+            setTimeout(() => { document.getElementById('saveModal').style.display = 'none'; }, 300);
+        }
+
+        async function openManualTranscriptModal() {
+            // Auto-fill company name if one is selected in dashboard
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            await populateCompanyDropdowns(currentCompany !== 'Select a Company' ? currentCompany : '');
+            
+            document.getElementById('manualPhaseSelect').value = 'Recruiter Screen';
+            toggleManualPhaseInput();
+            document.getElementById('manualPhaseInput').value = '';
+            document.getElementById('manualInterviewerName').value = '';
+            document.getElementById('manualInterviewerTitle').value = '';
+            document.getElementById('manualTranscript').value = '';
+            
+            // Reset state to NEW interview
+            document.getElementById('manualInterviewId').value = '';
+            document.getElementById('manualOriginalCompany').value = '';
+            document.getElementById('manualTranscriptModalTitle').textContent = "Add Manual Transcript";
+
+            document.getElementById('manualTranscriptModal').classList.add('show');
+            document.getElementById('manualTranscriptModal').style.display = 'flex';
+            setTimeout(() => {
+                document.getElementById('manualTranscriptModal').style.opacity = '1';
+            }, 10);
+        }
+
+        function closeManualTranscriptModal() {
+            document.getElementById('manualTranscriptModal').classList.remove('show');
+            document.getElementById('manualTranscriptModal').style.opacity = '0';
+            setTimeout(() => { document.getElementById('manualTranscriptModal').style.display = 'none'; }, 300);
+        }
+
+        async function submitManualTranscript() {
+            const companySelect = document.getElementById('manualCompanySelect').value;
+            const company = companySelect === 'NEW' ? document.getElementById('manualCompanyInput').value.trim() : companySelect;
+            
+            const phaseSelect = document.getElementById('manualPhaseSelect').value;
+            const phase = phaseSelect === 'Other' ? document.getElementById('manualPhaseInput').value.trim() : phaseSelect;
+            
+            const interviewerName = document.getElementById('manualInterviewerName').value.trim();
+            const interviewerTitle = document.getElementById('manualInterviewerTitle').value.trim();
+            const textRaw = document.getElementById('manualTranscript').value.trim();
+            
+            if (!company || !phase || !textRaw) {
+                alert("Please provide Company Name, Interview Phase, and the Transcript text.");
+                return;
+            }
+
+            // Simple heuristic parser to break string down into turns.
+            // Matches "Speaker: Content" or falls back to whole block as "Unknown"
+            const turns = [];
+            const lines = textRaw.split('\n');
+            let currentSpeaker = 'Unknown';
+            let currentText = [];
+
+            for (const line of lines) {
+                const match = line.match(/^([^:]+):\s*(.*)$/);
+                if (match) {
+                    if (currentText.length > 0) {
+                        turns.push({ speaker: currentSpeaker, text: currentText.join('\n').trim() });
+                    }
+                    currentSpeaker = match[1].trim();
+                    currentText = [match[2].trim()];
+                } else {
+                    currentText.push(line.trim());
+                }
+            }
+            if (currentText.length > 0 && currentText.join('').trim() !== '') {
+                turns.push({ speaker: currentSpeaker, text: currentText.join('\n').trim() });
+            }
+
+            try {
+                const metadata = {
+                    id: document.getElementById('manualInterviewId').value || undefined,
+                    originalCompany: document.getElementById('manualOriginalCompany').value || undefined,
+                    company,
+                    phase,
+                    interviewerName,
+                    interviewerTitle,
+                    transcript: turns
+                };
+
+                await window.electronAPI.saveManualInterview(metadata);
+                closeManualTranscriptModal();
+                selectCompany(company, null); // Switch UI to this company
+                loadDashboard();
+            } catch (err) {
+                console.error("Save manual error:", err);
+                alert("Could not save manual interview: " + err.message);
+            }
+        }
+
+        async function submitSaveInterview() {
+            const companySelect = document.getElementById('saveCompanySelect').value;
+            const company = companySelect === 'NEW' ? document.getElementById('saveCompanyInput').value.trim() : companySelect;
+            
+            const phaseSelect = document.getElementById('savePhaseSelect').value;
+            const phase = phaseSelect === 'Other' ? document.getElementById('savePhaseInput').value.trim() : phaseSelect;
+            
+            if (!company || !phase) {
+                alert("Please provide at least a Company Name and Interview Phase.");
+                return;
+            }
+
+            try {
+                const metadata = {
+                    company,
+                    phase,
+                    interviewerName: document.getElementById('saveInterviewerName').value.trim(),
+                    interviewerTitle: document.getElementById('saveInterviewerTitle').value.trim()
+                };
+
+                await window.electronAPI.saveInterview(metadata);
+                
+                // Clear UI
+                transcriptContainer.innerHTML = '<p class="empty-state">Press Start to begin capturing and transcribing audio.</p>';
+                assistantContainer.innerHTML = '<p class="empty-state">LM Studio suggestions will appear here.</p>';
+                
+                // Reset inputs inside modal
+                document.getElementById('saveCompanyInput').value = '';
+                document.getElementById('savePhaseInput').value = '';
+                document.getElementById('saveInterviewerName').value = '';
+                document.getElementById('saveInterviewerTitle').value = '';
+
+                closeSaveModal();
+                
+                // Auto-open dashboard to see it processing
+                if (document.getElementById('dashboardContainer').style.display === 'none') {
+                    toggleDashboard();
+                } else {
+                    loadDashboard();
+                }
+
+            } catch (err) {
+                console.error("Save error:", err);
+                alert("Could not save interview. Are you sure any transcript was captured? " + err.message);
+            }
+        }
+
+        async function loadDashboard() {
+            try {
+                // Remember currently selected company if any
+                const currentSelection = document.getElementById('selectedCompanyName').textContent;
+                
+                const companies = await window.electronAPI.getCompanies();
+                const list = document.getElementById('companyList');
+                list.innerHTML = '';
+                
+                if (companies.length === 0) {
+                    list.innerHTML = '<p class="empty-state">No interviews saved yet.</p>';
+                    return;
+                }
+
+                let cardToSelect = null;
+
+                companies.forEach((comp, idx) => {
+                    const card = document.createElement('div');
+                    card.className = 'company-card';
+                    card.onclick = () => selectCompany(comp, card);
+                    
+                    const trendIcon = comp.trend === 'up' ? '↗️' : (comp.trend === 'down' ? '↘️' : '➡️');
+                    const trendClass = comp.trend === 'up' ? 'trend-up' : (comp.trend === 'down' ? 'trend-down' : 'trend-neutral');
+
+                    card.innerHTML = `
+                        <div>
+                            <div style="font-weight:600; color:#f8fafc;">${comp.name}</div>
+                            ${comp.role ? `<div style="font-size:0.8rem; color:#94a3b8; margin-top:2px;">${comp.role}</div>` : ''}
+                            <div class="${trendClass}" style="font-size:0.8rem; margin-top:4px;">Trend: ${trendIcon}</div>
+                        </div>
+                        <div class="confidence-badge" style="color: ${comp.confidence > 70 ? 'var(--success)' : (comp.confidence > 40 ? 'var(--warning)' : 'var(--danger)')}">
+                            ${comp.confidence}%
+                        </div>
+                    `;
+                    list.appendChild(card);
+
+                    // Determine which card to select
+                    if (comp.name === currentSelection || (currentSelection === 'Select a Company' && idx === 0)) {
+                        cardToSelect = { comp, element: card };
+                    }
+                });
+
+                if (cardToSelect) {
+                    selectCompany(cardToSelect.comp, cardToSelect.element);
+                }
+
+            } catch (err) {
+                console.error("Failed to load dashboard:", err);
+            }
+        }
+
+        async function selectCompany(compOrName, cardElement) {
+            const isObject = typeof compOrName === 'object';
+            const companyName = isObject ? compOrName.name : compOrName;
+            const companyRole = isObject ? compOrName.role : '';
+
+            // Update active state
+            document.querySelectorAll('.company-card').forEach(c => c.classList.remove('active'));
+            if (cardElement) cardElement.classList.add('active');
+
+            document.getElementById('selectedCompanyName').textContent = companyName;
+            
+            const isRealCompany = companyName !== 'Select a Company';
+            document.getElementById('editCompanyBtn').style.display = isRealCompany ? 'block' : 'none';
+            document.getElementById('deleteCompanyBtn').style.display = isRealCompany ? 'block' : 'none';
+            
+            // Check if active
+            const settings = await window.electronAPI.loadSettings();
+            const isActive = isRealCompany && settings && settings.currentCompany === companyName;
+            document.getElementById('setActiveInterviewBtn').style.display = (isRealCompany && !isActive) ? 'block' : 'none';
+            document.getElementById('activeCompanyBadge').style.display = isActive ? 'inline-block' : 'none';
+            
+            if (isRealCompany) {
+                document.getElementById('selectedCompanyRoleContainer').style.display = 'flex';
+                document.getElementById('selectedCompanyRole').textContent = companyRole || 'No Role Specified';
+                
+                try {
+                    const jd = await window.electronAPI.getCompanyJobDescription(companyName);
+                    const jdBtn = document.getElementById('jobDescriptionBtn');
+                    if (jdBtn) {
+                        jdBtn.textContent = (jd && jd.trim().length > 0) ? "View Job Description" : "Attach Job Description";
+                    }
+                } catch(e) {
+                    console.error("Failed to check JD presence", e);
+                }
+            } else {
+                document.getElementById('selectedCompanyRoleContainer').style.display = 'none';
+            }
+            
+            const list = document.getElementById('interviewList');
+            list.innerHTML = '<p class="empty-state">Loading interviews...</p>';
+
+            if (!isRealCompany) {
+                list.innerHTML = '<p class="empty-state">Select a company from the leaderboard to view its transcripts and grades.</p>';
+                return;
+            }
+
+            try {
+                const interviews = await window.electronAPI.getInterviews(companyName);
+                window._currentInterviews = interviews;
+                list.innerHTML = '';
+
+                interviews.forEach(inv => {
+                    const block = document.createElement('div');
+                    block.className = 'interview-block';
+
+                    const dateStr = new Date(inv.date).toLocaleString();
+                    
+                    let gradeHtml = '';
+                    if (inv.gradingStatus === 'pending') {
+                        gradeHtml = `<div class="grade-card" style="border-left-color:#64748b;"><div style="color:#94a3b8; font-style:italic;">AI is currently grading this interview... Please check back shortly.</div></div>`;
+                    } else if (inv.gradingStatus === 'failed') {
+                        gradeHtml = `<div class="grade-card grade-f"><div style="color:var(--danger);">Grading failed. Please check logs.</div></div>`;
+                    } else {
+                        const rawGrade = inv.grade || 'C';
+                        const baseGrade = rawGrade.charAt(0).toUpperCase();
+                        const gradeClass = `grade-${baseGrade.toLowerCase()}`;
+                        let colorHex = '#eab308';
+                        if(baseGrade === 'A') colorHex = '#22c55e';
+                        if(baseGrade === 'B') colorHex = '#3b82f6';
+                        if(baseGrade === 'D') colorHex = '#f97316';
+                        if(baseGrade === 'F') colorHex = '#ef4444';
+
+                        gradeHtml = `
+                            <div class="grade-card ${gradeClass}">
+                                <div style="display:flex; align-items:flex-start;">
+                                    <div class="grade-letter" style="color:${colorHex};">${rawGrade}</div>
+                                    <div>
+                                        <div style="color:#e2e8f0; margin-bottom:8px;">${inv.reasoning}</div>
+                                        <ul style="color:#94a3b8; font-size:0.85rem; margin-left:20px;">
+                                            ${inv.examples.map(ex => `<li>${ex}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    let transcriptHtml = '<div style="background: rgba(0,0,0,0.4); border-radius:6px; padding:10px; max-height:300px; overflow-y:auto; font-size:0.9rem;">';
+                    inv.transcript.forEach(t => {
+                        const color = t.speaker.toLowerCase() === 'you' ? 'var(--success)' : 'var(--primary)';
+                        transcriptHtml += `<div style="margin-bottom:8px;"><strong style="color:${color};">${t.speaker}:</strong> <span style="color:#cbd5e1;">${t.text}</span></div>`;
+                    });
+                    transcriptHtml += '</div>';
+
+                    block.innerHTML = `
+                        <div class="interview-header" style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <div>
+                                <h3 style="color:#f8fafc; font-size:1.1rem; margin-bottom:4px;">${inv.phase}</h3>
+                                <div style="color:#94a3b8; font-size:0.85rem;">${inv.interviewerName ? inv.interviewerName + ' ('+inv.interviewerTitle+')' : 'Unknown Interviewer'}</div>
+                                <div style="color:#64748b; font-size:0.85rem;">${dateStr}</div>
+                            </div>
+                            <div style="display:flex; gap:5px;">
+                                <button class="topbar-btn" style="padding: 4px; background: transparent; border: none; font-size: 1.1rem; cursor: pointer;" onclick="editInterviewPrompt('${inv.id}')" title="Edit Interview">✏️</button>
+                                <button class="topbar-btn" style="padding: 4px; background: transparent; border: none; font-size: 1.1rem; cursor: pointer;" onclick="deleteInterviewPrompt('${inv.id}')" title="Delete Interview">🗑️</button>
+                            </div>
+                        </div>
+                        ${gradeHtml}
+                        <div style="font-weight:bold; color:#e2e8f0; margin-bottom:8px;">Transcript</div>
+                        ${transcriptHtml}
+                    `;
+
+                    list.appendChild(block);
+                });
+            } catch (err) {
+                list.innerHTML = `<p class="empty-state" style="color:var(--danger)">Error loading interviews: ${err.message}</p>`;
+            }
+        }
+        function editCompanyPrompt() {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            if (currentCompany === 'Select a Company') return;
+            
+            document.getElementById('renameCompanyInput').value = currentCompany;
+            document.getElementById('renameCompanyModal').classList.add('show');
+            document.getElementById('renameCompanyModal').style.display = 'flex';
+            setTimeout(() => {
+                document.getElementById('renameCompanyModal').style.opacity = '1';
+            }, 10);
+        }
+
+        function closeRenameCompanyModal() {
+            document.getElementById('renameCompanyModal').style.opacity = 0;
+            setTimeout(() => {
+                document.getElementById('renameCompanyModal').style.display = 'none';
+            }, 300);
+        }
+
+        async function openJobDescriptionModal() {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            if (currentCompany && currentCompany !== 'Select a Company') {
+                try {
+                    const jd = await window.electronAPI.getCompanyJobDescription(currentCompany);
+                    document.getElementById('companyJobDescription').value = jd || '';
+                    const modal = document.getElementById('jobDescriptionModal');
+                    modal.style.display = 'flex';
+                    requestAnimationFrame(() => modal.style.opacity = 1);
+                } catch(e) {
+                    console.error("Failed to fetch JD", e);
+                }
+            }
+        }
+
+        function closeJobDescriptionModal() {
+            document.getElementById('jobDescriptionModal').style.opacity = 0;
+            setTimeout(() => {
+                document.getElementById('jobDescriptionModal').style.display = 'none';
+            }, 300);
+        }
+
+        async function submitJobDescription() {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            const jd = document.getElementById('companyJobDescription').value.trim();
+            if (currentCompany && currentCompany !== 'Select a Company') {
+                try {
+                    document.getElementById('jobDescriptionBtn').textContent = "Saving...";
+                    // Optionally structure it if we want
+                    let finalJd = jd;
+                    if (jd && jd.length > 50) {
+                        try {
+                            const extracted = await window.electronAPI.extractJobContext(jd);
+                            if (extracted && extracted.structured_description) {
+                                finalJd = extracted.structured_description;
+                            }
+                        } catch(e) {
+                            console.error("Failed to structure JD", e);
+                        }
+                    }
+                    
+                    await window.electronAPI.setCompanyJobDescription(currentCompany, finalJd);
+                    
+                    // Visual feedback
+                    const btn = document.getElementById('jobDescriptionBtn');
+                    btn.textContent = "Saved!";
+                    btn.style.background = "var(--success)";
+                    btn.style.color = "white";
+                    setTimeout(() => {
+                        btn.textContent = finalJd ? "View Job Description" : "Attach Job Description";
+                        btn.style.background = "rgba(255,255,255,0.1)";
+                        btn.style.color = "#cbd5e1";
+                    }, 2000);
+                    
+                    closeJobDescriptionModal();
+                } catch(e) {
+                    console.error("Failed to save JD", e);
+                    alert("Failed to save Job Description");
+                }
+            }
+        }
+
+        function editRolePrompt() {
+            const role = document.getElementById('selectedCompanyRole').textContent;
+            document.getElementById('editRoleInput').value = role === 'No Role Specified' ? '' : role;
+            const modal = document.getElementById('editRoleModal');
+            modal.style.display = 'flex';
+            requestAnimationFrame(() => modal.style.opacity = 1);
+        }
+
+        function closeEditRoleModal() {
+            document.getElementById('editRoleModal').style.opacity = 0;
+            setTimeout(() => {
+                document.getElementById('editRoleModal').style.display = 'none';
+            }, 300);
+        }
+
+        async function submitEditRole() {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            const newRole = document.getElementById('editRoleInput').value.trim();
+            if (currentCompany && currentCompany !== 'Select a Company') {
+                try {
+                    await window.electronAPI.setCompanyRole(currentCompany, newRole);
+                    closeEditRoleModal();
+                    loadDashboard(); // Refresh to update list and card
+                } catch(e) {
+                    console.error("Failed to update role", e);
+                }
+            }
+        }
+
+        async function setAsActiveInterview() {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            let currentRole = document.getElementById('selectedCompanyRole').textContent;
+            if (currentRole === 'No Role Specified') currentRole = '';
+            
+            if (currentCompany && currentCompany !== 'Select a Company') {
+                try {
+                    const settings = await window.electronAPI.loadSettings();
+                    settings.currentCompany = currentCompany;
+                    settings.currentRole = currentRole;
+                    await window.electronAPI.saveSettings(settings);
+                    
+                    // Optionally visual feedback
+                    const btn = document.getElementById('setActiveInterviewBtn');
+                    const oldText = btn.textContent;
+                    btn.textContent = "Set!";
+                    btn.style.background = "var(--success)";
+                    setTimeout(() => {
+                        btn.textContent = oldText;
+                        btn.style.background = "var(--primary)";
+                    }, 2000);
+                    
+                    await updateActiveInterviewDisplay(settings);
+                    selectCompany(currentCompany, null); // Re-run select to update buttons
+                } catch(e) {
+                    console.error("Failed to set active interview", e);
+                }
+            }
+        }
+
+        async function submitRenameCompany() {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            const newName = document.getElementById('renameCompanyInput').value.trim();
+            if (newName && currentCompany && currentCompany !== 'Select a Company') {
+                try {
+                    await window.electronAPI.renameCompany(currentCompany, newName);
+                    document.getElementById('selectedCompanyName').textContent = newName; // force loadDashboard to pick up new name
+                    closeRenameCompanyModal();
+                    loadDashboard();
+                } catch(e) {
+                    console.error("Failed to rename", e);
+                    alert("Failed to rename company: " + e.message);
+                }
+            } else {
+                closeRenameCompanyModal();
+            }
+        }
+
+        async function deleteCompanyPrompt() {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            if (currentCompany === 'Select a Company') return;
+
+            if (confirm(`Are you sure you want to delete "${currentCompany}" and ALL its transcripts? This cannot be undone.`)) {
+                try {
+                    await window.electronAPI.deleteCompany(currentCompany);
+                    
+                    // Check if it was the active interview and clear it
+                    const settings = await window.electronAPI.loadSettings();
+                    if (settings && settings.currentCompany === currentCompany) {
+                        settings.currentCompany = '';
+                        settings.currentRole = '';
+                        await window.electronAPI.saveSettings(settings);
+                        await updateActiveInterviewDisplay(settings);
+                    }
+                    
+                    document.getElementById('selectedCompanyName').textContent = 'Select a Company';
+                    document.getElementById('editCompanyBtn').style.display = 'none';
+                    document.getElementById('deleteCompanyBtn').style.display = 'none';
+                    document.getElementById('setActiveInterviewBtn').style.display = 'none';
+                    document.getElementById('activeCompanyBadge').style.display = 'none';
+                    document.getElementById('selectedCompanyRoleContainer').style.display = 'none';
+                    
+                    document.getElementById('interviewList').innerHTML = '<p class="empty-state">Select a company from the leaderboard to view its transcripts and grades.</p>';
+                    loadDashboard();
+                } catch (err) {
+                    alert("Error deleting company: " + err.message);
+                }
+            }
+        }
+
+        async function deleteInterviewPrompt(id) {
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            if (confirm("Are you sure you want to delete this interview and its evaluation?")) {
+                try {
+                    await window.electronAPI.deleteInterview(currentCompany, id);
+                    selectCompany(currentCompany, null); // Refresh list
+                    loadDashboard(); // Refresh overall score
+                } catch (err) {
+                    alert("Error deleting interview: " + err.message);
+                }
+            }
+        }
+
+        async function editInterviewPrompt(id) {
+            const inv = (window._currentInterviews || []).find(i => i.id === id);
+            if (!inv) return;
+
+            const currentCompany = document.getElementById('selectedCompanyName').textContent;
+            await populateCompanyDropdowns(currentCompany);
+
+            // Match phase dropdown
+            const validPhases = ["Recruiter Screen", "Interview #1", "Interview #2", "Interview #3", "Interview #4", "Interview #5", "Interview #6"];
+            const phaseSelect = document.getElementById('manualPhaseSelect');
+            const phaseInput = document.getElementById('manualPhaseInput');
+            
+            if (validPhases.includes(inv.phase)) {
+                phaseSelect.value = inv.phase;
+                phaseInput.value = '';
+            } else {
+                phaseSelect.value = "Other";
+                phaseInput.value = inv.phase;
+            }
+            toggleManualPhaseInput();
+
+            document.getElementById('manualInterviewerName').value = inv.interviewerName || '';
+            document.getElementById('manualInterviewerTitle').value = inv.interviewerTitle || '';
+
+            document.getElementById('manualInterviewId').value = id;
+            document.getElementById('manualOriginalCompany').value = currentCompany;
+            document.getElementById('manualTranscriptModalTitle').textContent = "Edit Interview";
+
+            // Turn transcript array back to string
+            const transcriptText = inv.transcript.map(t => `${t.speaker}: ${t.text}`).join('\n\n');
+            document.getElementById('manualTranscript').value = transcriptText;
+
+            document.getElementById('manualTranscriptModal').classList.add('show');
+            document.getElementById('manualTranscriptModal').style.display = 'flex';
+            setTimeout(() => {
+                document.getElementById('manualTranscriptModal').style.opacity = '1';
+            }, 10);
         }
     </script>
 </body>

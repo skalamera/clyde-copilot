@@ -1,13 +1,21 @@
-const { detectResumeQuestion, searchResumeVectors } = require('./pineconeClient');
+const { detectResumeQuestion, searchKnowledgeVectors } = require('./pineconeClient');
+const { generateChat } = require('./llmClient');
+const { buildAssistantPrompt, getAssistantSchema, normalizeMode } = require('./assistantPrompts');
+const { createProRealtimeAgent } = require('./proRealtimeAgent');
 
 const DEFAULT_INTERVAL_MS = 30000;
 const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_TOKENS = 800;
+const DEFAULT_UTTERANCE_SETTLE_MS = 0;
 
 function createMeetingAssistant(options = {}) {
-  const apiUrl = (options.apiUrl || '').trim();
-  const model = (options.model || '').trim();
+  const settings = options.settings || {};
+  const provider = settings.llmProvider || 'local';
+  const apiKey = settings.llmApiKey || '';
+  const model = settings.llmModel || '';
+  const localUrl = settings.localLlmUrl;
+
   const axiosClient = options.axiosClient;
   const logger = options.logger || console;
   const sendUpdate = options.sendUpdate || (() => {});
@@ -16,12 +24,29 @@ function createMeetingAssistant(options = {}) {
   const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const utteranceSettleMs = Math.max(0, Number(options.utteranceSettleMs ?? DEFAULT_UTTERANCE_SETTLE_MS) || 0);
+  const proMemorySearchIntervalMs = Number(options.proMemorySearchIntervalMs ?? 15000) || 15000;
+  const proAgent = options.proAgent || createProRealtimeAgent({
+    settings,
+    knowledgeManager: options.knowledgeManager,
+    logger,
+    sendStatus,
+    timeoutMs: options.proAgentTimeoutMs || timeout
+  });
 
   let transcriptTurns = [];
+  let recentHistory = [];
+  let intentTurns = [];
+  let pendingIntentUtterance = null;
+  let intentSettleTimer = null;
+  let nextIntentTurnId = 1;
   let lastRunAt = 0;
+  let lastProMemorySearchAt = 0;
   let inFlight = false;
+  let rerunAfterInFlight = false;
   let lastDigest = '';
   let currentContext = {};
+  let newlyAccumulatedTurns = 0;
 
   function setContext(context) {
     if (context) {
@@ -45,36 +70,86 @@ function createMeetingAssistant(options = {}) {
         speaker: speaker,
         text: text
       });
+      newlyAccumulatedTurns++;
+    }
+
+    if (recentHistory.length > 0 && recentHistory[recentHistory.length - 1].speaker === speaker) {
+      recentHistory[recentHistory.length - 1].text += ' ' + text;
+    } else {
+      recentHistory.push({
+        speaker: speaker,
+        text: text
+      });
     }
 
     // Still respect max turns, but note that turns are now full blocks of speech
     transcriptTurns = transcriptTurns.slice(-maxTurns);
+    recentHistory = recentHistory.slice(-10); // Keep the absolute latest 10 turns for manual suggestion history
 
     if (isUserSpeaker(turn.speaker)) {
+      clearPendingIntentUtterance();
+      appendIntentTurn(speaker, text);
       return { ok: true, skipped: 'user-speaker' };
     }
 
+    const intentReady = queueInterviewerIntentUtterance(speaker, text);
+    if (!intentReady) {
+      return { ok: true, skipped: 'waiting-for-utterance' };
+    }
+
+    // Only try to answer if we have collected at least 2 distinct speech turns 
+    // since the last time the assistant actually fired, or if this is the very first turn
+    if (newlyAccumulatedTurns < 2 && transcriptTurns.length >= 2) {
+      return { ok: true, skipped: 'waiting-for-context' };
+    }
+
     return maybeRun();
+
   }
 
-  async function maybeRun(force = false, isSuggestionRequest = false) {
-    if (!apiUrl || !model) {
+  async function maybeRun(force = false, isSuggestionRequest = false, requestOptions = {}) {
+    const mode = normalizeMode(requestOptions.mode || currentContext.mode || settings.appMode || settings.mode || 'interview');
+    const manualPrompt = cleanText(requestOptions.prompt);
+    const screenshot = requestOptions.screenshot && requestOptions.screenshot.data ? requestOptions.screenshot : null;
+    const screenshotWarning = cleanText(requestOptions.screenshotWarning);
+    const selectedSources = normalizeSelectedSources(requestOptions.sources, settings, mode);
+    const requestIntent = cleanText(requestOptions.intent);
+    const isSayNextRequest = requestIntent === 'say_next';
+    const isScreenQuestionRequest = requestIntent === 'screen_question';
+    const isCustomPromptRequest = requestIntent === 'custom_prompt';
+    const isManualQuestion = !isSayNextRequest && Boolean(manualPrompt || screenshot || screenshotWarning);
+    const proCandidate = shouldUseProAgent(settings, { screenshot });
+
+    if (!proCandidate && !model && provider === 'local') {
+      return { ok: true, skipped: 'not-configured' };
+    }
+
+    if (!proCandidate && !localUrl && provider === 'local') {
+      return { ok: true, skipped: 'not-configured' };
+    }
+
+    if (!proCandidate && !apiKey && provider !== 'local') {
       return { ok: true, skipped: 'not-configured' };
     }
 
     if (inFlight) {
+      if (!force && !isSuggestionRequest) {
+        rerunAfterInFlight = true;
+      }
+
       return { ok: true, skipped: 'in-flight' };
     }
 
     const now = Date.now();
 
-    if (!force && now - lastRunAt < intervalMs) {
+    if (!proCandidate && !force && now - lastRunAt < intervalMs) {
       return { ok: true, skipped: 'rate-limited' };
     }
 
-    const digest = transcriptTurns
-      .map((turn) => `${turn.speaker}: ${turn.text}`)
-      .join('\n');
+    const digest = isSuggestionRequest
+      ? recentHistory.slice(-6).map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
+      : intentTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
+    const digestMaxIntentTurnId = getMaxIntentTurnId(intentTurns);
 
     // Only check for unchanged if it's NOT a forced suggestion request
     if (!isSuggestionRequest && (!digest || digest === lastDigest)) {
@@ -86,137 +161,218 @@ function createMeetingAssistant(options = {}) {
     try {
       let ragContext = '';
       let targetQuestion = '';
-      try {
-        const extractedQuestion = await detectResumeQuestion(digest);
-        if (extractedQuestion) {
-           logger.log(`[RAG] Detected interview-related question in transcript: "${extractedQuestion}"`);
-           targetQuestion = extractedQuestion;
-           // Ensure Pinecone keys are loaded from process.env if they exist
-           if (process.env.PINECONE_API_KEY && !process.env.PINECONE_HOST) {
-               // Load fallback from env if not explicitly passed
+      
+      const hasPinecone = !!(settings.ragEnabled && process.env.PINECONE_API_KEY && process.env.PINECONE_HOST);
+      const shouldUseRag = selectedSources.includes('rag');
+      
+      if (isSuggestionRequest) {
+        logger.log(`[Intent] Generating suggestion based on recent history...`);
+        try {
+           const lastTurn = recentHistory[recentHistory.length - 1];
+           if (lastTurn && hasPinecone && shouldUseRag) {
+             const vectors = await searchKnowledgeVectors(lastTurn.text, settings, { topK: 3 });
+             if (vectors && vectors.length > 0) {
+               ragContext = "Relevant facts from the user's resume and past projects:\n" + vectors.map(v => `- ${v.text}`).join('\n');
+             }
            }
-           const vectors = await searchResumeVectors(extractedQuestion);
-           if (vectors && vectors.length > 0) {
-             logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
-             ragContext = "Relevant facts from the user's resume and past projects:\n" + 
-               vectors.map(v => `- ${v.text}`).join('\n');
-           }
-        } else {
-           logger.log(`[RAG] No interview-related question detected in current transcript window.`);
-           inFlight = false;
-           // Wait another tick, do not update lastRunAt or lastDigest to allow 
-           // the transcript to accumulate more context for the next run
-           return { ok: true, skipped: 'no-question' };
+        } catch (e) {
+          logger.error('[RAG] Retrieval error for suggestion:', e);
         }
-      } catch (err) {
-        logger.error('[RAG] Intent/retrieval error:', err);
+      } else if (mode === 'meeting') {
+        targetQuestion = '';
+      } else {
+        try {
+          const extractedQuestion = await detectResumeQuestion(digest);
+          if (extractedQuestion) {
+             logger.log(`[Intent] Detected interview-related question in transcript: "${extractedQuestion}"`);
+             targetQuestion = extractedQuestion;
+             if (hasPinecone && shouldUseRag) {
+                 const vectors = await searchKnowledgeVectors(extractedQuestion, settings, { topK: 3 });
+                 if (vectors && vectors.length > 0) {
+                   logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
+                   ragContext = "Relevant facts from the user's resume and past projects:\n" + 
+                     vectors.map(v => `- ${v.text}`).join('\n');
+                 }
+             }
+          } else {
+             if (proCandidate) {
+               logger.log(`[Intent] No explicit interview question detected; sending settled turn to Clyde Pro.`);
+             } else {
+             logger.log(`[Intent] No interview-related question detected in current transcript window.`);
+             inFlight = false;
+             // Wait another tick, do not update lastRunAt or lastDigest to allow 
+             // the transcript to accumulate more context for the next run
+             return { ok: true, skipped: 'no-question' };
+             }
+          }
+        } catch (err) {
+          logger.error('[RAG] Intent/retrieval error:', err);
+        }
       }
 
-      // If we got this far, a question was found, so we update the timers to lock out subsequent calls
+      // If we got this far, a question was found (or it's a forced suggestion request), so we update the timers
       lastRunAt = now;
       lastDigest = digest;
 
-      // Default: only ask for answers
-      let jsonSchemaProperties = {
-        answers: { 
-          type: 'array', 
-          items: { 
-            type: 'object', 
-            properties: { 
-              question: { type: 'string' }, 
-              bullets: { type: 'array', items: { type: 'string' } } 
-            }, 
-            required: ['question', 'bullets'] 
-          } 
-        }
-      };
+      const command = resolveAssistantCommand({
+        mode,
+        isSayNextRequest,
+        isScreenQuestionRequest,
+        isCustomPromptRequest,
+        isManualQuestion,
+        isSuggestionRequest
+      });
+      const jsonSchemaProperties = getAssistantSchema(mode, command);
+      const systemPrompt = buildAssistantPrompt({
+        mode,
+        context: currentContext,
+        command,
+        targetQuestion,
+        ragContext
+      });
 
-      let systemPromptInstructions = [
-        `CRITICAL DIRECTIVE: The interviewer just asked THIS specific question: "${targetQuestion}"`,
-        'You MUST answer this exact question and ignore all other questions in the transcript.',
-        'DO NOT give the candidate advice or instructions on how to structure their answer.',
-        'Write the actual answers for the candidate to read out loud. Use first-person language ("I led...", "I built...", "At my previous role...", "I would handle this by...").',
-        'If the question asks about past experience, projects, or background, you MUST extract the specific projects, company names, metrics, and details EXCLUSIVELY from the provided RAG context.',
-        'If the question is a general behavioral or situational question (e.g. strengths, weaknesses, 30-60-90 day plan) that is not in the RAG context, use standard interview best practices to formulate a strong, professional response.',
-        'Never suggest questions for the interviewer to ask. Only suggest what the candidate ("You") should say.',
-        'Schema: {"answers":[{"question":"...","bullets":["..."]}]}.'
-      ];
-
-      // If user clicked the "What to say next" button, switch schema to suggestions only
-      if (isSuggestionRequest) {
-        jsonSchemaProperties = {
-          suggestions: { 
-            type: 'array', 
-            items: { 
-              type: 'object', 
-              properties: { text: { type: 'string' } }, 
-              required: ['text'] 
-            } 
-          }
-        };
-        systemPromptInstructions = [
-          'The candidate has explicitly asked for a suggestion on what to say or ask next.',
-          'DO NOT give the candidate advice.',
-          'Provide a concise, first-person script ("I would like to add...", "Can you tell me more about...") for what the candidate ("You") should say to drive the conversation forward.',
-          'If mentioning past work, extract the experience details EXCLUSIVELY from the provided RAG context.',
-          'Schema: {"suggestions":[{"text":"..."}]}.'
-        ];
-      }
-
-      const response = await axiosClient.post(apiUrl, {
+      const userPrompt = buildUserPrompt({
+        digest,
+        manualPrompt,
+        screenshot,
+        screenshotWarning,
+        selectedSources,
+        mode,
+        command
+      });
+      const request = {
+        provider,
+        apiKey,
         model,
         temperature: 0.2,
-        max_tokens: maxTokens,
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'assistant_cards',
-            schema: {
-              type: 'object',
-              properties: jsonSchemaProperties,
-              additionalProperties: false
-            }
+        maxTokens,
+        axiosClient,
+        localUrl,
+        jsonSchema: {
+          name: 'assistant_cards',
+          schema: {
+            type: 'object',
+            properties: jsonSchemaProperties,
+            required: Object.keys(jsonSchemaProperties),
+            additionalProperties: false
           }
-        },
-        reasoning: {
-          effort: 'none'
         },
         messages: [
           {
             role: 'system',
             content: [
-              'You are Clyde, a live job interview copilot.',
-              'The user wearing Clyde ("You") is the job candidate.',
-              'The "System Audio" and any other speakers are the interviewers.',
-              'Base your answers, hints/tips, and suggested next lines on what the interviewer is asking and the flow of the conversation.',
-              ...systemPromptInstructions,
-              currentContext.jobDescription ? `\nJob Description:\n${currentContext.jobDescription}\n` : '',
-              ragContext ? `\nRelevant RAG Context:\n${ragContext}\n` : '',
+              systemPrompt,
+              outputShapeFor(mode, command),
               'Include only items that are useful right now. Do not include markdown fences.',
-              'Use at most 3 total cards. Keep every value concise. Empty arrays are allowed. Do not mention that you are an AI.'
+              command === 'assist' && mode === 'interview' ? 'Return one answer card for automatic interview assistance.' : 'Use at most 3 total cards. Keep every value concise. Empty arrays are allowed.',
+              'Do not mention that you are an AI.'
             ].filter(Boolean).join(' ')
           },
           {
             role: 'user',
-            content: `Transcript:\n${digest}\n\nCreate cards that help me respond to the other people.`
+            content: userPrompt
           }
-        ]
-      }, { timeout });
+        ],
+        images: screenshot ? [screenshot] : []
+      };
 
-      const text = extractAssistantText(response && response.data);
-      const cards = parseAssistantCards(text);
+      const allowMemorySearch = shouldAllowProMemorySearch({
+        now,
+        isManualQuestion,
+        isSuggestionRequest,
+        lastProMemorySearchAt,
+        proMemorySearchIntervalMs
+      });
 
-      if (cards.length) {
+      if (proCandidate) {
+        try {
+          const proResult = await proAgent.run({
+            digest,
+            manualPrompt,
+            mode,
+            command,
+            context: currentContext,
+            targetQuestion,
+            selectedSources,
+            allowMemorySearch
+          });
+          const proCards = Array.isArray(proResult?.cards) ? proResult.cards : [];
+
+          if (proResult?.toolCalls && allowMemorySearch) {
+            lastProMemorySearchAt = now;
+          }
+
+          if (proCards.length) {
+            sendUpdate({
+              title: 'Live help',
+              text: proResult.text || '',
+              cards: proCards
+            });
+
+            transcriptTurns = [];
+            intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
+            lastDigest = '';
+            newlyAccumulatedTurns = 0;
+            sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
+            return { ok: true, text: proResult.text || '', cards: proCards };
+          }
+        } catch (error) {
+          logger.error('Clyde Pro agent failed:', describeAssistantError(error));
+          sendStatus({ state: 'warning', message: 'Pro agent unavailable; using local assistant fallback.' });
+        }
+      }
+
+      if (!isFreeAssistantConfigured({ provider, model, localUrl, apiKey })) {
+        sendStatus({ state: 'warning', message: 'Local assistant fallback is not configured.' });
+        return { ok: false, message: 'Local assistant fallback is not configured.' };
+      }
+
+      let responseText;
+      let imageFallbackWarning = '';
+
+      try {
+        responseText = await generateChat(request);
+      } catch (error) {
+        if (!screenshot) {
+          throw error;
+        }
+
+        imageFallbackWarning = 'Screenshot was unavailable to the selected model, so Clyde answered from transcript and saved context.';
+        responseText = await generateChat({
+          ...request,
+          images: [],
+          messages: [
+            request.messages[0],
+            {
+              role: 'user',
+              content: `${userPrompt}\n\n${imageFallbackWarning}`
+            }
+          ]
+        });
+      }
+
+      const text = extractAssistantText(responseText);
+      const parsedCards = parseAssistantCards(text);
+      const cards = command === 'assist' && mode === 'interview'
+        ? condenseAutomaticInterviewCards(parsedCards, targetQuestion)
+        : command === 'manual_question'
+          ? normalizeManualQuestionCards(parsedCards)
+          : parsedCards;
+      const renderedCards = addWarningToCards(cards, screenshotWarning || imageFallbackWarning);
+
+      if (renderedCards.length) {
         sendUpdate({
           title: 'Live help',
           text,
-          cards
+          cards: renderedCards
         });
         
         // CLEAR the transcript buffer of the current digest so we don't accidentally re-answer these old questions!
         // Because of smart merging, we can't just check text strings. We just empty the array.
         transcriptTurns = [];
+        intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
         lastDigest = '';
+        newlyAccumulatedTurns = 0;
         
         sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
       } else if (text) {
@@ -232,7 +388,7 @@ function createMeetingAssistant(options = {}) {
         });
       }
 
-      return { ok: true, text, cards };
+      return { ok: true, text, cards: renderedCards };
     } catch (error) {
       const message = describeAssistantError(error);
       logger.error('Meeting assistant failed:', message);
@@ -241,11 +397,30 @@ function createMeetingAssistant(options = {}) {
       return { ok: false, message, error };
     } finally {
       inFlight = false;
+
+      if (rerunAfterInFlight) {
+        rerunAfterInFlight = false;
+        setTimeout(() => {
+          maybeRun(true).catch((error) => {
+            logger.error('Queued meeting assistant run failed:', describeAssistantError(error));
+          });
+        }, 0);
+      }
     }
   }
 
-  function requestSuggestion() {
-    return maybeRun(true, true);
+  function requestSuggestion(options = {}) {
+    return maybeRun(true, true, options);
+  }
+
+  function resetTranscript() {
+    transcriptTurns = [];
+    intentTurns = [];
+    clearPendingIntentUtterance();
+    rerunAfterInFlight = false;
+    lastRunAt = 0;
+    lastDigest = '';
+    newlyAccumulatedTurns = 0;
   }
 
   return {
@@ -253,8 +428,111 @@ function createMeetingAssistant(options = {}) {
     maybeRun,
     requestSuggestion,
     setContext,
+    resetTranscript,
     getTranscriptTurns: () => [...transcriptTurns]
   };
+
+  function queueInterviewerIntentUtterance(speaker, text) {
+    if (utteranceSettleMs <= 0) {
+      appendIntentTurn(speaker, text);
+      return true;
+    }
+
+    if (pendingIntentUtterance && pendingIntentUtterance.speaker !== speaker) {
+      commitPendingIntentUtterance();
+      scheduleSettledIntentRun();
+      pendingIntentUtterance = createPendingIntentUtterance(speaker, text);
+      restartIntentSettleTimer();
+      return false;
+    }
+
+    if (
+      pendingIntentUtterance
+      && shouldStartNewIntentUtterance(pendingIntentUtterance.text, text)
+    ) {
+      commitPendingIntentUtterance();
+      scheduleSettledIntentRun();
+      pendingIntentUtterance = createPendingIntentUtterance(speaker, text);
+      restartIntentSettleTimer();
+      return false;
+    }
+
+    if (pendingIntentUtterance) {
+      pendingIntentUtterance.text = mergeUtteranceText(pendingIntentUtterance.text, text);
+    } else {
+      pendingIntentUtterance = createPendingIntentUtterance(speaker, text);
+    }
+
+    restartIntentSettleTimer();
+    return false;
+  }
+
+  function appendIntentTurn(speaker, text) {
+    const clean = cleanText(text);
+
+    if (!clean) {
+      return false;
+    }
+
+    intentTurns.push({
+      id: nextIntentTurnId,
+      speaker,
+      text: clean
+    });
+    nextIntentTurnId++;
+    intentTurns = intentTurns.slice(-Math.max(24, maxTurns * 3));
+    return true;
+  }
+
+  function createPendingIntentUtterance(speaker, text) {
+    return {
+      speaker,
+      text: cleanText(text)
+    };
+  }
+
+  function commitPendingIntentUtterance() {
+    if (!pendingIntentUtterance) {
+      return false;
+    }
+
+    const committed = appendIntentTurn(pendingIntentUtterance.speaker, pendingIntentUtterance.text);
+    pendingIntentUtterance = null;
+    return committed;
+  }
+
+  function clearPendingIntentUtterance() {
+    if (intentSettleTimer) {
+      clearTimeout(intentSettleTimer);
+      intentSettleTimer = null;
+    }
+
+    pendingIntentUtterance = null;
+  }
+
+  function restartIntentSettleTimer() {
+    if (intentSettleTimer) {
+      clearTimeout(intentSettleTimer);
+    }
+
+    intentSettleTimer = setTimeout(() => {
+      intentSettleTimer = null;
+
+      if (commitPendingIntentUtterance()) {
+        maybeRun().catch((error) => {
+          logger.error('Settled meeting assistant run failed:', describeAssistantError(error));
+        });
+      }
+    }, utteranceSettleMs);
+  }
+
+  function scheduleSettledIntentRun() {
+    setTimeout(() => {
+      maybeRun().catch((error) => {
+        logger.error('Settled meeting assistant run failed:', describeAssistantError(error));
+      });
+    }, 0);
+  }
 }
 
 function extractAssistantText(data) {
@@ -262,16 +540,19 @@ function extractAssistantText(data) {
     return '';
   }
 
-  const choice = data.choices && data.choices[0];
-
   let content = '';
 
-  if (choice && choice.message && choice.message.content) {
-    content = String(choice.message.content).trim();
-  } else if (choice && choice.text) {
-    content = String(choice.text).trim();
-  } else if (data.output_text) {
-    content = String(data.output_text).trim();
+  if (typeof data === 'string') {
+      content = data;
+  } else {
+      const choice = data.choices && data.choices[0];
+      if (choice && choice.message && choice.message.content) {
+        content = String(choice.message.content).trim();
+      } else if (choice && choice.text) {
+        content = String(choice.text).trim();
+      } else if (data.output_text) {
+        content = String(data.output_text).trim();
+      }
   }
 
   // Remove any `<think>...</think>` blocks from the output
@@ -282,8 +563,39 @@ function extractAssistantText(data) {
   return content;
 }
 
+function getMaxIntentTurnId(turns = []) {
+  return turns.reduce((maxId, turn) => Math.max(maxId, Number(turn.id) || 0), 0);
+}
+
 function isUserSpeaker(speaker) {
   return String(speaker || '').trim().toLowerCase() === 'you';
+}
+
+function resolveAssistantCommand({
+  mode,
+  isSayNextRequest,
+  isScreenQuestionRequest,
+  isCustomPromptRequest,
+  isManualQuestion,
+  isSuggestionRequest
+}) {
+  if (mode === 'meeting') {
+    if (isScreenQuestionRequest) {
+      return 'meeting_screen_question';
+    }
+
+    if (isSayNextRequest) {
+      return 'meeting_say_next';
+    }
+
+    if (isCustomPromptRequest || isManualQuestion) {
+      return 'meeting_custom_prompt';
+    }
+
+    return isSuggestionRequest ? 'meeting_say_next' : 'assist';
+  }
+
+  return isSayNextRequest ? 'suggestion' : (isManualQuestion ? 'manual_question' : (isSuggestionRequest ? 'suggestion' : 'assist'));
 }
 
 function parseAssistantCards(text) {
@@ -294,6 +606,18 @@ function parseAssistantCards(text) {
   }
 
   const cards = [];
+
+  for (const item of toArray(parsed.screen_descriptions)) {
+    const textValue = cleanText(item.text || item.description);
+
+    if (textValue) {
+      cards.push({
+        type: 'screen_description',
+        title: 'Screen',
+        body: textValue
+      });
+    }
+  }
 
   for (const item of toArray(parsed.answers)) {
     const question = cleanText(item.question);
@@ -326,6 +650,32 @@ function parseAssistantCards(text) {
     }
   }
 
+  for (const item of toArray(parsed.follow_up)) {
+    const textValue = cleanText(item.text || item.question);
+    const why = cleanText(item.why);
+
+    if (textValue) {
+      cards.push({
+        type: 'follow_up',
+        title: 'Follow-up',
+        body: textValue,
+        detail: why
+      });
+    }
+  }
+
+  for (const item of toArray(parsed.recaps)) {
+    const textValue = cleanText(item.text || item.recap);
+
+    if (textValue) {
+      cards.push({
+        type: 'recap',
+        title: 'Recap',
+        body: textValue
+      });
+    }
+  }
+
   for (const item of toArray(parsed.suggestions)) {
     const textValue = cleanText(item.text || item.suggestion);
     const why = cleanText(item.why);
@@ -352,6 +702,33 @@ function parseAssistantCards(text) {
     }
   }
 
+  for (const item of toArray(parsed.insights)) {
+    const textValue = cleanText(item.text || item.insight);
+
+    if (textValue) {
+      cards.push({
+        type: 'insight',
+        title: 'Insight',
+        body: textValue
+      });
+    }
+  }
+
+  for (const item of toArray(parsed.memory_cards)) {
+    const textValue = cleanText(item.fact || item.text || item.body);
+    const source = cleanText(item.source || item.filename || item.session_title);
+
+    if (textValue) {
+      cards.push({
+        type: 'memory',
+        title: 'Memory',
+        body: textValue,
+        detail: source,
+        agentic: true
+      });
+    }
+  }
+
   for (const item of toArray(parsed.risks)) {
     const textValue = cleanText(item.text || item.risk);
 
@@ -364,7 +741,173 @@ function parseAssistantCards(text) {
     }
   }
 
+  for (const item of toArray(parsed.notes)) {
+    const textValue = cleanText(item.text || item.note);
+
+    if (textValue) {
+      cards.push({
+        type: 'note',
+        title: 'Note',
+        body: textValue
+      });
+    }
+  }
+
   return cards.slice(0, 4);
+}
+
+function condenseAutomaticInterviewCards(cards, targetQuestion = '') {
+  const answerCards = cards.filter((card) => card.type === 'answer');
+  const sourceCards = answerCards.length ? answerCards : cards;
+
+  if (!sourceCards.length) {
+    return [];
+  }
+
+  const first = sourceCards[0];
+  const question = cleanText(first.question || targetQuestion);
+  const bullets = sourceCards
+    .flatMap((card) => {
+      if (Array.isArray(card.bullets) && card.bullets.length) {
+        return card.bullets;
+      }
+
+      return [card.body, card.detail];
+    })
+    .map(cleanText)
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (!question && !bullets.length) {
+    return [];
+  }
+
+  return [{
+    ...first,
+    id: Buffer.from(question || bullets.join(' ')).toString('base64'),
+    type: 'answer',
+    title: 'Say next',
+    question,
+    body: '',
+    detail: '',
+    bullets
+  }];
+}
+
+function normalizeManualQuestionCards(cards) {
+  return cards.map((card) => {
+    if (card.type === 'suggestion' || card.type === 'note') {
+      return {
+        ...card,
+        type: 'answer',
+        title: 'Answer'
+      };
+    }
+
+    return card;
+  });
+}
+
+function outputShapeFor(mode, command) {
+  if (mode === 'meeting' && command === 'meeting_screen_question') {
+    return 'Schema: {"screen_descriptions":[{"text":"..."}],"answers":[{"question":"...","bullets":["..."]}]}.';
+  }
+
+  if (mode === 'meeting' && command === 'meeting_say_next') {
+    return 'Schema: {"suggestions":[{"text":"...","why":"..."}],"insights":[{"text":"..."}]}.';
+  }
+
+  if (mode === 'meeting' && command === 'meeting_custom_prompt') {
+    return 'Schema: {"answers":[{"question":"...","bullets":["..."]}],"notes":[{"text":"..."}]}.';
+  }
+
+  if (command === 'manual_question') {
+    return 'Schema: {"suggestions":[{"text":"...","why":"..."}],"notes":[{"text":"..."}]}.';
+  }
+
+  if (mode === 'meeting') {
+    return 'Schema: {"recaps":[{"text":"..."}],"actions":[{"text":"..."}],"follow_up":[{"text":"...","why":"..."}],"suggestions":[{"text":"..."}],"notes":[{"text":"..."}]}.';
+  }
+
+  if (command === 'suggestion') {
+    return 'Schema: {"suggestions":[{"text":"..."}]}.';
+  }
+
+  return 'Schema: {"answers":[{"question":"...","bullets":["..."]}]}.';
+}
+
+function buildUserPrompt({ digest, manualPrompt, screenshot, screenshotWarning, selectedSources = [], mode = 'interview', command = 'assist' }) {
+  const lines = [
+    `Transcript:\n${digest || 'No transcript turns captured yet.'}`
+  ];
+
+  if (selectedSources.length) {
+    lines.push(`Selected sources: ${selectedSources.join(', ')}`);
+  }
+
+  if (mode === 'meeting' && command === 'meeting_screen_question') {
+    lines.push(`Screen question:\n${manualPrompt || 'No written question provided.'}`);
+    if (screenshot) {
+      lines.push('A current desktop screenshot is attached. Describe the attached screen first, then answer or comment on the screen question.');
+    }
+  } else if (mode === 'meeting' && command === 'meeting_say_next') {
+    lines.push('Create one Suggestions card with useful things the user can say next and one Insights card with important context from the transcript.');
+  } else if (mode === 'meeting' && command === 'meeting_custom_prompt') {
+    lines.push(`Custom prompt:\n${manualPrompt}`);
+    if (screenshot) {
+      lines.push('A current desktop screenshot is attached because the user selected Include screenshot.');
+    }
+    lines.push('Follow the custom prompt exactly. Use the selected sources listed above when relevant.');
+  } else {
+    if (manualPrompt) {
+      lines.push(`User question:\n${manualPrompt}`);
+    }
+
+    if (screenshot) {
+      lines.push('A current desktop screenshot is attached. Use it only when it helps answer the user question.');
+    }
+
+    lines.push(manualPrompt
+      ? 'Create cards that answer the user question and help me respond right now.'
+      : 'Create cards that help me respond to the other people.');
+  }
+
+  if (screenshotWarning) {
+    lines.push(screenshotWarning);
+  }
+
+  return lines.join('\n\n');
+}
+
+function normalizeSelectedSources(sourceOptions = {}, settings = {}, mode = 'interview') {
+  const normalizedMode = normalizeMode(mode);
+  const sourceMap = {
+    resume: normalizedMode === 'interview' && Boolean(sourceOptions.resume),
+    memory: normalizedMode === 'meeting' && Boolean(sourceOptions.memory),
+    rag: Boolean(sourceOptions.rag) && Boolean(settings.ragEnabled),
+    web: Boolean(sourceOptions.web)
+  };
+
+  const active = Object.keys(sourceMap).filter((key) => sourceMap[key]);
+  if (active.length) {
+    return active;
+  }
+
+  if (settings.ragEnabled) {
+    return ['rag'];
+  }
+
+  return normalizedMode === 'meeting' ? ['memory'] : ['resume'];
+}
+
+function addWarningToCards(cards, warning) {
+  if (!warning || !cards.length) {
+    return cards;
+  }
+
+  return cards.map((card, index) => index === 0
+    ? { ...card, detail: [card.detail, warning].filter(Boolean).join(' ') }
+    : card);
 }
 
 function parseJsonObject(text) {
@@ -400,6 +943,81 @@ function cleanText(value) {
   return String(value || '').trim();
 }
 
+function shouldUseProAgent(settings = {}, request = {}) {
+  return settings.userTier === 'pro'
+    && settings.proAgentEnabled !== false
+    && !request.screenshot
+    && Boolean(settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY);
+}
+
+function shouldAllowProMemorySearch({
+  now = Date.now(),
+  isManualQuestion = false,
+  isSuggestionRequest = false,
+  lastProMemorySearchAt = 0,
+  proMemorySearchIntervalMs = 15000
+} = {}) {
+  if (isManualQuestion || isSuggestionRequest) {
+    return true;
+  }
+
+  return now - lastProMemorySearchAt >= proMemorySearchIntervalMs;
+}
+
+function isFreeAssistantConfigured({ provider, model, localUrl, apiKey }) {
+  if (provider === 'local') {
+    return Boolean(model && localUrl);
+  }
+
+  return Boolean(apiKey);
+}
+
+function shouldStartNewIntentUtterance(currentText, nextText) {
+  const current = normalizeUtteranceText(currentText);
+  const next = normalizeUtteranceText(nextText);
+
+  return /[?.!]\s*$/.test(current) && /^(can|could|would|what|why|how|tell|walk|if|where|when|do|did|are|is|was|were)\b/i.test(next);
+}
+
+function mergeUtteranceText(left, right) {
+  const cleanLeft = normalizeUtteranceText(left);
+  const cleanRight = normalizeUtteranceText(right);
+
+  if (!cleanLeft) {
+    return cleanRight;
+  }
+
+  if (!cleanRight) {
+    return cleanLeft;
+  }
+
+  const lowerLeft = cleanLeft.toLowerCase();
+  const lowerRight = cleanRight.toLowerCase();
+
+  if (lowerRight === lowerLeft || lowerRight.startsWith(`${lowerLeft} `)) {
+    return cleanRight;
+  }
+
+  const leftWords = cleanLeft.split(' ');
+  const rightWords = cleanRight.split(' ');
+  const maxOverlap = Math.min(8, leftWords.length, rightWords.length);
+
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    const leftTail = leftWords.slice(-size).join(' ').toLowerCase();
+    const rightHead = rightWords.slice(0, size).join(' ').toLowerCase();
+
+    if (leftTail === rightHead) {
+      return [...leftWords, ...rightWords.slice(size)].join(' ');
+    }
+  }
+
+  return `${cleanLeft} ${cleanRight}`;
+}
+
+function normalizeUtteranceText(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
 function describeAssistantError(error) {
   const url = error && error.config && error.config.url
     ? ` calling ${error.config.url}`
@@ -425,5 +1043,9 @@ module.exports = {
   describeAssistantError,
   extractAssistantText,
   isUserSpeaker,
-  parseAssistantCards
+  normalizeSelectedSources,
+  outputShapeFor,
+  parseAssistantCards,
+  shouldAllowProMemorySearch,
+  shouldUseProAgent
 };

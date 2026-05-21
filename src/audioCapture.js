@@ -23,6 +23,11 @@ function createAudioCapture(options = {}) {
     ...DEFAULT_RECORD_OPTIONS,
     ...(options.recordOptions || {})
   };
+  const recorderName = String(
+    (options.recordOptions && options.recordOptions.recorder) ||
+    env.CLYDE_AUDIO_RECORDER ||
+    DEFAULT_RECORD_OPTIONS.recorder
+  ).toLowerCase();
 
   if (env.CLYDE_AUDIO_DEVICE && !recordOptions.device) {
     recordOptions.device = env.CLYDE_AUDIO_DEVICE;
@@ -58,19 +63,31 @@ function createAudioCapture(options = {}) {
       return { ok: true, status: lastStatus };
     }
 
-    const sox = resolveSoxExecutable({ env, pathExists, platform });
+    const recorderResolution = resolveRecorderExecutable({
+      recorder: recorderName,
+      env,
+      pathExists,
+      platform
+    });
 
-    if (!sox.ok) {
-      logger.warn(sox.message);
-      setStatus('error', sox.message, { code: 'SOX_NOT_FOUND' });
-      return { ok: false, message: sox.message };
+    if (!recorderResolution.ok) {
+      logger.warn(recorderResolution.message);
+      setStatus('error', recorderResolution.message, { code: recorderResolution.code });
+      return { ok: false, message: recorderResolution.message };
     }
 
-    ensureDirectoryOnPath(env, path.dirname(sox.path), platform);
+    if (path.isAbsolute(recorderResolution.path)) {
+      ensureDirectoryOnPath(env, path.dirname(recorderResolution.path), platform);
+    }
 
     try {
       lastRecorderStderr = '';
-      const recorder = options.record || getDefaultRecorder(platform, sox.path, spawnProcess);
+      const recorder = options.record || getDefaultRecorder({
+        platform,
+        recorder: recorderName,
+        command: recorderResolution.path,
+        spawn: spawnProcess
+      });
       const nextRecording = recorder.record(recordOptions);
       const stream = getRecordingStream(nextRecording);
 
@@ -84,6 +101,11 @@ function createAudioCapture(options = {}) {
 
       if (nextRecording.process && typeof nextRecording.process.on === 'function') {
         nextRecording.process.on('error', handleAudioError);
+        nextRecording.process.on('close', (code) => {
+          if (isStreaming && code) {
+            handleAudioError(new Error(`Audio recorder exited with code ${code}.`));
+          }
+        });
       }
 
       if (
@@ -97,12 +119,15 @@ function createAudioCapture(options = {}) {
       }
 
       recording = nextRecording;
-      setStatus('ready', `SoX ready at ${sox.path} using input "${recordOptions.device || 'default'}"`, {
-        soxPath: sox.path,
+      setStatus('ready', `${recorderResolution.label} ready at ${recorderResolution.path} using input "${recordOptions.device || 'default'}"`, {
+        recorder: recorderName,
+        recorderPath: recorderResolution.path,
+        soxPath: recorderName === 'sox' ? recorderResolution.path : undefined,
+        ffmpegPath: recorderName === 'ffmpeg' ? recorderResolution.path : undefined,
         audioDevice: recordOptions.device || 'default'
       });
 
-      return { ok: true, soxPath: sox.path };
+      return { ok: true, recorder: recorderName, recorderPath: recorderResolution.path };
     } catch (error) {
       recording = null;
       return handleAudioError(error);
@@ -139,24 +164,211 @@ function createAudioCapture(options = {}) {
     return { ok: true };
   }
 
+  function pause() {
+    isStreaming = false;
+    setStatus('paused', 'Audio capture paused.');
+
+    return { ok: true };
+  }
+
+  function resume() {
+    const result = initialize();
+
+    if (!result.ok) {
+      return result;
+    }
+
+    isStreaming = true;
+    setStatus('capturing', 'Audio capture resumed.');
+
+    return { ok: true };
+  }
+
   return {
     initialize,
     start,
+    pause,
+    resume,
     stop,
     getStatus: () => lastStatus,
     isStreaming: () => isStreaming
   };
 }
 
-function getDefaultRecorder(platform, soxPath, spawnProcess) {
+function getDefaultRecorder(options = {}) {
+  const platform = options.platform || process.platform;
+  const recorder = options.recorder || DEFAULT_RECORD_OPTIONS.recorder;
+  const command = options.command;
+  const spawnProcess = options.spawn || spawn;
+
   if (platform === 'win32') {
-    return createWindowsSoxRecorder({
-      command: soxPath,
-      spawn: spawnProcess
-    });
+    if (recorder === 'ffmpeg') {
+      return createWindowsFfmpegRecorder({ command, spawn: spawnProcess });
+    }
+
+    if (recorder === 'native') {
+      return createNativeAudioRecorder();
+    }
+
+    return createWindowsSoxRecorder({ command, spawn: spawnProcess });
   }
 
   return record;
+}
+
+function createNativeAudioRecorder(options = {}) {
+  const importNativeAudio = options.importNativeAudio || (() => import('native-audio-node'));
+
+  return {
+    record: (options = {}) => {
+      const stream = new (require('node:events').EventEmitter)();
+      const processEvents = new (require('node:events').EventEmitter)();
+      const sampleRate = Number(options.sampleRate || DEFAULT_RECORD_OPTIONS.sampleRate);
+      const channels = Number(options.channels || DEFAULT_RECORD_OPTIONS.channels);
+      const chunkDurationMs = Number(options.chunkDurationMs || 200);
+      const device = String(options.device || 'system');
+      let recorder = null;
+      let stopped = false;
+      let metadata = null;
+
+      importNativeAudio()
+        .then((nativeAudio) => {
+          if (stopped) {
+            return null;
+          }
+
+          const recorderOptions = {
+            sampleRate,
+            chunkDurationMs,
+            stereo: channels > 1,
+            emitSilence: true
+          };
+
+          if (isSystemAudioDevice(device)) {
+            recorder = new nativeAudio.SystemAudioRecorder(recorderOptions);
+          } else {
+            recorder = new nativeAudio.MicrophoneRecorder({
+              ...recorderOptions,
+              deviceId: resolveNativeInputDeviceId(nativeAudio, device)
+            });
+          }
+
+          recorder.on('metadata', (nextMetadata) => {
+            metadata = nextMetadata;
+          });
+          recorder.on('data', (chunk) => {
+            if (chunk && Buffer.isBuffer(chunk.data)) {
+              stream.emit('data', normalizeNativePcmChunk(chunk.data, metadata));
+            }
+          });
+          recorder.on('error', (error) => processEvents.emit('error', error));
+          recorder.on('stop', () => processEvents.emit('close', 0));
+
+          return recorder.start();
+        })
+        .catch((error) => processEvents.emit('error', error));
+
+      return {
+        process: processEvents,
+        stream: () => stream,
+        stop: () => {
+          stopped = true;
+
+          if (recorder && typeof recorder.stop === 'function') {
+            Promise.resolve(recorder.stop()).catch((error) => processEvents.emit('error', error));
+          }
+        }
+      };
+    }
+  };
+}
+
+function normalizeNativePcmChunk(chunk, metadata) {
+  if (metadata && metadata.isFloat && metadata.bitsPerChannel === 32) {
+    return convertFloat32PcmToInt16(chunk);
+  }
+
+  return chunk;
+}
+
+function convertFloat32PcmToInt16(chunk) {
+  const output = Buffer.alloc(Math.floor(chunk.length / 4) * 2);
+
+  for (let inputOffset = 0, outputOffset = 0; inputOffset + 3 < chunk.length; inputOffset += 4, outputOffset += 2) {
+    const value = Math.max(-1, Math.min(1, chunk.readFloatLE(inputOffset)));
+    const sample = value < 0
+      ? Math.round(value * 32768)
+      : Math.round(value * 32767);
+
+    output.writeInt16LE(sample, outputOffset);
+  }
+
+  return output;
+}
+
+function isSystemAudioDevice(device) {
+  return ['system', 'system audio', 'system-audio', 'loopback', 'default-output']
+    .includes(String(device || '').trim().toLowerCase());
+}
+
+function resolveNativeInputDeviceId(nativeAudio, device) {
+  if (!device || !nativeAudio || typeof nativeAudio.listAudioDevices !== 'function') {
+    return device;
+  }
+
+  const devices = nativeAudio.listAudioDevices();
+  const target = String(device).trim().toLowerCase();
+  const match = devices.find((item) => (
+    item.isInput &&
+    (
+      String(item.id || '').trim().toLowerCase() === target ||
+      String(item.name || '').trim().toLowerCase() === target
+    )
+  ));
+
+  return match ? match.id : device;
+}
+
+function createWindowsFfmpegRecorder(options = {}) {
+  const command = options.command || 'ffmpeg';
+  const spawnProcess = options.spawn || spawn;
+
+  return {
+    record: (options = {}) => {
+      const device = options.device || 'default';
+      const channels = String(options.channels || DEFAULT_RECORD_OPTIONS.channels);
+      const sampleRate = String(options.sampleRate || DEFAULT_RECORD_OPTIONS.sampleRate);
+      const bits = Number(options.sampleSizeInBits || 16);
+      const codec = bits === 32 ? 'pcm_s32le' : 'pcm_s16le';
+      const format = bits === 32 ? 's32le' : 's16le';
+      const args = [
+        '-hide_banner',
+        '-loglevel', 'warning',
+        '-f', 'dshow',
+        '-i', `audio=${device}`,
+        '-f', format,
+        '-acodec', codec,
+        '-ac', channels,
+        '-ar', sampleRate,
+        '-'
+      ];
+
+      const childProcess = spawnProcess(command, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      });
+
+      return {
+        process: childProcess,
+        stream: () => childProcess.stdout,
+        stop: () => {
+          if (childProcess && typeof childProcess.kill === 'function') {
+            childProcess.kill();
+          }
+        }
+      };
+    }
+  };
 }
 
 function createWindowsSoxRecorder(options = {}) {
@@ -231,6 +443,32 @@ function formatAudioError(error, stderrOutput = '') {
   return baseMessage;
 }
 
+function resolveRecorderExecutable(options = {}) {
+  const recorder = options.recorder || DEFAULT_RECORD_OPTIONS.recorder;
+
+  if (recorder === 'ffmpeg') {
+    return resolveFfmpegExecutable(options);
+  }
+
+  if (recorder === 'native') {
+    return { ok: true, path: 'native-audio-node', source: 'node-module', label: 'Native audio' };
+  }
+
+  if (recorder === 'sox') {
+    const sox = resolveSoxExecutable(options);
+
+    return sox.ok
+      ? { ...sox, label: 'SoX' }
+      : { ...sox, code: 'SOX_NOT_FOUND' };
+  }
+
+  return {
+    ok: false,
+    code: 'RECORDER_NOT_SUPPORTED',
+    message: `Audio recorder "${recorder}" is not supported. Use "sox" or "ffmpeg".`
+  };
+}
+
 function resolveSoxExecutable(options = {}) {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
@@ -262,6 +500,49 @@ function resolveSoxExecutable(options = {}) {
     ok: false,
     message: `SoX was not found.${explicitHint} Set SOX_PATH to the full sox.exe path or add the SoX folder to Windows Path, then restart the terminal.`
   };
+}
+
+function resolveFfmpegExecutable(options = {}) {
+  const env = options.env || process.env;
+  const platform = options.platform || process.platform;
+  const pathExists = options.pathExists || fs.existsSync;
+  const explicitPath = stripQuotes(env.FFMPEG_PATH || env.CLYDE_FFMPEG_PATH || '');
+  const invalidExplicitPath = explicitPath && !pathExists(explicitPath);
+
+  if (explicitPath && !invalidExplicitPath) {
+    return { ok: true, path: explicitPath, source: 'FFMPEG_PATH', label: 'ffmpeg' };
+  }
+
+  const fromPath = findExecutableOnPath('ffmpeg', env, platform, pathExists);
+
+  if (fromPath) {
+    return { ok: true, path: fromPath, source: 'PATH', label: 'ffmpeg' };
+  }
+
+  const fromPackage = findFfmpegStaticInstall(pathExists);
+
+  if (fromPackage) {
+    return { ok: true, path: fromPackage, source: 'ffmpeg-static', label: 'ffmpeg' };
+  }
+
+  const explicitHint = invalidExplicitPath
+    ? ` FFMPEG_PATH points to ${explicitPath}, but that file was not found.`
+    : '';
+
+  return {
+    ok: false,
+    code: 'FFMPEG_NOT_FOUND',
+    message: `ffmpeg was not found.${explicitHint} Install ffmpeg, set FFMPEG_PATH to ffmpeg.exe, or install the ffmpeg-static package.`
+  };
+}
+
+function findFfmpegStaticInstall(pathExists) {
+  try {
+    const ffmpegPath = require('ffmpeg-static');
+    return ffmpegPath && pathExists(ffmpegPath) ? ffmpegPath : null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 function findExecutableOnPath(command, env, platform, pathExists) {
@@ -383,7 +664,11 @@ function stripQuotes(value) {
 
 module.exports = {
   createAudioCapture,
+  createNativeAudioRecorder,
+  createWindowsFfmpegRecorder,
   createWindowsSoxRecorder,
+  convertFloat32PcmToInt16,
   ensureDirectoryOnPath,
+  resolveFfmpegExecutable,
   resolveSoxExecutable
 };

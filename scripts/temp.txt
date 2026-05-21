@@ -1,0 +1,27 @@
+
+  async function deleteKnowledgeVectors(knowledgeId, settings = {}, options = {}) {
+    const config = resolvePineconeConfig(settings);
+    if (!config.apiKey || !config.host) {
+      return { ok: false, skipped: 'missing-pinecone-config' };
+    }
+    
+    if (!knowledgeId) {
+      return { ok: false, skipped: 'missing-knowledge-id' };
+    }
+
+    const client = options.axiosClient || axios;
+    const response = await client.post(\\/vectors/delete\, {
+      filter: { knowledgeId: { \
+\\: knowledgeId } },
+      namespace: config.namespace
+    }, {
+      headers: {
+        'Api-Key': config.apiKey,
+        'Content-Type': 'application/json',
+        'X-Pinecone-Api-Version': '2024-07'
+      }
+    });
+
+    return { ok: response.status >= 200 && response.status < 300 };
+  }
+
