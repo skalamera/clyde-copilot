@@ -193,7 +193,10 @@ function createProRealtimeAgent(options = {}) {
 
     if (call.name === 'retrievePinnedDocument') {
       const docName = clean(args.docName).toLowerCase();
-      const pinned = getPinnedKnowledge();
+      const pinned = [
+        ...getPinnedKnowledge(),
+        ...entityFilesFromContext(payload.context)
+      ];
       const match = pinned.find((item) => {
         const filename = clean(item.filename).toLowerCase();
         const title = clean(item.metadata?.title).toLowerCase();
@@ -249,6 +252,15 @@ function createProRealtimeAgent(options = {}) {
     }
 
     return knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []);
+  }
+
+  function entityFilesFromContext(context = {}) {
+    return (Array.isArray(context.entityFiles) ? context.entityFiles : []).map((item) => ({
+      id: item.id,
+      filename: item.filename,
+      content: item.content,
+      metadata: item.metadata || {}
+    }));
   }
 
   return {

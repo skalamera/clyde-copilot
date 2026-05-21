@@ -14,8 +14,10 @@ Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Bu
 ### 🤖 Live AI Assistant (Active Capture)
 *   **Pro Realtime Agent**: Connects to OpenAI's real-time WebSockets API (e.g., `gpt-realtime-2`) for ultra-low latency, agentic interactions (searching memory, retrieving pinned documents) directly mid-meeting.
 *   **Interactive Agent Chat**: A dedicated chat agent that can list calendar events, ingest files, interact with your vector database, update opportunity/meeting statuses, delete sessions, and perform CRUD actions on your meeting/interview data seamlessly through conversation.
+*   **Action Review Forms**: When Clyde needs more details to finish an action, it now renders a fillable form with the right field types instead of returning a plain error.
 *   **Sidebar & Top Control Bar**: A streamlined top control bar and sidebar layout that sits nicely alongside your video calls, featuring adjustable UI opacity settings.
 *   **Calendar Integration**: View, save, import, and delete calendar events, and quickly launch active capture for upcoming meetings via the integrated start button or agent actions.
+*   **Agentic Gmail/Google Calendar Sync**: Clyde can scan connected Gmail and Google Calendar accounts, generate proposed actions inside the app, let you review or auto-approve them, and keep a local audit log in Settings.
 *   **Contextual Nudges**: Click the "Nudge" button to get immediate AI suggestions on what to say next based on the live transcript.
 *   **Screenshot Awareness**: Capture your current screen context alongside your prompt to get help with code, presentations, or technical questions.
 *   **Custom Prompts**: Query the AI manually at any time during the meeting.
@@ -34,6 +36,7 @@ Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Bu
 ### 🧠 Long-Term Memory & RAG
 *   **Vector Database Integration**: Connects to Pinecone (via Gemini embeddings) to index and retrieve context from your Resume, past meetings, and long-term memory.
 *   **Pinned Knowledge**: Explicitly pin core documents (like your resume or core company specs) so they are persistently loaded into context for the Pro Realtime Agent or standard chat.
+*   **Opportunity and Meeting Files**: Attach pinned files directly to a specific opportunity or meeting from the Timeline or Meeting Memory view. Those files stay local and can also feed context when that record is active.
 *   **Source Toggling**: Selectively include/exclude your Resume, Memory, RAG, or Web Search for specific queries mid-call.
 
 ---
@@ -71,16 +74,17 @@ Clyde follows a standard Electron multi-process architecture, heavily relying on
 ### Main Process (`main.js` & `src/`)
 *   **`audioEngineSidecar.js` & `audioCapture.js`**: Hooks into OS-level audio devices using either the custom Rust engine or legacy `native-audio-node`.
 *   **`agentChat.js` & `agentActionRegistry.js`**: Powers the conversational agent that has tools to modify Clyde's local database and calendar.
+*   **`googleClient.js`, `googleSyncService.js`, and `syncStore.js`**: Handle local Google OAuth, Gmail/Calendar scanning, proposed action storage, and the audit log for approved or dismissed sync actions.
 *   **`autoUpdater.js`**: Built-in automatic updates for the application via `electron-updater`.
 *   **`llmClient.js` & `meetingAssistant.js`**: Constructs dynamic prompts utilizing the transcript digest, job descriptions, and user inputs. Calls LM Studio (Local LLM) or Cloud APIs.
 *   **`transcriptionClient.js`**: Handles audio chunk buffering, RMS calculation (to drop silent chunks), and requests to the Whisper API.
-*   **`sessionManager.js` & `interviewManager.js`**: Handles local SQLite/JSON persistence of sessions, entities (companies), and transcripts using `electron-store`.
+*   **`sessionManager.js`, `interviewManager.js`, and `knowledgeManager.js`**: Handle local SQLite/JSON persistence of sessions, entities, transcripts, and pinned/entity-scoped files using `electron-store`.
 *   **`trendAnalysis.js`**: Background worker logic that triggers LLM calls to compute grades and insights after a session ends.
 
 ### Renderer Process (`src/renderer/`)
 *   **`App.jsx`**: The core React application containing the routing logic between the Timeline, Calendar, Trends, and the Live Capture views.
 *   **`App.css`**: Custom styling, heavily utilizing CSS grid, flexbox, and backdrop-filters to create a modern, dark-mode, glassmorphic UI.
-*   **IPC via `preload.js`**: Exposes a safe `window.electronAPI` bridge to allow React to trigger captures, save settings, and receive real-time text/audio level updates.
+*   **IPC via `preload.js`**: Exposes a safe `window.electronAPI` bridge to allow React to trigger captures, save settings, manage Google sync, attach entity files, and receive real-time text/audio level updates.
 
 ---
 

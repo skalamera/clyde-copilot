@@ -11,6 +11,7 @@ const proLogoUrl = new URL('../../clyde_pro.svg', import.meta.url).href;
 const proFullLogoUrl = new URL('../../clyde_pro_full_text_only.svg', import.meta.url).href;
 const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
 const ghostUrl = new URL('../../clyde_ghost.svg', import.meta.url).href;
+const AGENT_CHAT_CONTEXT_LIMIT = 50;
 
 function unwrapTrendAnalysisRecord(record) {
   if (!record) {
@@ -75,6 +76,11 @@ const EMPTY_SETTINGS = {
   embeddingApiKey: '',
   pineconeNamespace: 'clyde-pro-knowledge',
   pinnedKnowledgeIds: [],
+  googleSyncEnabled: false,
+  googleOAuthClientId: '',
+  googleAccountEmail: '',
+  googleSyncAutoApprove: false,
+  googleSyncPollMinutes: 15,
   captureProtectionEnabled: true,
   uiOpacity: 100
 };
@@ -386,6 +392,17 @@ function formatEventDateTime(value) {
   return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function calendarEventColor(event = {}) {
+  const associationMode = event.associationMode || (event.meetingId ? 'meeting' : (event.opportunityId || event.entityId ? 'opportunity' : 'generic'));
+  if (associationMode === 'opportunity' || associationMode === 'interview') {
+    return '#00e5ff';
+  }
+  if (associationMode === 'meeting') {
+    return '#00ffaa';
+  }
+  return event.color || '#ffaa00';
+}
+
 function resolveEventEntityLabel(event, entities = []) {
   if (!event) {
     return '';
@@ -403,7 +420,7 @@ function resolveEventEntityLabel(event, entities = []) {
   }
 
   if (associationMode === 'opportunity') {
-    return entityName ? `Company: ${entityName}` : 'Company';
+    return entityName ? `Interview: ${entityName}` : 'Interview';
   }
 
   return 'General event';
@@ -2023,7 +2040,7 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
                 <div 
                   key={evt.id} 
                   className={`calendar-event-chip ${isPast ? 'past' : ''}`}
-                  style={{ backgroundColor: isPast ? 'rgba(148, 163, 184, 0.48)' : (evt.color || 'var(--cyan)') }}
+                  style={{ backgroundColor: isPast ? 'rgba(148, 163, 184, 0.48)' : calendarEventColor(evt) }}
                   onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
                   title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
                 >
@@ -2071,7 +2088,7 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
                     <div 
                       key={evt.id} 
                       className={`calendar-event-card ${isPast ? 'past' : ''}`}
-                      style={{ borderLeftColor: isPast ? 'rgba(148, 163, 184, 0.55)' : (evt.color || 'var(--cyan)') }}
+                      style={{ borderLeftColor: isPast ? 'rgba(148, 163, 184, 0.55)' : calendarEventColor(evt) }}
                       onClick={(e) => { e.stopPropagation(); onEditEvent(evt); }}
                       title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
                     >
@@ -2106,7 +2123,7 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
               <div 
                 key={evt.id} 
                 className={`calendar-event-card large ${isPast ? 'past' : ''}`}
-                style={{ borderLeftColor: isPast ? 'rgba(148, 163, 184, 0.55)' : (evt.color || 'var(--cyan)') }}
+                style={{ borderLeftColor: isPast ? 'rgba(148, 163, 184, 0.55)' : calendarEventColor(evt) }}
                 onClick={() => onEditEvent(evt)}
                 title={`${evt.title}\n${eventLabel}\n${new Date(evt.date).toLocaleString()}\n${evt.description || ''}`}
               >
@@ -2260,16 +2277,16 @@ function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, o
             <label>
               Association Type
               <select value={associationMode} onChange={(e) => setAssociationMode(e.target.value)}>
-                <option value="opportunity">Opportunity</option>
+                <option value="opportunity">Interview</option>
                 <option value="meeting">Meeting</option>
                 <option value="generic">Generic</option>
               </select>
             </label>
             {associationMode === 'opportunity' && (
               <label>
-                Associated Opportunity
+                Associated Interview
                 <select value={opportunityId} onChange={(e) => setOpportunityId(e.target.value)}>
-                  <option value="">Select opportunity</option>
+                  <option value="">Select interview</option>
                   {opportunities.map((ent) => (
                     <option key={ent.id} value={ent.id}>{ent.name}</option>
                   ))}
@@ -2375,9 +2392,19 @@ function App() {
   const [editSessionTarget, setEditSessionTarget] = useState(null);
   const [postSessionPromptOpen, setPostSessionPromptOpen] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState([]);
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [syncProposals, setSyncProposals] = useState([]);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [calendarTargetEntity, setCalendarTargetEntity] = useState(null);
   const [calendarEditEvent, setCalendarEditEvent] = useState(null);
+  const [homeChatState, setHomeChatState] = useState({
+    sessionId: '',
+    messages: [],
+    pendingAction: null,
+    selectedSourceIds: [],
+    sourceMode: 'active-context',
+    sourceCategory: 'interview'
+  });
   const nowMs = useNowMs();
 
   useEffect(() => {
@@ -2402,9 +2429,26 @@ function App() {
     }
   }, [api]);
 
+  const loadSyncState = useCallback(async () => {
+    try {
+      const [status, proposals] = await Promise.all([
+        api?.getGoogleSyncStatus?.(),
+        api?.listSyncProposals?.({ status: 'pending' })
+      ]);
+      setSyncStatus(status || null);
+      setSyncProposals(Array.isArray(proposals) ? proposals : []);
+    } catch (error) {
+      setStatus(`Google sync failed: ${error.message}`);
+    }
+  }, [api]);
+
   useEffect(() => {
     loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
   }, [loadCalendarEvents]);
+
+  useEffect(() => {
+    loadSyncState().catch((error) => setStatus(`Google sync failed: ${error.message}`));
+  }, [loadSyncState]);
 
   useEffect(() => {
     const handleAddEvent = (e) => {
@@ -2606,6 +2650,14 @@ function App() {
         return;
       }
 
+      if (String(change?.reason || '').startsWith('google-sync')) {
+        loadSyncState().catch((error) => setStatus(`Google sync failed: ${error.message}`));
+        loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
+        reloadSessions(mode, selectedEntity || change?.entityId || '')
+          .catch((error) => setStatus(`Timeline failed: ${error.message}`));
+        return;
+      }
+
       if ((change?.mode || 'interview') !== mode) {
         return;
       }
@@ -2619,7 +2671,7 @@ function App() {
         unsubscribe();
       }
     };
-  }, [api, loadCalendarEvents, mode, reloadSessions, selectedEntity]);
+  }, [api, loadCalendarEvents, loadSyncState, mode, reloadSessions, selectedEntity]);
 
   useEffect(() => {
     let mounted = true;
@@ -2717,6 +2769,39 @@ function App() {
     await loadCalendarEvents();
     setCalendarModalOpen(false);
   };
+
+  async function scanGoogleSync() {
+    setStatus('Scanning Google for Clyde actions...');
+    try {
+      await api?.scanGoogleSync?.();
+      await loadSyncState();
+      setStatus('Google sync scan complete.');
+    } catch (error) {
+      setStatus(`Google sync scan failed: ${error.message}`);
+    }
+  }
+
+  async function approveSyncProposal(proposal, completedAction) {
+    try {
+      const result = await api?.approveSyncProposal?.({ proposalId: proposal.id, completedAction });
+      await loadSyncState();
+      await loadCalendarEvents();
+      await reloadSessions(mode, selectedEntity);
+      return result;
+    } catch (error) {
+      setStatus(`Sync approval failed: ${error.message}`);
+      return { ok: false, message: error.message };
+    }
+  }
+
+  async function dismissSyncProposal(proposal) {
+    try {
+      await api?.dismissSyncProposal?.(proposal.id);
+      await loadSyncState();
+    } catch (error) {
+      setStatus(`Sync dismiss failed: ${error.message}`);
+    }
+  }
 
   async function chooseMode(nextMode) {
     if (workspaceView === 'trends' && mode === 'interview' && nextMode === 'meeting') {
@@ -3313,9 +3398,17 @@ function App() {
             activeEntityLabel={activeEntityLabel}
             mode={mode}
             settings={settings}
+            chatState={homeChatState}
+            setChatState={setHomeChatState}
+            syncStatus={syncStatus}
+            syncProposals={syncProposals}
+            onApproveSyncProposal={approveSyncProposal}
+            onDismissSyncProposal={dismissSyncProposal}
+            onScanGoogleSync={scanGoogleSync}
             onActionComplete={() => {
               reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
               loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
+              loadSyncState().catch((error) => setStatus(`Google sync failed: ${error.message}`));
             }}
           />
         ) : workspaceView === 'timeline' ? (
@@ -3393,6 +3486,7 @@ function App() {
                 isStreaming={isStreaming}
                 mode={mode}
                 provider={settings.llmProvider}
+                settings={settings}
                 status={status}
               />
 
@@ -3434,6 +3528,8 @@ function App() {
           activeEntityLabel={activeEntityLabel}
           mode={mode}
           settings={settings}
+          chatState={homeChatState}
+          setChatState={setHomeChatState}
           onActionComplete={() => {
             reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
             loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
@@ -3707,12 +3803,143 @@ function GearIcon() {
   );
 }
 
-function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete }) {
+function SourceStackIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 12 12 17 22 12" />
+      <polyline points="2 17 12 22 22 17" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 2 11 13" />
+      <path d="m22 2-7 20-4-9-9-4Z" />
+    </svg>
+  );
+}
+
+function ResetIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v6h6" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg aria-hidden="true" className="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3a9 9 0 1 1-9 9" />
+    </svg>
+  );
+}
+
+function SyncReviewPanel({ proposals = [], syncStatus, onApprove, onDismiss, onScan }) {
+  const [activeInput, setActiveInput] = useState(null);
+  const [values, setValues] = useState({});
+
+  async function approve(proposal, completedAction) {
+    const result = await onApprove?.(proposal, completedAction);
+    if (result?.needsInput) {
+      setActiveInput({
+        proposal,
+        requiredFields: result.requiredFields || []
+      });
+      setValues(Object.fromEntries((result.requiredFields || []).map((field) => [field.name, field.value || ''])));
+    } else {
+      setActiveInput(null);
+      setValues({});
+    }
+  }
+
+  async function submitInput(event) {
+    event.preventDefault();
+    if (!activeInput?.proposal) {
+      return;
+    }
+    const completedAction = {
+      ...(activeInput.proposal.action || {}),
+      payload: {
+        ...(activeInput.proposal.action?.payload || {}),
+        ...values
+      }
+    };
+    await approve(activeInput.proposal, completedAction);
+  }
+
+  return (
+    <section className="sync-review-panel">
+      <div className="sync-review-head">
+        <div>
+          <strong>Google sync actions</strong>
+          <p>{syncStatus?.connected ? `${proposals.length} pending from ${syncStatus.accountEmail || 'Google'}.` : 'Connect Google in Settings to scan Gmail and Calendar.'}</p>
+        </div>
+        <button type="button" className="ghost" onClick={onScan} disabled={!syncStatus?.connected}>Scan now</button>
+      </div>
+
+      {activeInput ? (
+        <form className="sync-action-form" onSubmit={submitInput}>
+          <strong>More details needed</strong>
+          {activeInput.requiredFields.map((field) => (
+            <label key={field.name}>
+              {field.label || field.name}
+              {field.type === 'select' ? (
+                <select value={values[field.name] || ''} required={field.required} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}>
+                  <option value="">Select...</option>
+                  {(field.options || []).map((option) => <option key={option.value || option.label} value={option.value || option.label}>{option.label || option.value}</option>)}
+                </select>
+              ) : field.type === 'textarea' ? (
+                <textarea value={values[field.name] || ''} required={field.required} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
+              ) : (
+                <input type={field.type || 'text'} value={values[field.name] || ''} required={field.required} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
+              )}
+            </label>
+          ))}
+          <div>
+            <button type="submit" className="primary-action">Apply</button>
+            <button type="button" className="ghost" onClick={() => setActiveInput(null)}>Cancel</button>
+          </div>
+        </form>
+      ) : null}
+
+      {proposals.length ? (
+        <div className="sync-proposal-list">
+          {proposals.slice(0, 6).map((proposal) => (
+            <article key={proposal.id} className="sync-proposal-card">
+              <div>
+                <strong>{proposal.label || proposal.action?.label || 'Sync action'}</strong>
+                <p>{proposal.summary}</p>
+                <small>{proposal.source?.type || 'source'} {proposal.source?.title ? `- ${proposal.source.title}` : ''}</small>
+              </div>
+              <div className="sync-proposal-actions">
+                <button type="button" className="primary-action" onClick={() => approve(proposal)}>Approve</button>
+                <button type="button" className="ghost" onClick={() => onDismiss?.(proposal)}>Dismiss</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <small className="sync-empty">No pending sync actions.</small>
+      )}
+    </section>
+  );
+}
+
+function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete, chatState, setChatState, syncStatus, syncProposals, onApproveSyncProposal, onDismissSyncProposal, onScanGoogleSync }) {
   return (
     <section className="home-view">
       <div className="home-chat-shell">
         <div className="home-chat-heading">
-          <h1>Clyde</h1>
+          <img
+            className="home-chat-logo"
+            src={settings.userTier === 'pro' ? proFullLogoUrl : freeSidebarLogoUrl}
+            alt="Clyde"
+          />
           <p>Ask about interviews, meetings, transcripts, events, or next steps.</p>
         </div>
         <AgentChatSurface
@@ -3722,6 +3949,15 @@ function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionC
           settings={settings}
           onActionComplete={onActionComplete}
           variant="home"
+          chatState={chatState}
+          setChatState={setChatState}
+        />
+        <SyncReviewPanel
+          proposals={syncProposals}
+          syncStatus={syncStatus}
+          onApprove={onApproveSyncProposal}
+          onDismiss={onDismissSyncProposal}
+          onScan={onScanGoogleSync}
         />
       </div>
     </section>
@@ -3743,12 +3979,16 @@ function AgentSourceMenu({
   activeEntityLabel,
   proTier,
   sourceMode,
+  sourceCategory,
   selectedSourceIds,
+  setSourceCategory,
   setSourceMode,
   setSelectedSourceIds,
   sources,
   onConfirm
 }) {
+  const [collapsedGroups, setCollapsedGroups] = useState({});
+
   function toggleSource(sourceId) {
     setSelectedSourceIds((current) => (
       current.includes(sourceId)
@@ -3756,6 +3996,48 @@ function AgentSourceMenu({
         : [...current, sourceId]
     ));
   }
+
+  function toggleGroup(company) {
+    setCollapsedGroups((current) => ({
+      ...current,
+      [company]: !current[company]
+    }));
+  }
+
+  function toggleCompanySources(company, companySourceIds) {
+    setSelectedSourceIds((current) => {
+      const allSelected = companySourceIds.every((id) => current.includes(id));
+      if (allSelected) {
+        return current.filter((id) => !companySourceIds.includes(id));
+      }
+      return Array.from(new Set([...current, ...companySourceIds]));
+    });
+  }
+
+  const groupedSources = useMemo(() => {
+    const bucket = new Map();
+    (Array.isArray(sources) ? sources : [])
+      .filter((source) => (source?.metadata?.mode || '').toLowerCase() === sourceCategory)
+      .forEach((source) => {
+        const parsed = parseSessionSourceLabel(source.label);
+        const company = parsed.company || source.metadata?.entityName || source.metadata?.entityId || 'General';
+        const sessionTitle = parsed.sessionTitle || source.label || 'Session';
+        if (!bucket.has(company)) {
+          bucket.set(company, []);
+        }
+        bucket.get(company).push({ ...source, company, sessionTitle });
+      });
+    return Array.from(bucket.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([company, sessions]) => ({
+        company,
+        sessions: sessions.sort((a, b) => a.sessionTitle.localeCompare(b.sessionTitle))
+      }));
+  }, [sourceCategory, sources]);
+
+  useEffect(() => {
+    setCollapsedGroups({});
+  }, [sourceCategory]);
 
   return (
     <div className="agent-source-popover">
@@ -3785,21 +4067,72 @@ function AgentSourceMenu({
             />
             All sources
           </label>
+          {sourceMode === 'selected' ? (
+            <>
+              <div className="agent-source-category-toggle" role="tablist" aria-label="Source type">
+                <button
+                  type="button"
+                  className={sourceCategory === 'interview' ? 'active' : ''}
+                  onClick={() => setSourceCategory('interview')}
+                >
+                  Interviews
+                </button>
+                <button
+                  type="button"
+                  className={sourceCategory === 'meeting' ? 'active' : ''}
+                  onClick={() => setSourceCategory('meeting')}
+                >
+                  Meetings
+                </button>
+              </div>
 
-          <div className="agent-source-list" data-testid="agentSourceSelector">
-            {sources.length ? sources.map((source) => (
-              <label key={source.id} className="agent-source-item">
-                <input
-                  type="checkbox"
-                  checked={selectedSourceIds.includes(source.id)}
-                  onChange={() => toggleSource(source.id)}
-                />
-                <span>{source.label}</span>
-              </label>
-            )) : (
-              <small className="agent-source-empty">No transcripts found yet.</small>
-            )}
-          </div>
+              <div className="agent-source-list" data-testid="agentSourceSelector">
+                {groupedSources.length ? groupedSources.map((group) => (
+                  <div key={group.company} className="agent-source-group">
+                    {(() => {
+                      const companySourceIds = group.sessions.map((source) => source.id);
+                      const selectedCount = companySourceIds.filter((id) => selectedSourceIds.includes(id)).length;
+                      const allSelected = selectedCount === companySourceIds.length && companySourceIds.length > 0;
+                      return (
+                        <div className="agent-source-group-header">
+                          <button
+                            type="button"
+                            className={`agent-source-group-toggle ${collapsedGroups[group.company] ? 'collapsed' : ''}`}
+                            onClick={() => toggleGroup(group.company)}
+                          >
+                            <span className="agent-source-group-chevron" aria-hidden="true">▾</span>
+                            <strong className="agent-source-group-title">{group.company}</strong>
+                          </button>
+                          <div className="agent-source-group-actions">
+                            <small>{selectedCount}/{group.sessions.length}</small>
+                            <button
+                              type="button"
+                              className="agent-source-company-select"
+                              onClick={() => toggleCompanySources(group.company, companySourceIds)}
+                            >
+                              {allSelected ? 'Clear' : 'Select all'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {!collapsedGroups[group.company] ? group.sessions.map((source) => (
+                      <label key={source.id} className="agent-source-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedSourceIds.includes(source.id)}
+                          onChange={() => toggleSource(source.id)}
+                        />
+                        <span>{source.sessionTitle}</span>
+                      </label>
+                    )) : null}
+                  </div>
+                )) : (
+                  <small className="agent-source-empty">No transcripts found yet.</small>
+                )}
+              </div>
+            </>
+          ) : null}
         </>
       ) : (
         <div className="agent-source-list" data-testid="agentSourceSelector">
@@ -3814,19 +4147,87 @@ function AgentSourceMenu({
   );
 }
 
-function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 'interview', settings = {}, onActionComplete, variant = 'panel' }) {
+function AgentChatSurface({
+  activeEntityId = '',
+  activeEntityLabel = '',
+  mode = 'interview',
+  settings = {},
+  onActionComplete,
+  variant = 'panel',
+  chatState,
+  setChatState
+}) {
   const api = window.electronAPI;
-  const [sessionId, setSessionId] = useState('');
-  const [messages, setMessages] = useState([]);
+  const [localSessionId, setLocalSessionId] = useState('');
+  const [localMessages, setLocalMessages] = useState([]);
   const [prompt, setPrompt] = useState('');
   const [sources, setSources] = useState([]);
-  const [selectedSourceIds, setSelectedSourceIds] = useState([]);
-  const [sourceMode, setSourceMode] = useState('active-context');
+  const [localSelectedSourceIds, setLocalSelectedSourceIds] = useState([]);
+  const [localSourceMode, setLocalSourceMode] = useState('active-context');
+  const [localSourceCategory, setLocalSourceCategory] = useState(mode === 'meeting' ? 'meeting' : 'interview');
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null);
+  const [localPendingAction, setLocalPendingAction] = useState(null);
+  const [actionInputValues, setActionInputValues] = useState({});
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
+  const messagesEndRef = useRef(null);
   const proTier = settings.userTier === 'pro';
+  const controlled = chatState && typeof setChatState === 'function';
+  const sessionId = controlled ? (chatState.sessionId || '') : localSessionId;
+  const messages = controlled ? (chatState.messages || []) : localMessages;
+  const selectedSourceIds = controlled ? (chatState.selectedSourceIds || []) : localSelectedSourceIds;
+  const sourceMode = controlled ? (chatState.sourceMode || 'active-context') : localSourceMode;
+  const sourceCategory = controlled ? (chatState.sourceCategory || (mode === 'meeting' ? 'meeting' : 'interview')) : localSourceCategory;
+  const pendingAction = controlled ? (chatState.pendingAction || null) : localPendingAction;
+
+  const setSessionId = useCallback((next) => {
+    if (controlled) {
+      setChatState((current) => ({ ...current, sessionId: typeof next === 'function' ? next(current.sessionId || '') : next }));
+    } else {
+      setLocalSessionId(next);
+    }
+  }, [controlled, setChatState]);
+
+  const setMessages = useCallback((next) => {
+    if (controlled) {
+      setChatState((current) => ({ ...current, messages: typeof next === 'function' ? next(current.messages || []) : next }));
+    } else {
+      setLocalMessages(next);
+    }
+  }, [controlled, setChatState]);
+
+  const setSelectedSourceIds = useCallback((next) => {
+    if (controlled) {
+      setChatState((current) => ({ ...current, selectedSourceIds: typeof next === 'function' ? next(current.selectedSourceIds || []) : next }));
+    } else {
+      setLocalSelectedSourceIds(next);
+    }
+  }, [controlled, setChatState]);
+
+  const setSourceMode = useCallback((next) => {
+    if (controlled) {
+      setChatState((current) => ({ ...current, sourceMode: typeof next === 'function' ? next(current.sourceMode || 'active-context') : next }));
+    } else {
+      setLocalSourceMode(next);
+    }
+  }, [controlled, setChatState]);
+
+  const setSourceCategory = useCallback((next) => {
+    const normalized = next === 'meeting' ? 'meeting' : 'interview';
+    if (controlled) {
+      setChatState((current) => ({ ...current, sourceCategory: normalized }));
+    } else {
+      setLocalSourceCategory(normalized);
+    }
+  }, [controlled, setChatState]);
+
+  const setPendingAction = useCallback((next) => {
+    if (controlled) {
+      setChatState((current) => ({ ...current, pendingAction: typeof next === 'function' ? next(current.pendingAction || null) : next }));
+    } else {
+      setLocalPendingAction(next);
+    }
+  }, [controlled, setChatState]);
 
   const loadSources = useCallback(async (query = '') => {
     try {
@@ -3846,7 +4247,27 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
       setSourceMode('active-context');
       setSelectedSourceIds([]);
     }
-  }, [proTier, sourceMode]);
+  }, [proTier, setSelectedSourceIds, setSourceMode, sourceMode]);
+
+  useEffect(() => {
+    if (!proTier) {
+      setSourceCategory(mode === 'meeting' ? 'meeting' : 'interview');
+    }
+  }, [mode, proTier, setSourceCategory]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [messages.length, pendingAction]);
+
+  useEffect(() => {
+    if (!pendingAction?.requiredFields?.length) {
+      setActionInputValues({});
+      return;
+    }
+    setActionInputValues(Object.fromEntries(
+      pendingAction.requiredFields.map((field) => [field.name, field.value || ''])
+    ));
+  }, [pendingAction?.id, pendingAction?.requiredFields]);
 
   async function ensureSession() {
     if (sessionId) {
@@ -3869,10 +4290,16 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
     setLoading(true);
     setStatus('');
     setPendingAction(null);
+    let sessionIdForSend = sessionId;
+    if (variant === 'floating' && messages.filter((message) => message.role === 'user' || message.role === 'assistant').length >= AGENT_CHAT_CONTEXT_LIMIT) {
+      sessionIdForSend = '';
+      setSessionId('');
+      setMessages([{ role: 'assistant', content: 'Chat context limit reached. Starting a new chat.', citations: [] }]);
+    }
     setMessages((current) => [...current, { role: 'user', content: text }]);
 
     try {
-      const nextSessionId = await ensureSession();
+      const nextSessionId = sessionIdForSend || await ensureSession();
       const response = await api?.sendAgentChatMessage?.({
         sessionId: nextSessionId,
         message: text,
@@ -3891,7 +4318,7 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
       if (response?.pendingAction) {
         setPendingAction(response.pendingAction);
       }
-      await loadSources(text);
+      await loadSources('');
     } catch (error) {
       setMessages((current) => [...current, { role: 'assistant', content: `Clyde could not answer: ${error.message}`, citations: [] }]);
     } finally {
@@ -3906,6 +4333,61 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
     setLoading(true);
     try {
       const result = await api?.confirmAgentAction?.({ actionId: pendingAction.id, pendingAction });
+      if (result?.needsInput) {
+        setPendingAction({
+          ...pendingAction,
+          requiredFields: result.requiredFields || [],
+          payload: {
+            ...(pendingAction.payload || {}),
+            ...(result.payload || {})
+          }
+        });
+        setMessages((current) => [...current, {
+          role: 'assistant',
+          content: result.message || 'I need a few details to finish that.',
+          citations: []
+        }]);
+        return;
+      }
+      setMessages((current) => [...current, {
+        role: 'assistant',
+        content: result?.message || (result?.ok ? 'Action completed.' : 'Action could not be completed.'),
+        citations: []
+      }]);
+      if (result?.ok || result?.changed) {
+        onActionComplete?.();
+      }
+      setPendingAction(null);
+    } catch (error) {
+      setStatus(`Action failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitActionInputForm(event) {
+    event?.preventDefault?.();
+    if (!pendingAction) {
+      return;
+    }
+    const completedAction = {
+      ...pendingAction,
+      payload: {
+        ...(pendingAction.payload || {}),
+        ...actionInputValues
+      }
+    };
+    setLoading(true);
+    try {
+      const result = await api?.confirmAgentAction?.({ actionId: pendingAction.id, pendingAction: completedAction });
+      if (result?.needsInput) {
+        setPendingAction({
+          ...completedAction,
+          requiredFields: result.requiredFields || []
+        });
+        setMessages((current) => [...current, { role: 'assistant', content: result.message || 'More information is needed.', citations: [] }]);
+        return;
+      }
       setMessages((current) => [...current, {
         role: 'assistant',
         content: result?.message || (result?.ok ? 'Action completed.' : 'Action could not be completed.'),
@@ -3954,27 +4436,69 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
             <p>{proTier ? 'Clyde can answer, cite sources, and prepare confirmed in-app actions.' : 'Free tier searches local knowledge only.'}</p>
           </div>
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       {pendingAction ? (
         <div className="agent-action-confirm">
           <strong>{pendingAction.label}</strong>
           <p>{pendingAction.summary}</p>
-          <div>
-            <button type="button" className="primary-action" onClick={confirmPendingAction} disabled={loading}>Yes</button>
-            <button type="button" className="ghost" onClick={declinePendingAction} disabled={loading}>No</button>
-          </div>
+          {Array.isArray(pendingAction.requiredFields) && pendingAction.requiredFields.length ? (
+            <form className="agent-action-form" onSubmit={submitActionInputForm}>
+              {pendingAction.requiredFields.map((field) => (
+                <label key={field.name}>
+                  {field.label || field.name}
+                  {field.type === 'select' ? (
+                    <select
+                      value={actionInputValues[field.name] || ''}
+                      required={field.required}
+                      onChange={(event) => setActionInputValues((current) => ({ ...current, [field.name]: event.target.value }))}
+                    >
+                      <option value="">Select...</option>
+                      {(field.options || []).map((option) => (
+                        <option key={option.value || option.label} value={option.value || option.label}>{option.label || option.value}</option>
+                      ))}
+                    </select>
+                  ) : field.type === 'textarea' ? (
+                    <textarea
+                      value={actionInputValues[field.name] || ''}
+                      required={field.required}
+                      onChange={(event) => setActionInputValues((current) => ({ ...current, [field.name]: event.target.value }))}
+                    />
+                  ) : (
+                    <input
+                      type={field.type || 'text'}
+                      value={actionInputValues[field.name] || ''}
+                      required={field.required}
+                      onChange={(event) => setActionInputValues((current) => ({ ...current, [field.name]: event.target.value }))}
+                    />
+                  )}
+                </label>
+              ))}
+              <div>
+                <button type="submit" className="primary-action" disabled={loading}>Submit details</button>
+                <button type="button" className="ghost" onClick={declinePendingAction} disabled={loading}>Cancel</button>
+              </div>
+            </form>
+          ) : (
+            <div>
+              <button type="button" className="primary-action" onClick={confirmPendingAction} disabled={loading}>Yes</button>
+              <button type="button" className="ghost" onClick={declinePendingAction} disabled={loading}>No</button>
+            </div>
+          )}
         </div>
       ) : null}
 
       <form className="agent-chat-form" onSubmit={sendMessage}>
-        <div className={`agent-source-menu-wrap ${variant === 'floating' ? 'agent-source-menu-wrap-floating' : ''}`}>
+        <div className={`agent-source-menu-wrap agent-source-menu-wrap-${variant}`}>
           {sourceMenuOpen ? (
             <AgentSourceMenu
               activeEntityLabel={activeEntityLabel}
               proTier={proTier}
               sourceMode={sourceMode}
+              sourceCategory={sourceCategory}
               selectedSourceIds={selectedSourceIds}
+              setSourceCategory={setSourceCategory}
               setSourceMode={setSourceMode}
               setSelectedSourceIds={setSelectedSourceIds}
               sources={sources}
@@ -3982,19 +4506,6 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
             />
           ) : null}
           <div className="agent-source-row">
-            <button
-              type="button"
-              className="active-icon-btn active-source-button agent-source-trigger"
-              onClick={() => setSourceMenuOpen((value) => !value)}
-              aria-label="Sources"
-              title="Sources"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px' }}>
-                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                <polyline points="2 12 12 17 22 12"></polyline>
-                <polyline points="2 17 12 22 22 17"></polyline>
-              </svg>
-            </button>
             <span className="agent-source-mode-label">{sourceModeLabel(sourceMode, activeEntityLabel)}</span>
             <span className="agent-source-selection-label">
               {proTier
@@ -4010,10 +4521,21 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
             onChange={(event) => setPrompt(event.target.value)}
             placeholder={proTier ? 'Ask Clyde anything or request an app action...' : 'Search local knowledge...'}
           />
-          <button type="submit" className="primary-action" disabled={loading || !prompt.trim()}>
-            {loading ? 'Thinking...' : 'Send'}
+          <button
+            type="button"
+            className="active-icon-btn active-source-button agent-source-trigger"
+            onClick={() => setSourceMenuOpen((value) => !value)}
+            aria-label="Sources"
+            title="Sources"
+          >
+            <SourceStackIcon />
           </button>
-          <button type="button" className="ghost" onClick={resetChat}>Reset</button>
+          <button type="submit" className="primary-action agent-send-button" disabled={loading || !prompt.trim()} aria-label="Send" title="Send">
+            {loading ? <SpinnerIcon /> : <SendIcon />}
+          </button>
+          <button type="button" className="ghost agent-reset-button" onClick={resetChat} aria-label="Reset" title="Reset">
+            <ResetIcon />
+          </button>
         </div>
         {status ? <small className="agent-chat-status">{status}</small> : null}
       </form>
@@ -4021,10 +4543,11 @@ function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 
   );
 }
 
-function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete }) {
+function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete, chatState, setChatState }) {
   const api = window.electronAPI;
   const [prefs, setPrefs] = useState({ enabled: true, x: 24, y: 120, panelOpen: false });
   const dragRef = useRef(null);
+  const placement = getFloatingPanelPlacement(prefs);
 
   useEffect(() => {
     let cancelled = false;
@@ -4114,7 +4637,7 @@ function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings,
         <img src={settings.userTier === 'pro' ? proLogoUrl : freeSidebarLogoUrl} alt="" />
       </button>
       {prefs.panelOpen ? (
-        <div className="floating-clyde-panel">
+        <div className={`floating-clyde-panel panel-${placement.horizontal} panel-${placement.vertical}`}>
           <div className="floating-clyde-head">
             <strong>Clyde</strong>
             <div>
@@ -4129,11 +4652,37 @@ function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings,
             settings={settings}
             onActionComplete={onActionComplete}
             variant="floating"
+            chatState={chatState}
+            setChatState={setChatState}
           />
         </div>
       ) : null}
     </div>
   );
+}
+
+function parseSessionSourceLabel(label = '') {
+  const parts = String(label || '').split('/').map((value) => value.trim()).filter(Boolean);
+  if (parts.length < 3) {
+    return { type: '', company: '', sessionTitle: String(label || '').trim() };
+  }
+  return {
+    type: parts[0].toLowerCase(),
+    company: parts[1],
+    sessionTitle: parts.slice(2).join(' / ')
+  };
+}
+
+function getFloatingPanelPlacement(prefs = {}) {
+  const width = window.innerWidth || 1200;
+  const height = window.innerHeight || 800;
+  const panelWidth = Math.min(420, Math.max(280, width - 96));
+  const panelHeight = Math.min(640, Math.max(340, height - 96));
+  const launcherSize = 68;
+  return {
+    horizontal: Number(prefs.x || 0) + launcherSize + panelWidth > width - 16 ? 'left' : 'right',
+    vertical: Number(prefs.y || 0) + panelHeight > height - 16 ? 'up' : 'down'
+  };
 }
 
 function clampFloatingPrefs(prefs = {}) {
@@ -4590,7 +5139,15 @@ function ModeToggle({ mode, workspaceView, onChange }) {
   );
 }
 
-function StatusStrip({ health, isStreaming, mode, provider, status }) {
+function StatusStrip({ health, isStreaming, mode, provider, settings = {}, status }) {
+  const chatProvider = provider === 'local' ? 'Local' : provider || 'Local';
+  const chatModel = settings.llmModel || (provider === 'local' ? 'local model' : 'cloud model');
+  const transcriptionProvider = settings.transcriptionProvider || 'local';
+  const transcriptionModel = settings.transcriptionModel || settings.localTranscriptionUrl || 'default';
+  const embeddingProvider = settings.embeddingProvider || 'Pinecone embeddings';
+  const embeddingModel = settings.embeddingModel || settings.pineconeEmbeddingModel || 'configured model';
+  const ragConfigured = Boolean((settings.pineconeApiKey || settings.pineconeHost) && settings.userTier === 'pro');
+  const resumeLength = String(settings.resumeText || '').trim().length;
   return (
     <div className="status-strip">
       <div className="status-line" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
@@ -4603,6 +5160,28 @@ function StatusStrip({ health, isStreaming, mode, provider, status }) {
       <div className="status-pills">
         <span>{provider === 'local' ? 'Local LLM' : `${provider} cloud`}</span>
         <span>{mode === 'interview' ? 'Candidate context' : 'Long term memory'}</span>
+      </div>
+      <div className="assist-provider-grid" aria-label="Assistant provider status">
+        <div>
+          <strong>Chat LLM</strong>
+          <small>{chatProvider} · {chatModel}</small>
+        </div>
+        <div>
+          <strong>Transcription</strong>
+          <small>{transcriptionProvider} · {transcriptionModel}</small>
+        </div>
+        <div>
+          <strong>Embeddings</strong>
+          <small>{embeddingProvider} · {embeddingModel}</small>
+        </div>
+        <div>
+          <strong>RAG</strong>
+          <small>{settings.userTier === 'pro' ? (ragConfigured ? 'enabled and configured' : 'enabled, missing Pinecone config') : 'disabled on Free'}</small>
+        </div>
+        <div>
+          <strong>Resume</strong>
+          <small>{resumeLength ? `present, ${resumeLength} characters` : 'missing'}</small>
+        </div>
       </div>
       <div className="health-grid" data-testid="healthGrid">
         {Object.entries(health).map(([key, item]) => (
@@ -5699,6 +6278,70 @@ function OpportunitySection({ collapsed, count, entities, onToggle, renderEntity
   );
 }
 
+function EntityFilesPanel({ mode, entity }) {
+  const api = window.electronAPI;
+  const [files, setFiles] = useState([]);
+  const [status, setStatus] = useState('');
+
+  const loadFiles = useCallback(async () => {
+    if (!entity?.id || !api?.listEntityFiles) {
+      setFiles([]);
+      return;
+    }
+    const rows = await api.listEntityFiles({ mode, entityId: entity.id });
+    setFiles(Array.isArray(rows) ? rows : []);
+  }, [api, entity?.id, mode]);
+
+  useEffect(() => {
+    loadFiles().catch((error) => setStatus(`Files failed: ${error.message}`));
+  }, [loadFiles]);
+
+  async function addFiles() {
+    if (!entity?.id) {
+      return;
+    }
+    setStatus('Opening file picker...');
+    try {
+      const rows = await api?.openEntityFileDialog?.({ mode, entityId: entity.id, entityName: entity.name });
+      setStatus(Array.isArray(rows) && rows.length ? `${rows.length} file${rows.length === 1 ? '' : 's'} pinned.` : '');
+      await loadFiles();
+    } catch (error) {
+      setStatus(`File upload failed: ${error.message}`);
+    }
+  }
+
+  async function removeFile(id) {
+    await api?.removeEntityFile?.(id);
+    await loadFiles();
+  }
+
+  return (
+    <section className="entity-files-panel">
+      <div className="entity-files-head">
+        <div>
+          <strong>Pinned files</strong>
+          <p>These files are attached to this {mode === 'meeting' ? 'meeting' : 'opportunity'} and used when it is active.</p>
+        </div>
+        <button type="button" className="primary-action" onClick={addFiles}>Add files</button>
+      </div>
+      {files.length ? (
+        <div className="entity-file-list">
+          {files.map((file) => (
+            <article key={file.id} className="entity-file-row">
+              <div>
+                <strong>{file.filename}</strong>
+                <small>{file.metadata?.pinecone?.status || 'Local context'}</small>
+              </div>
+              <button type="button" className="ghost" onClick={() => removeFile(file.id)}>Remove</button>
+            </article>
+          ))}
+        </div>
+      ) : <small>No pinned files for this record yet.</small>}
+      {status ? <small className="knowledge-status">{status}</small> : null}
+    </section>
+  );
+}
+
 function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeMeetingId = mode === 'meeting'
@@ -5951,6 +6594,8 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
           )}
         </div>
         
+        {selected ? <EntityFilesPanel mode={mode} entity={selected} /> : null}
+
         {selected && entityEvents.length > 0 && (
           <div className="upcoming-events-section" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px', marginBottom: '20px', margin: '0 20px 20px 20px' }}>
             <h4 style={{ margin: '0 0 15px 0', color: 'var(--text)', fontWeight: 500 }}>Upcoming Events</h4>
@@ -5958,7 +6603,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
               {entityEvents.map(evt => {
                 const eventLabel = resolveEventEntityLabel(evt, entities);
                 return (
-                  <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px', borderLeft: `4px solid ${evt.color || 'var(--cyan)'}` }}>
+                  <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px', borderLeft: `4px solid ${calendarEventColor(evt)}` }}>
                     <div>
                       <strong style={{ display: 'block', color: 'var(--text)', fontSize: '0.95rem' }}>{evt.title}</strong>
                       <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.78rem', marginTop: '2px' }}>{eventLabel}</span>
@@ -6119,6 +6764,8 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
   const [activeTab, setActiveTab] = useState('context');
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
   const [audioDeviceStatus, setAudioDeviceStatus] = useState('');
+  const [googleStatus, setGoogleStatus] = useState(null);
+  const [syncAudit, setSyncAudit] = useState([]);
   const [saveStatus, setSaveStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const mountedRef = useRef(true);
@@ -6137,6 +6784,21 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
   useEffect(() => {
     applyUiOpacityToRoot(draft.uiOpacity);
   }, [draft.uiOpacity]);
+
+  useEffect(() => {
+    if (!api?.getGoogleSyncStatus) {
+      return;
+    }
+    Promise.all([
+      api.getGoogleSyncStatus(),
+      api.listSyncAuditLog?.(50)
+    ]).then(([status, audit]) => {
+      if (mountedRef.current) {
+        setGoogleStatus(status || null);
+        setSyncAudit(Array.isArray(audit) ? audit : []);
+      }
+    }).catch(() => {});
+  }, [api]);
 
   useEffect(() => {
     return () => {
@@ -6218,12 +6880,50 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
     return options.map(opt => <option key={opt} value={opt} />);
   }
 
+  async function connectGoogle() {
+    setSaveStatus('Opening Google sign-in...');
+    try {
+      const status = await api?.connectGoogleSync?.({
+        clientId: draft.googleOAuthClientId,
+        enabled: draft.googleSyncEnabled !== false
+      });
+      setGoogleStatus(status || null);
+      setSaveStatus('Google sync connected.');
+      update('googleAccountEmail', status?.accountEmail || '');
+      update('googleSyncEnabled', true);
+    } catch (error) {
+      setSaveStatus(`Google connect failed: ${error.message}`);
+    }
+  }
+
+  async function disconnectGoogle() {
+    const status = await api?.disconnectGoogleSync?.();
+    setGoogleStatus(status || null);
+    update('googleAccountEmail', '');
+    update('googleSyncEnabled', false);
+    setSaveStatus('Google sync disconnected.');
+  }
+
+  async function scanGoogle() {
+    setSaveStatus('Scanning Google...');
+    try {
+      const result = await api?.scanGoogleSync?.();
+      setGoogleStatus(result?.status || await api?.getGoogleSyncStatus?.());
+      const audit = await api?.listSyncAuditLog?.(50);
+      setSyncAudit(Array.isArray(audit) ? audit : []);
+      setSaveStatus('Google scan complete.');
+    } catch (error) {
+      setSaveStatus(`Google scan failed: ${error.message}`);
+    }
+  }
+
   return (
     <form className={`settings-form ${compact ? 'compact' : ''}`} onSubmit={handleSubmit}>
-      <div className="tabs" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+      <div className="tabs" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
         <button type="button" className={activeTab === 'context' ? 'active' : ''} onClick={() => setActiveTab('context')}>Context</button>
         <button type="button" className={activeTab === 'llm' ? 'active' : ''} onClick={() => setActiveTab('llm')}>LLM</button>
         <button type="button" className={activeTab === 'pro' ? 'active' : ''} onClick={() => setActiveTab('pro')}>Pro</button>
+        <button type="button" className={activeTab === 'sync' ? 'active' : ''} onClick={() => setActiveTab('sync')}>Sync</button>
         <button type="button" className={activeTab === 'transcription' ? 'active' : ''} onClick={() => setActiveTab('transcription')}>Speech</button>
       </div>
 
@@ -6443,6 +7143,48 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
               <input autoComplete="new-password" type="password" value={draft.transcriptionApiKey || ''} onChange={(event) => update('transcriptionApiKey', event.target.value)} placeholder="Stored locally" />
             </label>
           )}
+        </div>
+      )}
+
+      {activeTab === 'sync' && (
+        <div className="sync-settings">
+          <div className="form-grid">
+            <label className="wide-field">
+              Google OAuth client ID
+              <input value={draft.googleOAuthClientId || ''} onChange={(event) => update('googleOAuthClientId', event.target.value)} placeholder="Desktop OAuth client ID" />
+            </label>
+            <label className="toggle-row">
+              <input type="checkbox" checked={Boolean(draft.googleSyncEnabled)} onChange={(event) => update('googleSyncEnabled', event.target.checked)} />
+              Enable periodic Google sync
+            </label>
+            <label className="toggle-row">
+              <input type="checkbox" checked={Boolean(draft.googleSyncAutoApprove)} onChange={(event) => update('googleSyncAutoApprove', event.target.checked)} />
+              Auto-approve generated sync actions
+            </label>
+            <label>
+              Poll interval (minutes)
+              <input type="number" min="1" value={draft.googleSyncPollMinutes || 15} onChange={(event) => update('googleSyncPollMinutes', Number(event.target.value) || 15)} />
+            </label>
+          </div>
+          <div className="sync-settings-card">
+            <strong>{googleStatus?.connected ? `Connected: ${googleStatus.accountEmail || draft.googleAccountEmail || 'Google'}` : 'Google is disconnected'}</strong>
+            <p>{googleStatus?.pendingCount || 0} pending sync actions.</p>
+            <div className="sync-settings-actions">
+              <button type="button" className="primary-action" onClick={connectGoogle} disabled={!draft.googleOAuthClientId}>Connect Google</button>
+              <button type="button" className="ghost" onClick={disconnectGoogle} disabled={!googleStatus?.connected}>Disconnect</button>
+              <button type="button" className="ghost" onClick={scanGoogle} disabled={!googleStatus?.connected}>Scan now</button>
+            </div>
+          </div>
+          <div className="sync-audit-log">
+            <strong>Audit log</strong>
+            {syncAudit.length ? syncAudit.map((entry) => (
+              <article key={entry.id}>
+                <span>{new Date(entry.createdAt).toLocaleString()}</span>
+                <p>{entry.message || entry.type}</p>
+                <small>{entry.status}</small>
+              </article>
+            )) : <small>No sync audit events yet.</small>}
+          </div>
         </div>
       )}
 

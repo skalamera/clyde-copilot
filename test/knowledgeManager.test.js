@@ -93,3 +93,26 @@ test('knowledge manager rejects unsupported and oversized files', async () => {
   await assert.rejects(() => manager.ingestFile(exePath, {}), /Unsupported file type/);
   await assert.rejects(() => manager.ingestFile(largePath, {}), /File is too large/);
 });
+
+test('knowledge manager stores and filters entity-scoped files', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-knowledge-entity-'));
+  const acmePath = path.join(tempDir, 'acme.txt');
+  const meetingPath = path.join(tempDir, 'meeting.txt');
+  fs.writeFileSync(acmePath, 'ACME interview notes.', 'utf8');
+  fs.writeFileSync(meetingPath, 'Weekly meeting notes.', 'utf8');
+  const manager = createKnowledgeManager({ appPath: tempDir });
+
+  test.after(() => {
+    manager.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const acme = await manager.ingestFile(acmePath, {}, { mode: 'interview', entityId: 'acme', entityName: 'ACME' });
+  await manager.ingestFile(meetingPath, {}, { mode: 'meeting', entityId: 'weekly', entityName: 'Weekly' });
+  const rows = manager.listEntityKnowledge({ mode: 'interview', entityId: 'acme' });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, acme.id);
+  assert.equal(rows[0].metadata.entityName, 'ACME');
+  assert.match(rows[0].content, /ACME interview notes/);
+});

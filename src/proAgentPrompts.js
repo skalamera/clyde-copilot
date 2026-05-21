@@ -5,7 +5,8 @@ function buildProAgentInstructions({ mode = 'interview', context = {}, command =
     context.role ? `Role: ${context.role}` : '',
     context.meetingTitle ? `Meeting: ${context.meetingTitle}` : '',
     context.memory ? `Saved memory: ${context.memory}` : '',
-    context.jobDescription ? `Job description: ${context.jobDescription}` : ''
+    context.jobDescription ? `Job description: ${context.jobDescription}` : '',
+    formatEntityFiles(context.entityFiles)
   ].filter(Boolean).join('\n');
 
   return [
@@ -18,6 +19,17 @@ function buildProAgentInstructions({ mode = 'interview', context = {}, command =
     command ? `Current command: ${command}` : '',
     contextLines ? `Current context:\n${contextLines}` : ''
   ].filter(Boolean).join('\n\n');
+}
+
+function formatEntityFiles(files = []) {
+  const rows = Array.isArray(files) ? files : [];
+  if (!rows.length) {
+    return '';
+  }
+  return [
+    'Pinned entity files:',
+    ...rows.slice(0, 5).map((item) => `${item.filename || item.id || 'Pinned file'}:\n${String(item.content || '').slice(0, 4000)}`)
+  ].join('\n\n');
 }
 
 function buildProAgentUserMessage({

@@ -33,6 +33,7 @@ function buildAssistantPrompt(options = {}) {
       context.memory ? `Long term memory across meetings:\n${context.memory}` : '',
       context.jobDescription ? `Meeting brief or source context:\n${context.jobDescription}` : '',
       context.resumeText ? `User background:\n${context.resumeText}` : '',
+      formatEntityFiles(context.entityFiles),
       ragContext ? `Retrieved context:\n${ragContext}` : '',
       'Return useful cards for the current moment: recaps, action items, follow-up questions, suggestions, or notes.',
       'Keep every card short enough to read during a live call.',
@@ -51,12 +52,28 @@ function buildAssistantPrompt(options = {}) {
     context.role ? `Role: ${context.role}.` : '',
     context.jobDescription ? `Job Description:\n${context.jobDescription}` : '',
     context.resumeText ? `Candidate Resume/Background:\n${context.resumeText}` : '',
+    formatEntityFiles(context.entityFiles),
     ragContext ? `Relevant RAG Context:\n${ragContext}` : '',
     'Use first-person language for suggested responses.',
     'If the question asks about past experience, projects, or background, use only the supplied context for specific project names, metrics, and details.',
     'Never suggest questions for the interviewer to ask unless the current command asks for follow-up questions.',
     'Do not mention that you are an AI.'
   ].filter(Boolean).join('\n');
+}
+
+function formatEntityFiles(files = []) {
+  const rows = Array.isArray(files) ? files : [];
+  if (!rows.length) {
+    return '';
+  }
+  return [
+    'Files pinned to the active opportunity or meeting:',
+    ...rows.slice(0, 5).map((item) => {
+      const label = item.filename || item.id || 'Pinned file';
+      const content = String(item.content || '').slice(0, 4000);
+      return `${label}:\n${content}`;
+    })
+  ].join('\n\n');
 }
 
 function getAssistantSchema(mode = 'interview', command = 'assist') {

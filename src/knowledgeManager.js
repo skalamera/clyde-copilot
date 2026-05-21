@@ -124,7 +124,7 @@ function createKnowledgeManager(options = {}) {
       return getKnowledgeItem(id);
     }
 
-  async function ingestFile(filePath, settings = {}) {
+  async function ingestFile(filePath, settings = {}, context = {}) {
     const resolvedPath = path.resolve(String(filePath || ''));
     const extension = path.extname(resolvedPath).toLowerCase();
 
@@ -146,9 +146,13 @@ function createKnowledgeManager(options = {}) {
     const metadata = {
       source: 'upload',
       extension,
-      sizeBytes: stats.size
+      sizeBytes: stats.size,
+      ...(context.metadata || {}),
+      ...(context.mode ? { mode: normalizeMode(context.mode) } : {}),
+      ...(context.entityId ? { entityId: clean(context.entityId) } : {}),
+      ...(context.entityName ? { entityName: clean(context.entityName) } : {})
     };
-    const id = uploadKnowledgeId(resolvedPath);
+    const id = uploadKnowledgeId(resolvedPath, metadata);
 
     let item = upsertKnowledgeItem({
       id,
@@ -242,6 +246,8 @@ function createKnowledgeManager(options = {}) {
     const where = [];
     const type = clean(filters.type);
     const query = clean(filters.query);
+    const mode = clean(filters.mode);
+    const entityId = clean(filters.entityId);
 
     if (type) {
       where.push('type = ?');
@@ -259,7 +265,17 @@ function createKnowledgeManager(options = {}) {
       'ORDER BY datetime(updated_at) DESC'
     ].filter(Boolean).join(' ');
 
-    return db.prepare(sql).all(...values).map(withParsedMetadata);
+    return db.prepare(sql).all(...values)
+      .map(withParsedMetadata)
+      .filter((item) => {
+        if (mode && item.metadata?.mode !== mode) {
+          return false;
+        }
+        if (entityId && item.metadata?.entityId !== entityId) {
+          return false;
+        }
+        return true;
+      });
   }
 
   function getKnowledgeItem(id) {
@@ -317,6 +333,15 @@ function createKnowledgeManager(options = {}) {
     return pinnedIds.map(getKnowledgeItem).filter(Boolean);
   }
 
+  function listEntityKnowledge({ mode, entityId, query = '' } = {}) {
+    return listKnowledge({
+      mode: normalizeMode(mode),
+      entityId: clean(entityId),
+      query,
+      type: 'upload'
+    });
+  }
+
   function close() {
     db.close();
   }
@@ -327,9 +352,10 @@ function createKnowledgeManager(options = {}) {
     close,
     dbPath,
     deleteKnowledgeItem,
-    getKnowledgeItem,
+      getKnowledgeItem,
       getPinnedKnowledge,
       ingestFile,
+      listEntityKnowledge,
       listKnowledge,
       uploadToPinecone,
       upsertKnowledgeItem
@@ -343,8 +369,11 @@ function transcriptKnowledgeId(session = {}) {
   return `session:${mode}:${entityId}:${sessionId}`;
 }
 
-function uploadKnowledgeId(filePath) {
-  return `upload:${stableHash(path.resolve(filePath))}`;
+function uploadKnowledgeId(filePath, metadata = {}) {
+  const entityPart = metadata?.entityId
+    ? `${normalizeMode(metadata.mode)}:${clean(metadata.entityId)}:`
+    : '';
+  return `upload:${entityPart}${stableHash(path.resolve(filePath))}`;
 }
 
 function sessionKnowledgeFilename(session = {}) {

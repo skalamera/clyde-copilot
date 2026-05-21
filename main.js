@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const axios = require('axios');
@@ -22,6 +22,10 @@ const { createKnowledgeManager } = require('./src/knowledgeManager');
 const { createCalendarStore } = require('./src/calendarStore');
 const { createAgentChat } = require('./src/agentChat');
 const { createAgentActionRegistry } = require('./src/agentActionRegistry');
+const { createGoogleClient } = require('./src/googleClient');
+const { createGoogleSyncService } = require('./src/googleSyncService');
+const { createSyncStore } = require('./src/syncStore');
+const { refreshSystemKnowledge } = require('./src/systemKnowledge');
 const { generateChat } = require('./src/llmClient');
 const {
     buildTranscriptCleanupPrompt,
@@ -62,6 +66,10 @@ let sessionManager;
 let knowledgeManager;
 let calendarStore;
 let agentChat;
+let syncStore;
+let googleClient;
+let googleSyncService;
+let googleSyncTimer;
 let audioLevelTimer;
 let liveAudioLevelTimer;
 let liveAudioLevels;
@@ -136,6 +144,11 @@ function loadSettings() {
         embeddingApiKey: store.get('embeddingApiKey', ''),
         pineconeNamespace: store.get('pineconeNamespace', 'clyde-pro-knowledge'),
         pinnedKnowledgeIds: store.get('pinnedKnowledgeIds', []),
+        googleSyncEnabled: store.get('googleSyncEnabled', false),
+        googleOAuthClientId: store.get('googleOAuthClientId', ''),
+        googleAccountEmail: store.get('googleAccountEmail', ''),
+        googleSyncAutoApprove: store.get('googleSyncAutoApprove', false),
+        googleSyncPollMinutes: store.get('googleSyncPollMinutes', 15),
         appMode: store.get('appMode', 'interview'),
         meetingTitle: store.get('meetingTitle', ''),
         meetingAttendees: store.get('meetingAttendees', []),
@@ -198,17 +211,7 @@ function saveSettings(newSettings) {
             sendStatus: sendAudioStatus,
             sendUpdate: sendAssistantUpdate
         });
-        const activeJd = (interviewManager && newSettings.currentCompany) ? interviewManager.getCompanyJobDescription(newSettings.currentCompany) : '';
-        meetingAssistant.setContext({ 
-            mode: newSettings.appMode || 'interview',
-            jobDescription: activeJd,
-            resumeText: newSettings.resumeText || '',
-            company: newSettings.currentCompany || '',
-            role: newSettings.currentRole || '',
-            meetingTitle: newSettings.meetingTitle || '',
-            attendees: Array.isArray(newSettings.meetingAttendees) ? newSettings.meetingAttendees : [],
-            memory: newSettings.meetingMemory || ''
-        });
+        meetingAssistant.setContext(buildAssistantContext(newSettings));
     }
 
     if (interviewManager) {
@@ -222,6 +225,7 @@ function saveSettings(newSettings) {
 
     // Force health recheck
     checkServiceHealth(newSettings);
+    startGoogleSyncTimer(newSettings);
 }
 
 function applyCaptureProtection(settings = {}) {
@@ -830,20 +834,92 @@ function sendSessionDataChanged(change = {}) {
     mainWindow.webContents.send('session-data-changed', change);
 }
 
-function getAgentChat() {
-    if (agentChat) {
-        return agentChat;
+function refreshSystemKnowledgeFromState(reason = 'system-refresh') {
+    if (!knowledgeManager || !sessionManager || !calendarStore) {
+        return Promise.resolve([]);
     }
+    const settings = loadSettings();
+    return refreshSystemKnowledge({
+        settings,
+        sessionManager,
+        calendarStore,
+        knowledgeManager,
+        activeInterviewId: settings.currentCompany || ''
+    }).catch((error) => {
+        console.warn(`System knowledge refresh failed (${reason}):`, error);
+        return [];
+    });
+}
 
-    const actionRegistry = createAgentActionRegistry({
+function notifyDataChanged(change = {}) {
+    sendSessionDataChanged(change);
+    refreshSystemKnowledgeFromState(change.reason || 'data-changed');
+}
+
+function getCurrentAgentContext() {
+    const settings = loadSettings();
+    const mode = settings.appMode === 'meeting' ? 'meeting' : 'interview';
+    if (mode === 'meeting') {
+        return {
+            mode,
+            entityId: settings.meetingTitle || '',
+            entityName: settings.meetingTitle || ''
+        };
+    }
+    return {
+        mode,
+        entityId: settings.currentCompany || '',
+        entityName: settings.currentCompany || '',
+        role: settings.currentRole || ''
+    };
+}
+
+function getActiveEntityFiles(settings = loadSettings()) {
+    if (!knowledgeManager || typeof knowledgeManager.listEntityKnowledge !== 'function') {
+        return [];
+    }
+    const mode = settings.appMode === 'meeting' ? 'meeting' : 'interview';
+    const entityId = mode === 'meeting' ? settings.meetingTitle : settings.currentCompany;
+    if (!entityId) {
+        return [];
+    }
+    return knowledgeManager.listEntityKnowledge({ mode, entityId }).slice(0, 5);
+}
+
+function buildAssistantContext(settings = loadSettings()) {
+    const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
+    return {
+        mode: settings.appMode || 'interview',
+        jobDescription: activeJd,
+        resumeText: settings.resumeText || '',
+        company: settings.currentCompany || '',
+        role: settings.currentRole || '',
+        meetingTitle: settings.meetingTitle || '',
+        attendees: Array.isArray(settings.meetingAttendees) ? settings.meetingAttendees : [],
+        memory: settings.meetingMemory || '',
+        entityFiles: getActiveEntityFiles(settings)
+    };
+}
+
+function createActionRegistry() {
+    return createAgentActionRegistry({
         sessionManager,
         interviewManager,
         calendarStore,
         loadSettings,
         saveSettings,
-        emitChange: sendSessionDataChanged,
-        emitCalendarChanged: (change) => sendSessionDataChanged({ ...change, reason: change.reason || 'calendar-changed' })
+        getActiveContext: getCurrentAgentContext,
+        emitChange: notifyDataChanged,
+        emitCalendarChanged: (change) => notifyDataChanged({ ...change, reason: change.reason || 'calendar-changed' })
     });
+}
+
+function getAgentChat() {
+    if (agentChat) {
+        return agentChat;
+    }
+
+    const actionRegistry = createActionRegistry();
 
     agentChat = createAgentChat({
         settings: loadSettings(),
@@ -856,6 +932,146 @@ function getAgentChat() {
     });
 
     return agentChat;
+}
+
+function getGoogleTokens() {
+    const store = getSettingsStore();
+    return store.get('googleTokens', null);
+}
+
+function saveGoogleTokens(tokens = {}) {
+    const current = getGoogleTokens() || {};
+    getSettingsStore().set('googleTokens', {
+        ...current,
+        ...tokens,
+        refresh_token: tokens.refresh_token || current.refresh_token || ''
+    });
+}
+
+function clearGoogleTokens() {
+    getSettingsStore().delete('googleTokens');
+}
+
+async function getGoogleAccessToken(settings = loadSettings()) {
+    const tokens = getGoogleTokens();
+    if (!tokens?.refresh_token && !tokens?.access_token) {
+        throw new Error('Google is not connected.');
+    }
+    const expiresAt = tokens.expires_at ? new Date(tokens.expires_at).getTime() : 0;
+    if (tokens.access_token && expiresAt > Date.now() + 60000) {
+        return tokens.access_token;
+    }
+    const refreshed = await googleClient.refreshAccessToken({
+        clientId: settings.googleOAuthClientId,
+        refreshToken: tokens.refresh_token
+    });
+    saveGoogleTokens(refreshed);
+    return refreshed.access_token;
+}
+
+function getGoogleSyncStatus() {
+    const settings = loadSettings();
+    const tokens = getGoogleTokens();
+    return {
+        connected: Boolean(tokens?.refresh_token || tokens?.access_token),
+        enabled: Boolean(settings.googleSyncEnabled),
+        accountEmail: settings.googleAccountEmail || '',
+        autoApprove: Boolean(settings.googleSyncAutoApprove),
+        pollMinutes: Number(settings.googleSyncPollMinutes || 15) || 15,
+        pendingCount: syncStore ? syncStore.listProposals({ status: 'pending' }).length : 0
+    };
+}
+
+async function runGoogleSyncScan({ manual = false } = {}) {
+    const settings = loadSettings();
+    if (!googleSyncService || !syncStore) {
+        throw new Error('Google sync is not ready.');
+    }
+    if (!manual && !settings.googleSyncEnabled) {
+        return [];
+    }
+    const accessToken = await getGoogleAccessToken(settings);
+    const proposals = await googleSyncService.scan({ accessToken, settings });
+    if (settings.googleSyncAutoApprove) {
+        const pending = syncStore.listProposals({ status: 'pending' });
+        for (const proposal of pending) {
+            await approveSyncProposal({ proposalId: proposal.id });
+        }
+    }
+    notifyDataChanged({ reason: 'google-sync-scanned' });
+    return proposals;
+}
+
+async function approveSyncProposal({ proposalId, completedAction } = {}) {
+    const proposal = syncStore && syncStore.getProposal(proposalId);
+    if (!proposal) {
+        return { ok: false, changed: false, message: 'Sync proposal not found.' };
+    }
+    const action = completedAction || proposal.action;
+    const result = await createActionRegistry().confirmAction(action);
+    if (result?.needsInput) {
+        syncStore.addAudit({
+            type: 'sync-approval',
+            status: 'needs-input',
+            message: result.message,
+            proposalId: proposal.id,
+            source: proposal.source,
+            action,
+            result
+        });
+        return { ...result, proposal };
+    }
+    syncStore.markProposal(proposal.id, result.ok ? 'approved' : 'failed', result);
+    syncStore.addAudit({
+        type: 'sync-approval',
+        status: result.ok ? 'success' : 'failed',
+        message: result.message || proposal.summary,
+        proposalId: proposal.id,
+        source: proposal.source,
+        action,
+        result
+    });
+    notifyDataChanged({ reason: 'google-sync-proposal-applied' });
+    return result;
+}
+
+function dismissSyncProposal(proposalId) {
+    const proposal = syncStore && syncStore.getProposal(proposalId);
+    if (!proposal) {
+        return false;
+    }
+    const updated = syncStore.markProposal(proposal.id, 'dismissed', { ok: true });
+    syncStore.addAudit({
+        type: 'sync-dismiss',
+        status: 'dismissed',
+        message: proposal.summary,
+        proposalId: proposal.id,
+        source: proposal.source,
+        action: proposal.action
+    });
+    notifyDataChanged({ reason: 'google-sync-proposal-dismissed' });
+    return Boolean(updated);
+}
+
+function startGoogleSyncTimer(settings = loadSettings()) {
+    if (googleSyncTimer) {
+        clearInterval(googleSyncTimer);
+        googleSyncTimer = null;
+    }
+    if (!settings.googleSyncEnabled) {
+        return;
+    }
+    const minutes = Math.max(1, Number(settings.googleSyncPollMinutes || 15) || 15);
+    googleSyncTimer = setInterval(() => {
+        runGoogleSyncScan().catch((error) => {
+            syncStore?.addAudit({
+                type: 'sync-scan',
+                status: 'failed',
+                message: error.message
+            });
+            console.warn('Google sync scan failed:', error);
+        });
+    }, minutes * 60 * 1000);
 }
 
 function updateHealth(key, next) {
@@ -1091,17 +1307,7 @@ function getMeetingAssistant() {
         sendUpdate: sendAssistantUpdate
     });
     
-    const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
-    meetingAssistant.setContext({ 
-        mode: settings.appMode || 'interview',
-        jobDescription: activeJd,
-        resumeText: settings.resumeText || '',
-        company: settings.currentCompany || '',
-        role: settings.currentRole || '',
-        meetingTitle: settings.meetingTitle || '',
-        attendees: Array.isArray(settings.meetingAttendees) ? settings.meetingAttendees : [],
-        memory: settings.meetingMemory || ''
-    });
+    meetingAssistant.setContext(buildAssistantContext(settings));
 
     return meetingAssistant;
 }
@@ -1460,15 +1666,35 @@ function createWindow () {
         appPath: app.getPath('userData')
     });
 
+    syncStore = createSyncStore({
+        appPath: app.getPath('userData')
+    });
+
+    googleClient = createGoogleClient({
+        axiosClient: axios,
+        openExternal: (url) => shell.openExternal(url)
+    });
+
+    googleSyncService = createGoogleSyncService({
+        googleClient,
+        syncStore,
+        sessionManager,
+        calendarStore
+    });
+
+    startGoogleSyncTimer(settings);
+
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     if (!store.get('knowledgeBackfillDone_v2')) {
         backfillKnowledgeFromSessions(settings).then(() => {
             store.set('knowledgeBackfillDone_v2', true);
+            refreshSystemKnowledgeFromState('knowledge-backfill');
         }).catch((error) => {
             console.warn('Knowledge base backfill failed:', error);
         });
     }
+    refreshSystemKnowledgeFromState('startup');
 
   // Setup IPC communication for start/stop transcription
   ipcMain.on('start-audio-capture', async (event) => {
@@ -1596,6 +1822,7 @@ function createWindow () {
 
   ipcMain.handle('save-settings', (event, settings) => {
       saveSettings(settings);
+      refreshSystemKnowledgeFromState('settings-saved');
       return true;
   });
 
@@ -1648,6 +1875,73 @@ function createWindow () {
       return next;
   });
 
+  ipcMain.handle('connect-google-sync', async (event, payload = {}) => {
+      if (!googleClient) {
+          throw new Error('Google sync is not ready.');
+      }
+      const settings = loadSettings();
+      const clientId = payload.clientId || settings.googleOAuthClientId;
+      const result = await googleClient.connect({ clientId });
+      saveGoogleTokens(result.tokens);
+      const nextSettings = {
+          ...settings,
+          googleOAuthClientId: clientId,
+          googleAccountEmail: result.profile?.email || settings.googleAccountEmail || '',
+          googleSyncEnabled: payload.enabled !== undefined ? Boolean(payload.enabled) : true
+      };
+      saveSettings(nextSettings);
+      syncStore?.addAudit({
+          type: 'google-connect',
+          status: 'success',
+          message: `Connected Google account ${nextSettings.googleAccountEmail || ''}`.trim()
+      });
+      return getGoogleSyncStatus();
+  });
+
+  ipcMain.handle('disconnect-google-sync', () => {
+      const settings = loadSettings();
+      clearGoogleTokens();
+      saveSettings({
+          ...settings,
+          googleSyncEnabled: false,
+          googleAccountEmail: ''
+      });
+      syncStore?.addAudit({
+          type: 'google-disconnect',
+          status: 'success',
+          message: 'Disconnected Google sync.'
+      });
+      return getGoogleSyncStatus();
+  });
+
+  ipcMain.handle('get-google-sync-status', () => {
+      return getGoogleSyncStatus();
+  });
+
+  ipcMain.handle('scan-google-sync', async () => {
+      await runGoogleSyncScan({ manual: true });
+      return {
+          status: getGoogleSyncStatus(),
+          proposals: syncStore ? syncStore.listProposals({ status: 'pending' }) : []
+      };
+  });
+
+  ipcMain.handle('list-sync-proposals', (event, filters = {}) => {
+      return syncStore ? syncStore.listProposals(filters || {}) : [];
+  });
+
+  ipcMain.handle('approve-sync-proposal', async (event, payload = {}) => {
+      return approveSyncProposal(payload || {});
+  });
+
+  ipcMain.handle('dismiss-sync-proposal', (event, proposalId) => {
+      return dismissSyncProposal(proposalId);
+  });
+
+  ipcMain.handle('list-sync-audit-log', (event, limit = 100) => {
+      return syncStore ? syncStore.listAudit(limit) : [];
+  });
+
   ipcMain.handle('list-calendar-events', () => {
       return calendarStore ? calendarStore.listEvents() : [];
   });
@@ -1657,7 +1951,7 @@ function createWindow () {
           throw new Error('Calendar is not ready.');
       }
       const saved = calendarStore.saveEvent(calendarEvent || {});
-      sendSessionDataChanged({ reason: 'calendar-changed', eventId: saved.id });
+      notifyDataChanged({ reason: 'calendar-changed', eventId: saved.id });
       return saved;
   });
 
@@ -1666,7 +1960,7 @@ function createWindow () {
           return false;
       }
       const deleted = calendarStore.deleteEvent(id);
-      sendSessionDataChanged({ reason: 'calendar-changed', eventId: id });
+      notifyDataChanged({ reason: 'calendar-changed', eventId: id });
       return deleted;
   });
 
@@ -1675,7 +1969,7 @@ function createWindow () {
           return [];
       }
       const imported = calendarStore.importEvents(events);
-      sendSessionDataChanged({ reason: 'calendar-changed' });
+      notifyDataChanged({ reason: 'calendar-changed' });
       return imported;
   });
 
@@ -1746,6 +2040,64 @@ function createWindow () {
           ingested.push(await knowledgeManager.ingestFile(filePath, settings));
       }
       return ingested;
+  });
+
+  ipcMain.handle('open-entity-file-dialog', async (event, context = {}) => {
+      if (!knowledgeManager) {
+          return [];
+      }
+      const mode = context.mode === 'meeting' ? 'meeting' : 'interview';
+      const entityId = String(context.entityId || '').trim();
+      if (!entityId) {
+          throw new Error('Entity is required for pinned files.');
+      }
+
+      const result = await dialog.showOpenDialog(mainWindow, {
+          title: mode === 'meeting' ? 'Add meeting files' : 'Add opportunity files',
+          properties: ['openFile', 'multiSelections'],
+          filters: [
+              { name: 'Knowledge files', extensions: ['txt', 'md', 'pdf'] }
+          ]
+      });
+
+      if (result.canceled || !result.filePaths?.length) {
+          return [];
+      }
+
+      const settings = loadSettings();
+      const ingested = [];
+      for (const filePath of result.filePaths) {
+          ingested.push(await knowledgeManager.ingestFile(filePath, settings, {
+              mode,
+              entityId,
+              entityName: context.entityName || entityId
+          }));
+      }
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(loadSettings()));
+      }
+      return ingested;
+  });
+
+  ipcMain.handle('list-entity-files', (event, context = {}) => {
+      if (!knowledgeManager?.listEntityKnowledge) {
+          return [];
+      }
+      return knowledgeManager.listEntityKnowledge({
+          mode: context.mode === 'meeting' ? 'meeting' : 'interview',
+          entityId: context.entityId || ''
+      });
+  });
+
+  ipcMain.handle('remove-entity-file', async (event, id) => {
+      if (!knowledgeManager) {
+          return false;
+      }
+      const deleted = await knowledgeManager.deleteKnowledgeItem(id, loadSettings());
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(loadSettings()));
+      }
+      return deleted;
   });
 
   ipcMain.handle('list-audio-devices', async () => {
@@ -1892,6 +2244,7 @@ function createWindow () {
              entityId: record.entity.id,
              reason: 'session-saved'
          });
+         refreshSystemKnowledgeFromState('session-saved');
       }
 
       if (isInterviewSession && record.grading && record.grading.status === 'pending' && hasTranscript) {
@@ -2202,6 +2555,7 @@ function createWindow () {
               entityId: nextPayload.entityId,
               reason: 'session-deleted'
           });
+          refreshSystemKnowledgeFromState('session-deleted');
           const remaining = sessionManager.getSessions({ mode: 'interview', entityId: nextPayload.entityId });
           if (remaining.length > 0) {
               processSessionConfidenceInBackground(remaining[0].entity, loadSettings()).catch(console.error);
@@ -2212,6 +2566,7 @@ function createWindow () {
                   entityId: nextPayload.entityId,
                   reason: 'confidence-reset'
               });
+              refreshSystemKnowledgeFromState('confidence-reset');
           }
       }
 
@@ -2223,6 +2578,11 @@ function createWindow () {
       if (payload && payload.mode === 'interview') {
           deleteTrendAnalysis(app.getPath('userData'), payload.entityId);
       }
+      notifyDataChanged({
+          mode: payload && payload.mode,
+          entityId: payload && payload.entityId,
+          reason: 'entity-deleted'
+      });
       return deleted;
   });
 
@@ -2249,6 +2609,11 @@ function createWindow () {
           }
       }
 
+      notifyDataChanged({
+          mode: payload && payload.mode,
+          entityId: payload && payload.entityId,
+          reason: 'entity-updated'
+      });
       return nextEntity;
   });
 
@@ -2266,16 +2631,7 @@ function createWindow () {
 
       saveSettings(nextSettings);
       if (meetingAssistant) {
-          meetingAssistant.setContext({
-              mode: nextSettings.appMode,
-              jobDescription: nextSettings.jobDescription || '',
-              resumeText: nextSettings.resumeText || '',
-              company: nextSettings.currentCompany || '',
-              role: nextSettings.currentRole || '',
-              meetingTitle: nextSettings.meetingTitle || '',
-              attendees: nextSettings.meetingAttendees || [],
-              memory: nextSettings.meetingMemory || ''
-          });
+          meetingAssistant.setContext(buildAssistantContext(nextSettings));
       }
 
       return nextSettings;
@@ -2550,6 +2906,10 @@ app.on('window-all-closed', () => {
     stopAudioLevelTest();
     stopLiveAudioLevels();
     stopAudioCaptures();
+    if (googleSyncTimer) {
+        clearInterval(googleSyncTimer);
+        googleSyncTimer = null;
+    }
     app.quit();
   }
 });

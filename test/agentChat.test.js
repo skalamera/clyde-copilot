@@ -130,6 +130,37 @@ test('pro active context includes pinned files and pinecone matches', async () =
   assert.equal(result.message.content, 'Found Intercom context.');
 });
 
+test('active context includes entity-scoped files', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'free', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: {
+      listEntityKnowledge: () => [{
+        id: 'upload:interview:acme:1',
+        filename: 'ACME brief.txt',
+        content: 'ACME uses Kafka for billing events.',
+        type: 'upload',
+        metadata: { mode: 'interview', entityId: 'acme' }
+      }]
+    },
+    sessionManager: { getSessions: () => [] },
+    generateChat: async (request) => {
+      assert.match(request.messages[0].content, /ACME brief\.txt/);
+      assert.match(request.messages[0].content, /Kafka for billing events/);
+      return JSON.stringify({ message: { content: 'Entity file included.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-entity-files',
+    message: 'What does ACME use?',
+    tier: 'free',
+    mode: 'interview',
+    activeEntityId: 'acme'
+  });
+
+  assert.equal(result.message.content, 'Entity file included.');
+});
+
 test('pro all sources includes interview and meeting transcripts', async () => {
   const calls = [];
   const agent = createAgentChat({
@@ -181,6 +212,35 @@ test('pro all sources includes interview and meeting transcripts', async () => {
   assert.equal(result.message.content, 'Both transcript types included.');
 });
 
+test('pro active and all sources include system knowledge documents', async () => {
+  const ids = [];
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: {
+      getKnowledgeItem: (id) => {
+        ids.push(id);
+        return { id, filename: `${id}.txt`, content: `${id} content` };
+      }
+    },
+    sessionManager: { getSessions: () => [] },
+    generateChat: async (request) => {
+      assert.match(request.messages[0].content, /system:opportunities-status content/);
+      assert.match(request.messages[0].content, /system:calendar-events content/);
+      return JSON.stringify({ message: { content: 'System docs included.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  const active = await agent.sendMessage({
+    sessionId: 'chat-pro-system-active',
+    message: 'How many rejections?',
+    tier: 'pro',
+    sourceMode: 'active-context'
+  });
+
+  assert.equal(active.message.content, 'System docs included.');
+  assert.deepEqual(ids, ['system:opportunities-status', 'system:calendar-events']);
+});
+
 test('chat preserves short history for follow-up turns', async () => {
   const prompts = [];
   const agent = createAgentChat({
@@ -197,6 +257,104 @@ test('chat preserves short history for follow-up turns', async () => {
 
   assert.match(prompts[1], /Summarize Apollo\./);
   assert.match(prompts[1], /turn 1/);
+});
+
+test('pending action includes original user request for confirmation repair', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: { listKnowledge: () => [] },
+    generateChat: async () => JSON.stringify({
+      message: { content: 'I prepared the status update.', citations: [] },
+      pendingAction: {
+        id: 'action-1',
+        label: 'Update status',
+        summary: 'Update TeamViewer to rejected.',
+        actionType: 'updateOpportunity',
+        payload: { outcome: 'rejected' }
+      }
+    })
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-action-original-request',
+    message: 'change the status of the TeamViewer opportunity to Rejected',
+    tier: 'pro'
+  });
+
+  assert.equal(result.pendingAction.originalUserMessage, 'change the status of the TeamViewer opportunity to Rejected');
+  assert.equal(result.pendingAction.payload.originalUserMessage, 'change the status of the TeamViewer opportunity to Rejected');
+});
+
+test('pending action confirmation text uses the parsed calendar date instead of model text', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: { listKnowledge: () => [] },
+    generateChat: async () => JSON.stringify({
+      message: {
+        content: 'I have scheduled your interview with Etsy for tomorrow, May 27th, at 3:00 PM ET.',
+        citations: []
+      },
+      pendingAction: {
+        id: 'action-calendar',
+        label: 'Schedule interview',
+        summary: 'Schedule interview with Etsy for tomorrow, May 27th, at 3:00 PM ET.',
+        actionType: 'saveCalendarEvent',
+        payload: {
+          mode: 'interview',
+          entityName: 'Etsy',
+          title: 'Interview',
+          date: '2026-05-22T15:00:00.000'
+        }
+      }
+    })
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-calendar-date',
+    message: 'I have an interview tomorrow with Etsy at 3pm ET',
+    tier: 'pro'
+  });
+
+  assert.match(result.message.content, /May 22, 2026 at 3:00 PM/);
+  assert.doesNotMatch(result.message.content, /May 27th/);
+  assert.match(result.pendingAction.summary, /May 22, 2026 at 3:00 PM/);
+  assert.doesNotMatch(result.pendingAction.summary, /May 27th/);
+});
+
+test('confirmAction uses completed pending action payload from renderer form', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    actionRegistry: {
+      confirmAction: async (action) => {
+        assert.equal(action.payload.date, '2026-05-22T15:00');
+        return { ok: true, changed: true, message: 'Saved.' };
+      }
+    },
+    generateChat: async () => JSON.stringify({
+      message: { content: 'Need a date.', citations: [] },
+      pendingAction: {
+        id: 'action-form',
+        label: 'Create event',
+        summary: 'Create event.',
+        actionType: 'saveCalendarEvent',
+        payload: { title: 'Weekly Sync' }
+      }
+    })
+  });
+
+  await agent.sendMessage({ sessionId: 'chat-form', message: 'Schedule Weekly Sync', tier: 'pro' });
+  const result = await agent.confirmAction({
+    actionId: 'action-form',
+    pendingAction: {
+      id: 'action-form',
+      label: 'Create event',
+      summary: 'Create event.',
+      actionType: 'saveCalendarEvent',
+      payload: { title: 'Weekly Sync', date: '2026-05-22T15:00' }
+    }
+  });
+
+  assert.equal(result.ok, true);
 });
 
 test('malformed chat JSON returns safe error response', async () => {

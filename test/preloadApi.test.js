@@ -35,6 +35,9 @@ test('preload exposes mode-aware session APIs', () => {
     'setPinnedKnowledge',
     'getPinnedKnowledge',
     'openKnowledgeFileDialog'
+    ,'openEntityFileDialog'
+    ,'listEntityFiles'
+    ,'removeEntityFile'
     ,'startAgentChat'
     ,'sendAgentChatMessage'
     ,'confirmAgentAction'
@@ -45,6 +48,14 @@ test('preload exposes mode-aware session APIs', () => {
     ,'saveCalendarEvent'
     ,'deleteCalendarEvent'
     ,'importCalendarEvents'
+    ,'connectGoogleSync'
+    ,'disconnectGoogleSync'
+    ,'getGoogleSyncStatus'
+    ,'scanGoogleSync'
+    ,'listSyncProposals'
+    ,'approveSyncProposal'
+    ,'dismissSyncProposal'
+    ,'listSyncAuditLog'
   ]) {
     assert.match(source, new RegExp(`${api}:`));
   }
@@ -67,6 +78,8 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /listKnowledge:\s*\(filters\)\s*=>\s*ipcRenderer\.invoke\('list-knowledge', filters\)/);
   assert.match(source, /ingestKnowledgeFile:\s*\(filePath\)\s*=>\s*ipcRenderer\.invoke\('ingest-knowledge-file', filePath\)/);
   assert.match(source, /openKnowledgeFileDialog:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-knowledge-file-dialog'\)/);
+  assert.match(source, /openEntityFileDialog:\s*\(context\)\s*=>\s*ipcRenderer\.invoke\('open-entity-file-dialog', context\)/);
+  assert.match(source, /connectGoogleSync:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('connect-google-sync', payload\)/);
   assert.match(source, /sendAgentChatMessage:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('send-agent-chat-message', payload\)/);
   assert.match(source, /confirmAgentAction:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('confirm-agent-action', payload\)/);
   assert.match(source, /listCalendarEvents:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-calendar-events'\)/);

@@ -34,10 +34,66 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'AI reply',
     "userTier: 'free'",
     'proAgentEnabled: false',
-    'pinnedKnowledgeIds: []'
+    'pinnedKnowledgeIds: []',
+    'googleSyncEnabled: false',
+    'Sync',
+    'Google OAuth client ID',
+    'SyncReviewPanel',
+    'EntityFilesPanel',
+    'openEntityFileDialog',
+    'requiredFields'
   ]) {
     assert.match(appSource, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+test('home chat uses compact sticky composer and tier image heading', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const homeStart = appSource.indexOf('function HomeView');
+  const floatingStart = appSource.indexOf('function FloatingClydeAgent');
+  const agentSource = appSource.slice(homeStart, floatingStart);
+
+  assert.match(agentSource, /home-chat-logo/);
+  assert.match(agentSource, /settings\.userTier === 'pro' \? proFullLogoUrl : freeSidebarLogoUrl/);
+  assert.match(agentSource, /agent-send-button/);
+  assert.match(agentSource, /agent-reset-button/);
+  assert.match(agentSource, /messagesEndRef/);
+  assert.match(cssSource, /\.home-chat-shell\s*\{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\)/);
+  assert.match(cssSource, /\.agent-chat-home\s*\{[\s\S]*grid-template-rows: minmax\(0, 1fr\) auto/);
+  assert.match(cssSource, /\.agent-input-row input\s*\{[\s\S]*min-height: 34px/);
+});
+
+test('floating chat preserves state and opens inward near window edges', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const floatingStart = appSource.indexOf('function FloatingClydeAgent');
+  const navStart = appSource.indexOf('function WorkspaceNav', floatingStart);
+  const floatingSource = appSource.slice(floatingStart, navStart);
+
+  assert.match(appSource, /AGENT_CHAT_CONTEXT_LIMIT = 50/);
+  assert.match(floatingSource, /chatState/);
+  assert.match(floatingSource, /setChatState/);
+  assert.match(floatingSource, /floating-clyde-panel panel-/);
+  assert.match(floatingSource, /getFloatingPanelPlacement/);
+  assert.match(cssSource, /\.floating-clyde-panel\.panel-left/);
+  assert.match(cssSource, /\.floating-clyde-panel\.panel-up/);
+});
+
+test('title bar is fixed and assist status shows RAG provider and resume indicators', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const statusStart = appSource.indexOf('function StatusStrip');
+  const setupStart = appSource.indexOf('function SetupPanel', statusStart);
+  const statusSource = appSource.slice(statusStart, setupStart);
+
+  assert.match(cssSource, /\.title-bar\s*\{[\s\S]*position: fixed/);
+  assert.match(cssSource, /\.workspace\s*\{[\s\S]*padding-top: calc\(var\(--titlebar-height\)/);
+  assert.match(statusSource, /Chat LLM/);
+  assert.match(statusSource, /Transcription/);
+  assert.match(statusSource, /Embeddings/);
+  assert.match(statusSource, /RAG/);
+  assert.match(statusSource, /Resume/);
 });
 
 test('live panel no longer renders canned note controls', () => {

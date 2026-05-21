@@ -25,6 +25,7 @@ function createCalendarStore({ appPath }) {
       id,
       title: clean(event.title || existing?.title || 'Scheduled item'),
       date: clean(event.date || existing?.date || now),
+      color: calendarEventColor(event.associationMode || existing?.associationMode, event.color || existing?.color),
       updatedAt: now,
       createdAt: existing?.createdAt || clean(event.createdAt) || now
     };
@@ -58,7 +59,8 @@ function createCalendarStore({ appPath }) {
         ...event,
         id,
         title: clean(event.title) || 'Scheduled item',
-        date: clean(event.date) || new Date().toISOString()
+        date: clean(event.date) || new Date().toISOString(),
+        color: calendarEventColor(event.associationMode, event.color)
       });
     }
     const nextEvents = Array.from(byId.values());
@@ -95,6 +97,18 @@ function clean(value) {
   return String(value || '').trim();
 }
 
+function calendarEventColor(associationMode, fallback = '') {
+  const mode = clean(associationMode).toLowerCase();
+  if (mode === 'opportunity' || mode === 'interview') {
+    return '#00e5ff';
+  }
+  if (mode === 'meeting') {
+    return '#00ffaa';
+  }
+  return clean(fallback) || '#ffaa00';
+}
+
 module.exports = {
+  calendarEventColor,
   createCalendarStore
 };
