@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listAgentSources: (filters) => ipcRenderer.invoke('list-agent-sources', filters),
     loadFloatingAgentPrefs: () => ipcRenderer.invoke('load-floating-agent-prefs'),
     saveFloatingAgentPrefs: (prefs) => ipcRenderer.invoke('save-floating-agent-prefs', prefs),
-    connectGoogleSync: (payload) => ipcRenderer.invoke('connect-google-sync', payload),
+    connectGoogleSync: () => ipcRenderer.invoke('connect-google-sync'),
     disconnectGoogleSync: () => ipcRenderer.invoke('disconnect-google-sync'),
     getGoogleSyncStatus: () => ipcRenderer.invoke('get-google-sync-status'),
     scanGoogleSync: () => ipcRenderer.invoke('scan-google-sync'),

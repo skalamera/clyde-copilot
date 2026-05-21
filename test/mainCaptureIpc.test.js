@@ -163,6 +163,20 @@ test('main process exposes knowledge base and tier IPC handlers', () => {
   assert.match(source, /ipcMain\.handle\('open-knowledge-file-dialog'/);
 });
 
+test('main process uses an app-owned Google OAuth client ID', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const connectStart = source.indexOf("ipcMain.handle('connect-google-sync'");
+  const connectEnd = source.indexOf("\n  ipcMain.handle('disconnect-google-sync'", connectStart);
+  const connectBlock = source.slice(connectStart, connectEnd);
+
+  assert.match(source, /function getGoogleOAuthClientId\(\)/);
+  assert.match(source, /CLYDE_GOOGLE_OAUTH_CLIENT_ID/);
+  assert.match(source, /GOOGLE_OAUTH_CLIENT_ID/);
+  assert.doesNotMatch(connectBlock, /payload\.clientId/);
+  assert.doesNotMatch(connectBlock, /googleOAuthClientId/);
+  assert.match(connectBlock, /googleClient\.connect\(\{ clientId: getGoogleOAuthClientId\(\) \}\)/);
+});
+
 test('main process archives sessions into the pro knowledge base', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
 

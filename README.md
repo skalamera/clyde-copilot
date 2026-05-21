@@ -112,7 +112,12 @@ Clyde follows a standard Electron multi-process architecture, heavily relying on
    * Start **LM Studio** and load a model (e.g., Llama-3 or Mistral). Start the Local Inference Server on port `1234`.
    * Configure Clyde's settings via the UI to point to `http://localhost:1234/v1/chat/completions`.
 
-4. **Start the Whisper Server:**
+4. **Configure Google Sync (Optional):**
+   * Create one desktop OAuth client in the Google Cloud project that owns Clyde's Gmail/Calendar integration.
+   * Set `CLYDE_GOOGLE_OAUTH_CLIENT_ID` in `.env` or the app environment. `GOOGLE_OAUTH_CLIENT_ID` is also accepted.
+   * Users connect their own Gmail and Calendar accounts from Settings > Sync by clicking `Connect Google`.
+
+5. **Start the Whisper Server:**
    ```bash
    # Starts the local Python FastAPI Whisper server
    npm run whisper
@@ -121,7 +126,7 @@ Clyde follows a standard Electron multi-process architecture, heavily relying on
    npm run whisper:cpu
    ```
 
-5. **Run the App (Development):**
+6. **Run the App (Development):**
    ```bash
    npm start
    ```

@@ -37,7 +37,6 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'pinnedKnowledgeIds: []',
     'googleSyncEnabled: false',
     'Sync',
-    'Google OAuth client ID',
     'SyncReviewPanel',
     'EntityFilesPanel',
     'openEntityFileDialog',
@@ -45,6 +44,10 @@ test('React renderer defines the required live controls and mode surfaces', () =
   ]) {
     assert.match(appSource, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+
+  assert.doesNotMatch(appSource, /Google OAuth client ID/);
+  assert.doesNotMatch(appSource, /googleOAuthClientId/);
+  assert.match(appSource, /connectGoogleSync\?\.\(\)/);
 });
 
 test('home chat uses compact sticky composer and tier image heading', () => {

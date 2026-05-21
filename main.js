@@ -106,6 +106,14 @@ function shouldUseRustAudioEngine(settings = loadSettings()) {
     return (settings.audioEngine || (process.platform === 'win32' ? 'rust' : 'legacy')) === 'rust';
 }
 
+function getGoogleOAuthClientId() {
+    const clientId = String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
+    if (!clientId) {
+        throw new Error('Clyde Google OAuth client ID is not configured.');
+    }
+    return clientId;
+}
+
 function configureElectronStorage() {
     const { sessionDataPath } = resolveElectronStoragePaths(app.getPath('userData'));
 
@@ -145,7 +153,6 @@ function loadSettings() {
         pineconeNamespace: store.get('pineconeNamespace', 'clyde-pro-knowledge'),
         pinnedKnowledgeIds: store.get('pinnedKnowledgeIds', []),
         googleSyncEnabled: store.get('googleSyncEnabled', false),
-        googleOAuthClientId: store.get('googleOAuthClientId', ''),
         googleAccountEmail: store.get('googleAccountEmail', ''),
         googleSyncAutoApprove: store.get('googleSyncAutoApprove', false),
         googleSyncPollMinutes: store.get('googleSyncPollMinutes', 15),
@@ -177,21 +184,23 @@ function loadSettings() {
 function saveSettings(newSettings) {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
+    const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = newSettings || {};
     
-    store.set(newSettings);
-    applyCaptureProtection(newSettings);
+    store.delete('googleOAuthClientId');
+    store.set(settingsToStore);
+    applyCaptureProtection(settingsToStore);
     
     // Update process.env immediately
-    if (newSettings.geminiApiKey) process.env.GEMINI_API_KEY = newSettings.geminiApiKey;
+    if (settingsToStore.geminiApiKey) process.env.GEMINI_API_KEY = settingsToStore.geminiApiKey;
     
-    if ((newSettings.ragEnabled || newSettings.userTier === 'pro') && newSettings.pineconeApiKey) {
-        process.env.PINECONE_API_KEY = newSettings.pineconeApiKey;
+    if ((settingsToStore.ragEnabled || settingsToStore.userTier === 'pro') && settingsToStore.pineconeApiKey) {
+        process.env.PINECONE_API_KEY = settingsToStore.pineconeApiKey;
     } else {
         delete process.env.PINECONE_API_KEY;
     }
     
-    if ((newSettings.ragEnabled || newSettings.userTier === 'pro') && newSettings.pineconeHost) {
-        process.env.PINECONE_HOST = newSettings.pineconeHost;
+    if ((settingsToStore.ragEnabled || settingsToStore.userTier === 'pro') && settingsToStore.pineconeHost) {
+        process.env.PINECONE_HOST = settingsToStore.pineconeHost;
     } else {
         delete process.env.PINECONE_HOST;
     }
@@ -199,7 +208,7 @@ function saveSettings(newSettings) {
     // Re-initialize clients with new settings
     if (meetingAssistant) {
         meetingAssistant = createMeetingAssistant({
-            settings: newSettings,
+            settings: settingsToStore,
             intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
             utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 700),
             maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
@@ -211,21 +220,21 @@ function saveSettings(newSettings) {
             sendStatus: sendAudioStatus,
             sendUpdate: sendAssistantUpdate
         });
-        meetingAssistant.setContext(buildAssistantContext(newSettings));
+        meetingAssistant.setContext(buildAssistantContext(settingsToStore));
     }
 
     if (interviewManager) {
         interviewManager = createInterviewManager({
             appPath: app.getPath('userData'),
             axiosClient: axios,
-            settings: newSettings,
+            settings: settingsToStore,
             onStatus: sendAudioStatus
         });
     }
 
     // Force health recheck
-    checkServiceHealth(newSettings);
-    startGoogleSyncTimer(newSettings);
+    checkServiceHealth(settingsToStore);
+    startGoogleSyncTimer(settingsToStore);
 }
 
 function applyCaptureProtection(settings = {}) {
@@ -962,7 +971,7 @@ async function getGoogleAccessToken(settings = loadSettings()) {
         return tokens.access_token;
     }
     const refreshed = await googleClient.refreshAccessToken({
-        clientId: settings.googleOAuthClientId,
+        clientId: getGoogleOAuthClientId(),
         refreshToken: tokens.refresh_token
     });
     saveGoogleTokens(refreshed);
@@ -1875,19 +1884,17 @@ function createWindow () {
       return next;
   });
 
-  ipcMain.handle('connect-google-sync', async (event, payload = {}) => {
+  ipcMain.handle('connect-google-sync', async () => {
       if (!googleClient) {
           throw new Error('Google sync is not ready.');
       }
       const settings = loadSettings();
-      const clientId = payload.clientId || settings.googleOAuthClientId;
-      const result = await googleClient.connect({ clientId });
+      const result = await googleClient.connect({ clientId: getGoogleOAuthClientId() });
       saveGoogleTokens(result.tokens);
       const nextSettings = {
           ...settings,
-          googleOAuthClientId: clientId,
           googleAccountEmail: result.profile?.email || settings.googleAccountEmail || '',
-          googleSyncEnabled: payload.enabled !== undefined ? Boolean(payload.enabled) : true
+          googleSyncEnabled: true
       };
       saveSettings(nextSettings);
       syncStore?.addAudit({

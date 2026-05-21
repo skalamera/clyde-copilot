@@ -77,7 +77,6 @@ const EMPTY_SETTINGS = {
   pineconeNamespace: 'clyde-pro-knowledge',
   pinnedKnowledgeIds: [],
   googleSyncEnabled: false,
-  googleOAuthClientId: '',
   googleAccountEmail: '',
   googleSyncAutoApprove: false,
   googleSyncPollMinutes: 15,
@@ -6883,10 +6882,7 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
   async function connectGoogle() {
     setSaveStatus('Opening Google sign-in...');
     try {
-      const status = await api?.connectGoogleSync?.({
-        clientId: draft.googleOAuthClientId,
-        enabled: draft.googleSyncEnabled !== false
-      });
+      const status = await api?.connectGoogleSync?.();
       setGoogleStatus(status || null);
       setSaveStatus('Google sync connected.');
       update('googleAccountEmail', status?.accountEmail || '');
@@ -7149,10 +7145,6 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
       {activeTab === 'sync' && (
         <div className="sync-settings">
           <div className="form-grid">
-            <label className="wide-field">
-              Google OAuth client ID
-              <input value={draft.googleOAuthClientId || ''} onChange={(event) => update('googleOAuthClientId', event.target.value)} placeholder="Desktop OAuth client ID" />
-            </label>
             <label className="toggle-row">
               <input type="checkbox" checked={Boolean(draft.googleSyncEnabled)} onChange={(event) => update('googleSyncEnabled', event.target.checked)} />
               Enable periodic Google sync
@@ -7170,7 +7162,7 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
             <strong>{googleStatus?.connected ? `Connected: ${googleStatus.accountEmail || draft.googleAccountEmail || 'Google'}` : 'Google is disconnected'}</strong>
             <p>{googleStatus?.pendingCount || 0} pending sync actions.</p>
             <div className="sync-settings-actions">
-              <button type="button" className="primary-action" onClick={connectGoogle} disabled={!draft.googleOAuthClientId}>Connect Google</button>
+              <button type="button" className="primary-action" onClick={connectGoogle}>Connect Google</button>
               <button type="button" className="ghost" onClick={disconnectGoogle} disabled={!googleStatus?.connected}>Disconnect</button>
               <button type="button" className="ghost" onClick={scanGoogle} disabled={!googleStatus?.connected}>Scan now</button>
             </div>
