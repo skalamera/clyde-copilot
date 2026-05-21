@@ -170,11 +170,15 @@ test('main process uses an app-owned Google OAuth client ID', () => {
   const connectBlock = source.slice(connectStart, connectEnd);
 
   assert.match(source, /function getGoogleOAuthClientId\(\)/);
+  assert.match(source, /function getGoogleOAuthClientSecret\(\)/);
   assert.match(source, /CLYDE_GOOGLE_OAUTH_CLIENT_ID/);
   assert.match(source, /GOOGLE_OAUTH_CLIENT_ID/);
+  assert.match(source, /CLYDE_GOOGLE_OAUTH_CLIENT_SECRET/);
+  assert.match(source, /GOOGLE_OAUTH_CLIENT_SECRET/);
   assert.doesNotMatch(connectBlock, /payload\.clientId/);
   assert.doesNotMatch(connectBlock, /googleOAuthClientId/);
-  assert.match(connectBlock, /googleClient\.connect\(\{ clientId: getGoogleOAuthClientId\(\) \}\)/);
+  assert.match(connectBlock, /clientId: getGoogleOAuthClientId\(\)/);
+  assert.match(connectBlock, /clientSecret: getGoogleOAuthClientSecret\(\)/);
 });
 
 test('main process archives sessions into the pro knowledge base', () => {

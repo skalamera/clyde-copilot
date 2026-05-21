@@ -7,7 +7,8 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/calendar.events'
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile'
 ];
 
 function createGoogleClient(options = {}) {
@@ -15,8 +16,9 @@ function createGoogleClient(options = {}) {
   const openExternal = options.openExternal || (() => Promise.resolve());
   const now = typeof options.now === 'function' ? options.now : () => Date.now();
 
-  async function connect({ clientId, timeoutMs = 120000 } = {}) {
+  async function connect({ clientId, clientSecret, timeoutMs = 120000 } = {}) {
     const cleanClientId = clean(clientId);
+    const cleanClientSecret = clean(clientSecret);
     if (!cleanClientId) {
       throw new Error('Google OAuth client ID is required.');
     }
@@ -40,38 +42,56 @@ function createGoogleClient(options = {}) {
 
       await openExternal(String(url));
       const code = await waitForCode;
-      const tokenResponse = await axiosClient.post(GOOGLE_TOKEN_URL, new URLSearchParams({
-        client_id: cleanClientId,
-        code,
-        code_verifier: verifier,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri
-      }).toString(), {
-        headers: { 'content-type': 'application/x-www-form-urlencoded' }
-      });
+      let tokenResponse;
+      try {
+        tokenResponse = await axiosClient.post(GOOGLE_TOKEN_URL, oauthParams({
+          client_id: cleanClientId,
+          client_secret: cleanClientSecret,
+          code,
+          code_verifier: verifier,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri
+        }).toString(), {
+          headers: { 'content-type': 'application/x-www-form-urlencoded' }
+        });
+      } catch (error) {
+        throw new Error(`Google OAuth token exchange failed: ${describeGoogleError(error)}`);
+      }
 
       const tokens = normalizeTokenResponse(tokenResponse.data, now());
-      const profile = await getProfile(tokens.access_token);
+      let profile;
+      try {
+        profile = await getProfile(tokens.access_token);
+      } catch (error) {
+        throw new Error(`Google profile lookup failed: ${describeGoogleError(error)}`);
+      }
       return { tokens, profile };
     } finally {
       server.close();
     }
   }
 
-  async function refreshAccessToken({ clientId, refreshToken } = {}) {
+  async function refreshAccessToken({ clientId, clientSecret, refreshToken } = {}) {
     const cleanClientId = clean(clientId);
+    const cleanClientSecret = clean(clientSecret);
     const cleanRefreshToken = clean(refreshToken);
     if (!cleanClientId || !cleanRefreshToken) {
       throw new Error('Google OAuth client ID and refresh token are required.');
     }
 
-    const response = await axiosClient.post(GOOGLE_TOKEN_URL, new URLSearchParams({
-      client_id: cleanClientId,
-      refresh_token: cleanRefreshToken,
-      grant_type: 'refresh_token'
-    }).toString(), {
-      headers: { 'content-type': 'application/x-www-form-urlencoded' }
-    });
+    let response;
+    try {
+      response = await axiosClient.post(GOOGLE_TOKEN_URL, oauthParams({
+        client_id: cleanClientId,
+        client_secret: cleanClientSecret,
+        refresh_token: cleanRefreshToken,
+        grant_type: 'refresh_token'
+      }).toString(), {
+        headers: { 'content-type': 'application/x-www-form-urlencoded' }
+      });
+    } catch (error) {
+      throw new Error(`Google OAuth token refresh failed: ${describeGoogleError(error)}`);
+    }
 
     return normalizeTokenResponse({ ...response.data, refresh_token: cleanRefreshToken }, now());
   }
@@ -157,7 +177,7 @@ function createLoopbackServer({ state, timeoutMs }) {
         return;
       }
       res.writeHead(200, { 'content-type': 'text/html' });
-      res.end('<html><body><h1>Clyde is connected to Google.</h1><p>You can close this tab.</p></body></html>');
+      res.end('<html><body><h1>Clyde received the Google authorization.</h1><p>Return to Clyde to finish connecting.</p></body></html>');
       resolveCode(code);
     });
 
@@ -230,6 +250,43 @@ function authHeaders(accessToken) {
   return { Authorization: `Bearer ${accessToken}` };
 }
 
+function oauthParams(params = {}) {
+  const cleanParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    const cleanValue = clean(value);
+    if (cleanValue) {
+      cleanParams.set(key, cleanValue);
+    }
+  }
+  return cleanParams;
+}
+
+function describeGoogleError(error) {
+  const status = error?.response?.status;
+  const data = error?.response?.data;
+  const pieces = [];
+  if (status) {
+    pieces.push(`HTTP ${status}`);
+  }
+  if (data && typeof data === 'object') {
+    if (data.error) {
+      pieces.push(clean(data.error));
+    }
+    if (data.error_description) {
+      pieces.push(clean(data.error_description));
+    }
+    if (data.message) {
+      pieces.push(clean(data.message));
+    }
+  } else if (typeof data === 'string' && data.trim()) {
+    pieces.push(data.trim());
+  }
+  if (!pieces.length && error?.message) {
+    pieces.push(error.message);
+  }
+  return pieces.filter(Boolean).join(': ') || 'Unknown Google API error';
+}
+
 function base64Url(buffer) {
   return Buffer.from(buffer).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
@@ -241,6 +298,8 @@ function clean(value) {
 module.exports = {
   GOOGLE_SCOPES,
   createGoogleClient,
+  describeGoogleError,
   normalizeCalendarEvent,
-  normalizeGmailMessage
+  normalizeGmailMessage,
+  oauthParams
 };

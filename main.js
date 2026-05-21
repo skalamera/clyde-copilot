@@ -114,6 +114,10 @@ function getGoogleOAuthClientId() {
     return clientId;
 }
 
+function getGoogleOAuthClientSecret() {
+    return String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
+}
+
 function configureElectronStorage() {
     const { sessionDataPath } = resolveElectronStoragePaths(app.getPath('userData'));
 
@@ -972,6 +976,7 @@ async function getGoogleAccessToken(settings = loadSettings()) {
     }
     const refreshed = await googleClient.refreshAccessToken({
         clientId: getGoogleOAuthClientId(),
+        clientSecret: getGoogleOAuthClientSecret(),
         refreshToken: tokens.refresh_token
     });
     saveGoogleTokens(refreshed);
@@ -1889,7 +1894,10 @@ function createWindow () {
           throw new Error('Google sync is not ready.');
       }
       const settings = loadSettings();
-      const result = await googleClient.connect({ clientId: getGoogleOAuthClientId() });
+      const result = await googleClient.connect({
+          clientId: getGoogleOAuthClientId(),
+          clientSecret: getGoogleOAuthClientSecret()
+      });
       saveGoogleTokens(result.tokens);
       const nextSettings = {
           ...settings,

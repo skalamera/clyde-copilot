@@ -114,7 +114,10 @@ Clyde follows a standard Electron multi-process architecture, heavily relying on
 
 4. **Configure Google Sync (Optional):**
    * Create one desktop OAuth client in the Google Cloud project that owns Clyde's Gmail/Calendar integration.
+   * Enable the Gmail API and Google Calendar API for that project.
+   * Add the OAuth consent screen scopes `https://www.googleapis.com/auth/gmail.readonly` and `https://www.googleapis.com/auth/calendar.readonly`.
    * Set `CLYDE_GOOGLE_OAUTH_CLIENT_ID` in `.env` or the app environment. `GOOGLE_OAUTH_CLIENT_ID` is also accepted.
+   * If Google generated a desktop client secret, set `CLYDE_GOOGLE_OAUTH_CLIENT_SECRET` as well. `GOOGLE_OAUTH_CLIENT_SECRET` is also accepted.
    * Users connect their own Gmail and Calendar accounts from Settings > Sync by clicking `Connect Google`.
 
 5. **Start the Whisper Server:**
