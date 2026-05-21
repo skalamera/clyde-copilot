@@ -50,6 +50,18 @@ test('React renderer defines the required live controls and mode surfaces', () =
   assert.match(appSource, /connectGoogleSync\?\.\(\)/);
 });
 
+test('settings drawer passes sync audit state into setup fields', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const drawerStart = appSource.indexOf('function SettingsDrawer');
+  const fieldsStart = appSource.indexOf('function SetupFields', drawerStart);
+  const drawerSource = appSource.slice(drawerStart, fieldsStart);
+
+  assert.match(drawerSource, /syncAudit,\s*setSyncAudit/);
+  assert.match(drawerSource, /syncAudit=\{syncAudit\}/);
+  assert.match(drawerSource, /setSyncAudit=\{setSyncAudit\}/);
+  assert.doesNotMatch(drawerSource, /syncAudit=\{syncAudit\}(?!\s*setSyncAudit)/);
+});
+
 test('home chat uses compact sticky composer and tier image heading', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
@@ -58,12 +70,22 @@ test('home chat uses compact sticky composer and tier image heading', () => {
   const agentSource = appSource.slice(homeStart, floatingStart);
 
   assert.match(agentSource, /home-chat-logo/);
-  assert.match(agentSource, /settings\.userTier === 'pro' \? proFullLogoUrl : freeSidebarLogoUrl/);
+  assert.match(appSource, /proSearchLogoUrl = new URL\('\.\.\/\.\.\/clyde_black_goldglow\.svg'/);
+  assert.match(agentSource, /settings\.userTier === 'pro' \? proSearchLogoUrl : freeSidebarLogoUrl/);
+  assert.match(appSource, /settings\?\.userTier === 'pro' \? proBadgeUrl : logoUrl/);
+  assert.match(appSource, /brand-mark-pro/);
+  assert.match(agentSource, /home-view-conversation/);
+  assert.match(agentSource, /home-view-landing/);
+  assert.match(agentSource, /agent-chat-empty-state/);
   assert.match(agentSource, /agent-send-button/);
   assert.match(agentSource, /agent-reset-button/);
   assert.match(agentSource, /messagesEndRef/);
-  assert.match(cssSource, /\.home-chat-shell\s*\{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\)/);
-  assert.match(cssSource, /\.agent-chat-home\s*\{[\s\S]*grid-template-rows: minmax\(0, 1fr\) auto/);
+  assert.match(cssSource, /\.home-chat-shell-landing\s*\{[\s\S]*grid-template-rows: auto auto/);
+  assert.match(cssSource, /\.home-chat-shell-conversation\s*\{[\s\S]*grid-template-rows: minmax\(0, 1fr\) auto/);
+  assert.match(cssSource, /\.agent-chat-home\.agent-chat-empty-state \.agent-chat-messages\s*\{[\s\S]*display: none/);
+  assert.match(cssSource, /\.agent-chat-home \.agent-input-row\s*\{[\s\S]*border-radius: 999px/);
+  assert.match(cssSource, /\.agent-message-list\s*\{/);
+  assert.match(cssSource, /\.agent-source-menu-wrap-home \.agent-source-popover[\s\S]*top: calc\(100% \+ 12px\)/);
   assert.match(cssSource, /\.agent-input-row input\s*\{[\s\S]*min-height: 34px/);
 });
 
@@ -236,6 +258,37 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(cssSource, /\.active-assistant-panel\s*\{[\s\S]*overflow-y: auto/);
   assert.match(cssSource, /\.active-transcript-panel\s*\{[\s\S]*max-height: min\(220px, 32vh\)/);
   assert.match(appSource, /\[\.\.\.transcript\.slice\(-18\)\]\.reverse\(\)/);
+});
+
+test('mock interview view renders with the active interview entity in scope', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const serviceSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'realtimeInterviewService.js'), 'utf8');
+  const componentSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'RealtimeInterview.jsx'), 'utf8');
+
+  assert.match(appSource, /testId: 'mockInterviewNav'/);
+  assert.match(appSource, /const activeInterview = mode === 'interview' \? activeEntity : null/);
+  assert.match(appSource, /workspaceView === 'mock-interview' \? \(\s*<RealtimeInterview api=\{api\} targetEntity=\{activeInterview\} \/>/);
+  assert.match(serviceSource, /https:\/\/api\.openai\.com\/v1\/realtime\/calls/);
+  assert.match(serviceSource, /transcription: \{ model: 'gpt-realtime-whisper' \}/);
+  assert.match(serviceSource, /turn_detection: \{ type: 'semantic_vad' \}/);
+  assert.match(serviceSource, /voice: 'marin'/);
+  assert.doesNotMatch(serviceSource, /gpt-4o-realtime-preview/);
+  assert.doesNotMatch(serviceSource, /\/v1\/realtime\?model=/);
+  assert.match(componentSource, /response\.output_audio_transcript\.delta/);
+  assert.match(componentSource, /conversation\.item\.done/);
+  assert.match(componentSource, /generateMockInterviewAssessment/);
+  assert.match(componentSource, /saveMockInterview/);
+  assert.match(componentSource, /listMockInterviews/);
+  assert.match(componentSource, /deleteMockInterview/);
+  assert.match(componentSource, /deleteSavedMockInterview/);
+  assert.match(componentSource, /mock-library/);
+  assert.match(componentSource, /mock-delete-button/);
+  assert.match(componentSource, /Delete transcript and scorecard/);
+  assert.match(componentSource, /mock-mic-indicator/);
+  assert.match(cssSource, /speaking-you/);
+  assert.match(cssSource, /speaking-interviewer/);
+  assert.match(cssSource, /\.mock-delete-button/);
 });
 
 test('active capture UI uses compact icon buttons and new ghost meters', () => {

@@ -70,7 +70,15 @@ function createAgentActionRegistry(options = {}) {
       } catch (_error) {}
     }
     emitChange({ mode: 'interview', entityId: match.entity.id, reason: 'agent-action' });
-    return { ok: true, changed: true, message: `${updated.name || match.entity.name} updated.`, data: updated };
+    
+    let detail = '';
+    if (patch.outcome && patch.outcome !== match.entity.outcome) {
+        const from = (match.entity.outcome || 'active').charAt(0).toUpperCase() + (match.entity.outcome || 'active').slice(1);
+        const to = patch.outcome.charAt(0).toUpperCase() + patch.outcome.slice(1);
+        detail = ` - ${from} to ${to}`;
+    }
+    
+    return { ok: true, changed: true, message: `${updated.name || match.entity.name} updated${detail}.`, data: updated };
   }
 
   function createOpportunity(payload = {}) {
@@ -170,7 +178,7 @@ function createAgentActionRegistry(options = {}) {
       color: calendarEventColor(associationMode, payload.color)
     });
     emitCalendarChanged({ reason: 'agent-action', eventId: saved.id });
-    return { ok: true, changed: true, message: `${saved.title} saved.`, data: saved };
+    return { ok: true, changed: true, message: `Calendar event saved: ${saved.title} on ${new Date(saved.date).toLocaleString()}`, data: saved };
   }
 
   function deleteCalendarEvent(payload = {}) {

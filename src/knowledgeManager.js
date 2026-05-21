@@ -236,7 +236,7 @@ function createKnowledgeManager(options = {}) {
     } catch (error) {
       return {
         status: 'error',
-        message: error.message
+        message: formatPineconeError(error)
       };
     }
   }
@@ -520,6 +520,36 @@ function parseMetadata(value) {
   }
 }
 
+function formatPineconeError(error) {
+  const baseMessage = clean(error?.message || 'Pinecone request failed');
+  const status = Number(error?.response?.status || 0);
+  const body = error?.response?.data;
+
+  if (!status && body === undefined) {
+    return baseMessage;
+  }
+
+  let bodyText = '';
+  if (typeof body === 'string') {
+    bodyText = body.trim();
+  } else if (body !== undefined) {
+    try {
+      bodyText = JSON.stringify(body);
+    } catch (_error) {
+      bodyText = String(body);
+    }
+  }
+
+  const parts = [baseMessage];
+  if (status) {
+    parts.push(`status=${status}`);
+  }
+  if (bodyText) {
+    parts.push(`body=${bodyText}`);
+  }
+  return parts.join(' | ');
+}
+
 function normalizeMode(mode) {
   return mode === 'meeting' ? 'meeting' : 'interview';
 }
@@ -535,6 +565,7 @@ function clean(value) {
 module.exports = {
   chunkContent,
   createKnowledgeManager,
+  formatPineconeError,
   transcriptKnowledgeId,
   uploadKnowledgeId
 };

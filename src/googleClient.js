@@ -106,7 +106,7 @@ function createGoogleClient(options = {}) {
     };
   }
 
-  async function listGmailMessages({ accessToken, query = 'newer_than:30d', maxResults = 10 } = {}) {
+  async function listGmailMessages({ accessToken, query = '', maxResults = 10 } = {}) {
     const response = await axiosClient.get('https://gmail.googleapis.com/gmail/v1/users/me/messages', {
       headers: authHeaders(accessToken),
       params: { q: query, maxResults }
@@ -116,19 +116,19 @@ function createGoogleClient(options = {}) {
     for (const ref of refs) {
       const detail = await axiosClient.get(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(ref.id)}`, {
         headers: authHeaders(accessToken),
-        params: { format: 'metadata', metadataHeaders: ['Subject', 'From', 'Date'] }
+        params: { format: 'full' }
       });
       messages.push(normalizeGmailMessage(detail.data));
     }
     return messages;
   }
 
-  async function listCalendarEvents({ accessToken, timeMin = new Date().toISOString(), maxResults = 25 } = {}) {
+  async function listCalendarEvents({ accessToken, orderBy = 'startTime', timeMin = new Date().toISOString(), maxResults = 25 } = {}) {
     const response = await axiosClient.get('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
       headers: authHeaders(accessToken),
       params: {
         singleEvents: true,
-        orderBy: 'startTime',
+        orderBy,
         timeMin,
         maxResults
       }
@@ -222,6 +222,8 @@ function normalizeTokenResponse(data = {}, issuedAtMs = Date.now()) {
 function normalizeGmailMessage(message = {}) {
   const headers = Array.isArray(message.payload?.headers) ? message.payload.headers : [];
   const header = (name) => clean(headers.find((item) => clean(item.name).toLowerCase() === name)?.value);
+  const body = extractGmailBody(message.payload);
+
   return {
     id: clean(message.id),
     threadId: clean(message.threadId),
@@ -229,8 +231,39 @@ function normalizeGmailMessage(message = {}) {
     from: header('from'),
     date: header('date'),
     snippet: clean(message.snippet),
+    body: clean(body),
     internalDate: clean(message.internalDate)
   };
+}
+
+function extractGmailBody(payload = {}) {
+  const textParts = [];
+  const htmlParts = [];
+
+  function visit(part = {}) {
+    if (part.body?.data) {
+      const decoded = decodeGmailBody(part.body.data);
+      if (part.mimeType === 'text/plain') {
+        textParts.push(decoded);
+      } else if (part.mimeType === 'text/html') {
+        htmlParts.push(decoded.replace(/<[^>]+>/g, ' '));
+      }
+    }
+    for (const child of Array.isArray(part.parts) ? part.parts : []) {
+      visit(child);
+    }
+  }
+
+  visit(payload);
+  return clean((textParts.length ? textParts : htmlParts).join('\n').replace(/\s+/g, ' '));
+}
+
+function decodeGmailBody(value) {
+  try {
+    return Buffer.from(clean(value).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+  } catch (_error) {
+    return '';
+  }
 }
 
 function normalizeCalendarEvent(event = {}) {
@@ -270,7 +303,11 @@ function describeGoogleError(error) {
   }
   if (data && typeof data === 'object') {
     if (data.error) {
-      pieces.push(clean(data.error));
+      if (typeof data.error === 'object') {
+        pieces.push(clean(data.error.message || JSON.stringify(data.error)));
+      } else {
+        pieces.push(clean(data.error));
+      }
     }
     if (data.error_description) {
       pieces.push(clean(data.error_description));
@@ -299,6 +336,7 @@ module.exports = {
   GOOGLE_SCOPES,
   createGoogleClient,
   describeGoogleError,
+  extractGmailBody,
   normalizeCalendarEvent,
   normalizeGmailMessage,
   oauthParams

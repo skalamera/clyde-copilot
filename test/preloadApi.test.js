@@ -9,6 +9,10 @@ test('preload exposes mode-aware session APIs', () => {
   for (const api of [
     'getSessions',
     'saveSession',
+    'generateMockInterviewAssessment',
+    'saveMockInterview',
+    'listMockInterviews',
+    'deleteMockInterview',
     'deleteSession',
     'deleteSessionEntity',
     'updateSessionEntity',
@@ -77,6 +81,7 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /getTierStatus:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-tier-status'\)/);
   assert.match(source, /listKnowledge:\s*\(filters\)\s*=>\s*ipcRenderer\.invoke\('list-knowledge', filters\)/);
   assert.match(source, /ingestKnowledgeFile:\s*\(filePath\)\s*=>\s*ipcRenderer\.invoke\('ingest-knowledge-file', filePath\)/);
+  assert.match(source, /deleteMockInterview:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\('delete-mock-interview', id\)/);
   assert.match(source, /openKnowledgeFileDialog:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-knowledge-file-dialog'\)/);
   assert.match(source, /openEntityFileDialog:\s*\(context\)\s*=>\s*ipcRenderer\.invoke\('open-entity-file-dialog', context\)/);
   assert.match(source, /connectGoogleSync:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('connect-google-sync'\)/);

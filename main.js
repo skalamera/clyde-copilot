@@ -19,6 +19,7 @@ const { createMeetingAssistant } = require('./src/meetingAssistant');
 const { createInterviewManager } = require('./src/interviewManager');
 const { createSessionManager } = require('./src/sessionManager');
 const { createKnowledgeManager } = require('./src/knowledgeManager');
+const { createMockInterviewManager } = require('./src/mockInterviewManager');
 const { createCalendarStore } = require('./src/calendarStore');
 const { createAgentChat } = require('./src/agentChat');
 const { createAgentActionRegistry } = require('./src/agentActionRegistry');
@@ -64,6 +65,7 @@ let meetingAssistant;
 let interviewManager;
 let sessionManager;
 let knowledgeManager;
+let mockInterviewManager;
 let calendarStore;
 let agentChat;
 let syncStore;
@@ -996,7 +998,7 @@ function getGoogleSyncStatus() {
     };
 }
 
-async function runGoogleSyncScan({ manual = false } = {}) {
+async function runGoogleSyncScan({ manual = false, gmailLimit, calendarLimit } = {}) {
     const settings = loadSettings();
     if (!googleSyncService || !syncStore) {
         throw new Error('Google sync is not ready.');
@@ -1005,18 +1007,23 @@ async function runGoogleSyncScan({ manual = false } = {}) {
         return [];
     }
     const accessToken = await getGoogleAccessToken(settings);
-    const proposals = await googleSyncService.scan({ accessToken, settings });
+    const scanSettings = {
+        ...settings,
+        ...(gmailLimit ? { googleSyncGmailLimit: Number(gmailLimit) } : {}),
+        ...(calendarLimit ? { googleSyncCalendarLimit: Number(calendarLimit) } : {})
+    };
+    const proposals = await googleSyncService.scan({ accessToken, settings: scanSettings });
     if (settings.googleSyncAutoApprove) {
         const pending = syncStore.listProposals({ status: 'pending' });
         for (const proposal of pending) {
-            await approveSyncProposal({ proposalId: proposal.id });
+            await approveSyncProposal({ proposalId: proposal.id, autoApproved: true });
         }
     }
     notifyDataChanged({ reason: 'google-sync-scanned' });
     return proposals;
 }
 
-async function approveSyncProposal({ proposalId, completedAction } = {}) {
+async function approveSyncProposal({ proposalId, completedAction, autoApproved = false } = {}) {
     const proposal = syncStore && syncStore.getProposal(proposalId);
     if (!proposal) {
         return { ok: false, changed: false, message: 'Sync proposal not found.' };
@@ -1043,7 +1050,9 @@ async function approveSyncProposal({ proposalId, completedAction } = {}) {
         proposalId: proposal.id,
         source: proposal.source,
         action,
-        result
+        result,
+        autoApproved,
+        read: !autoApproved
     });
     notifyDataChanged({ reason: 'google-sync-proposal-applied' });
     return result;
@@ -1086,6 +1095,26 @@ function startGoogleSyncTimer(settings = loadSettings()) {
             console.warn('Google sync scan failed:', error);
         });
     }, minutes * 60 * 1000);
+}
+
+function startGoogleSyncOnLaunch(settings = loadSettings()) {
+    if (!settings.googleSyncEnabled) {
+        return;
+    }
+    const tokens = getGoogleTokens();
+    if (!tokens?.refresh_token && !tokens?.access_token) {
+        return;
+    }
+    setTimeout(() => {
+        runGoogleSyncScan({ gmailLimit: 50, calendarLimit: 50 }).catch((error) => {
+            syncStore?.addAudit({
+                type: 'sync-scan',
+                status: 'failed',
+                message: error.message
+            });
+            console.warn('Google sync startup scan failed:', error);
+        });
+    }, 1500);
 }
 
 function updateHealth(key, next) {
@@ -1676,6 +1705,13 @@ function createWindow () {
         logger: console
     });
 
+    mockInterviewManager = createMockInterviewManager({
+        appPath: app.getPath('userData'),
+        axiosClient: axios,
+        knowledgeManager,
+        logger: console
+    });
+
     calendarStore = createCalendarStore({
         appPath: app.getPath('userData')
     });
@@ -1693,10 +1729,12 @@ function createWindow () {
         googleClient,
         syncStore,
         sessionManager,
-        calendarStore
+        calendarStore,
+        axiosClient: axios
     });
 
     startGoogleSyncTimer(settings);
+    startGoogleSyncOnLaunch(settings);
 
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
@@ -1845,7 +1883,56 @@ function createWindow () {
   });
 
   ipcMain.handle('get-tier-status', () => {
-      return getTierStatus();
+      const settings = loadSettings();
+      return settings.userTier === 'pro' ? 'pro' : 'free';
+  });
+
+  ipcMain.handle('get-realtime-token', async () => {
+      const settings = loadSettings();
+      const apiKey = settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY || '';
+      const realtimeModel = settings.proRealtimeModel || 'gpt-realtime-2';
+
+      if (!apiKey) {
+          throw new Error('OpenAI API key is missing. Please configure it in settings to use realtime voice agents.');
+      }
+
+      const axios = require('axios');
+      const crypto = require('node:crypto');
+      const safetyIdentifier = crypto
+          .createHash('sha256')
+          .update(settings.googleAccountEmail || 'clyde-local-user')
+          .digest('hex');
+
+      try {
+          const response = await axios.post('https://api.openai.com/v1/realtime/client_secrets', {
+              session: {
+                  type: 'realtime',
+                  model: realtimeModel,
+                  output_modalities: ['audio'],
+                  audio: {
+                      input: {
+                          turn_detection: { type: 'semantic_vad' }
+                      },
+                      output: {
+                          voice: 'marin'
+                      }
+                  }
+              }
+          }, {
+              headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                  'Content-Type': 'application/json',
+                  'OpenAI-Safety-Identifier': safetyIdentifier
+              }
+          });
+          const clientSecret = response.data?.value || response.data?.client_secret?.value;
+          if (!clientSecret) {
+              throw new Error('Realtime client secret response did not include a token.');
+          }
+          return clientSecret;
+      } catch (error) {
+          throw new Error(`Failed to generate realtime token: ${error?.response?.data?.error?.message || error.message}`);
+      }
   });
 
   ipcMain.handle('start-agent-chat', (event, payload = {}) => {
@@ -1957,6 +2044,15 @@ function createWindow () {
       return syncStore ? syncStore.listAudit(limit) : [];
   });
 
+  ipcMain.handle('mark-sync-audit-read', (event, ids = []) => {
+      if (syncStore) {
+          syncStore.markAuditRead(ids);
+          notifyDataChanged({ reason: 'google-sync-audit-read' });
+          return true;
+      }
+      return false;
+  });
+
   ipcMain.handle('list-calendar-events', () => {
       return calendarStore ? calendarStore.listEvents() : [];
   });
@@ -2000,12 +2096,50 @@ function createWindow () {
       return knowledgeManager.ingestFile(filePath, loadSettings());
   });
 
-    ipcMain.handle('upload-knowledge-to-pinecone', async (event, id) => {
+  ipcMain.handle('upload-knowledge-to-pinecone', async (event, id) => {
         if (!knowledgeManager) {
             throw new Error('Knowledge base is not ready.');
         }
 
         return knowledgeManager.uploadToPinecone(id, loadSettings());
+    });
+
+    ipcMain.handle('generate-mock-interview-assessment', async (event, payload = {}) => {
+        if (!mockInterviewManager) {
+            throw new Error('Mock interview manager is not ready.');
+        }
+
+        return mockInterviewManager.generateAssessment(payload || {}, loadSettings());
+    });
+
+    ipcMain.handle('save-mock-interview', async (event, payload = {}) => {
+        if (!mockInterviewManager) {
+            throw new Error('Mock interview manager is not ready.');
+        }
+
+        const saved = await mockInterviewManager.saveMockInterview(payload || {}, loadSettings());
+        notifyDataChanged({
+            mode: 'interview',
+            entityId: saved.opportunity?.id,
+            reason: 'mock-interview-saved'
+        });
+        return saved;
+    });
+
+    ipcMain.handle('list-mock-interviews', () => {
+        return mockInterviewManager ? mockInterviewManager.listMockInterviews() : [];
+    });
+
+    ipcMain.handle('delete-mock-interview', async (event, id) => {
+        if (!mockInterviewManager) {
+            return false;
+        }
+
+        const deleted = await mockInterviewManager.deleteMockInterview(id, loadSettings());
+        if (deleted) {
+            notifyDataChanged({ mode: 'interview', reason: 'mock-interview-deleted' });
+        }
+        return deleted;
     });
 
     ipcMain.handle('delete-knowledge-item', async (event, id) => {

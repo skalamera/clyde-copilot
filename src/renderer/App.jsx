@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RealtimeInterview } from './RealtimeInterview';
 import {
   buildTrendAnalysisSessionSignature,
   getTranscriptRating,
@@ -8,8 +9,8 @@ import {
 const logoUrl = new URL('../../Clyde_title_bar_basic.png', import.meta.url).href;
 const freeSidebarLogoUrl = new URL('../../clyde_free.png', import.meta.url).href;
 const proLogoUrl = new URL('../../clyde_pro.svg', import.meta.url).href;
-const proFullLogoUrl = new URL('../../clyde_pro_full_text_only.svg', import.meta.url).href;
 const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
+const proSearchLogoUrl = new URL('../../clyde_black_goldglow.svg', import.meta.url).href;
 const ghostUrl = new URL('../../clyde_ghost.svg', import.meta.url).href;
 const AGENT_CHAT_CONTEXT_LIMIT = 50;
 
@@ -2393,6 +2394,7 @@ function App() {
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncProposals, setSyncProposals] = useState([]);
+  const [syncAudit, setSyncAudit] = useState([]);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [calendarTargetEntity, setCalendarTargetEntity] = useState(null);
   const [calendarEditEvent, setCalendarEditEvent] = useState(null);
@@ -2430,12 +2432,14 @@ function App() {
 
   const loadSyncState = useCallback(async () => {
     try {
-      const [status, proposals] = await Promise.all([
+      const [status, proposals, audit] = await Promise.all([
         api?.getGoogleSyncStatus?.(),
-        api?.listSyncProposals?.({ status: 'pending' })
+        api?.listSyncProposals?.({ status: 'pending' }),
+        api?.listSyncAuditLog?.(50)
       ]);
       setSyncStatus(status || null);
       setSyncProposals(Array.isArray(proposals) ? proposals : []);
+      setSyncAudit(Array.isArray(audit) ? audit : []);
     } catch (error) {
       setStatus(`Google sync failed: ${error.message}`);
     }
@@ -3218,6 +3222,7 @@ function App() {
     ? (settings.currentCompany || selectedEntity)
     : (entities.find((entity) => entity.name === settings.meetingTitle || entity.id === settings.meetingTitle)?.id || selectedEntity);
   const activeEntity = entities.find((entity) => entity.id === activeEntityId || entity.name === activeEntityId);
+  const activeInterview = mode === 'interview' ? activeEntity : null;
   const activeEntityLabel = activeEntity?.name || activeEntityId || (mode === 'meeting' ? settings.meetingTitle : settings.currentCompany) || '';
   
   async function handleAppMinimizedPointerDown(event) {
@@ -3342,6 +3347,11 @@ function App() {
           }
         }}
         onChangeActiveMeeting={setActiveMeeting}
+        syncAudit={syncAudit}
+        onMarkAuditRead={(ids) => {
+           api?.markSyncAuditRead?.(ids).catch(() => {});
+           setSyncAudit(current => current.map(item => ids.includes(item.id) || ids.length === 0 ? { ...item, read: true } : item));
+        }}
       />
       )}
 
@@ -3389,7 +3399,7 @@ function App() {
           <section className={`workspace-content ${
             (workspaceView === 'timeline' || workspaceView === 'trends')
               ? 'workspace-content-split'
-              : (workspaceView === 'live' ? 'workspace-content-assist' : (workspaceView === 'home' ? 'workspace-content-home' : 'workspace-content-flow'))
+              : (workspaceView === 'live' || workspaceView === 'mock-interview' ? 'workspace-content-assist' : (workspaceView === 'home' ? 'workspace-content-home' : 'workspace-content-flow'))
           }`}>
         {workspaceView === 'home' ? (
           <HomeView
@@ -3477,6 +3487,8 @@ function App() {
               pinnedKnowledgeIds: ids
             }))}
           />
+        ) : workspaceView === 'mock-interview' ? (
+          <RealtimeInterview api={api} targetEntity={activeInterview} />
         ) : (
           <section className="assist-split-layout">
             <div className="assist-top-scroll">
@@ -3498,6 +3510,8 @@ function App() {
                   onValidate={validateServices}
                   serviceChecking={serviceChecking}
                   settings={settings}
+                  syncAudit={syncAudit}
+                  setSyncAudit={setSyncAudit}
                 />
               ) : null}
             </div>
@@ -3545,6 +3559,8 @@ function App() {
             onValidate={validateServices}
             serviceChecking={serviceChecking}
             settings={settings}
+            syncAudit={syncAudit}
+            setSyncAudit={setSyncAudit}
           />
         ) : null}
 
@@ -3684,7 +3700,7 @@ function App() {
 }
 
 function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, onModeChange, onSettings, settings, onToggleCaptureProtection,
-  onMinimizeApp, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
+  onMinimizeApp, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting, syncAudit, onMarkAuditRead }) {
   const isInterview = mode === 'interview';
   const api = window.electronAPI;
   const captureProtectionEnabled = settings.captureProtectionEnabled !== false;
@@ -3695,10 +3711,17 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
     ? ''
     : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
 
+  const unreadAutoApproved = Array.isArray(syncAudit) ? syncAudit.filter(item => item.autoApproved && !item.read) : [];
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
       return (
         <header className="title-bar">
           <div className="title-brand">
-            <img src={settings?.userTier === 'pro' ? proFullLogoUrl : logoUrl} alt="" className="brand-mark" />
+            <img
+              src={settings?.userTier === 'pro' ? proBadgeUrl : logoUrl}
+              alt=""
+              className={`brand-mark ${settings?.userTier === 'pro' ? 'brand-mark-pro' : 'brand-mark-free'}`}
+            />
           </div>
 
       <div className="title-context">
@@ -3772,6 +3795,35 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
         >
           <span className="ghost-emoji-icon" aria-hidden="true">👻</span>
         </button>
+        <button className="icon-button notifications-trigger" type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications" title="Notifications">
+          <NotificationIcon />
+          {unreadAutoApproved.length > 0 && (
+            <span className="notifications-badge">
+              {unreadAutoApproved.length}
+            </span>
+          )}
+        </button>
+        {notificationsOpen && (
+          <div className="notifications-modal">
+            <div className="notifications-modal-head">
+              <strong>Notifications</strong>
+              {unreadAutoApproved.length > 0 && (
+                <button type="button" className="ghost" onClick={() => onMarkAuditRead(unreadAutoApproved.map(a => a.id))}>Dismiss all</button>
+              )}
+            </div>
+            <div className="notifications-modal-list">
+              {unreadAutoApproved.length ? unreadAutoApproved.map((entry) => (
+                <article key={entry.id} className="notifications-modal-item">
+                  <div className="notifications-modal-item-row">
+                     <p>{entry.message || entry.type}</p>
+                     <button type="button" className="ghost notifications-dismiss-button" onClick={() => onMarkAuditRead([entry.id])}>X</button>
+                  </div>
+                  <small>{new Date(entry.createdAt).toLocaleString()}</small>
+                </article>
+              )) : <small>No new notifications.</small>}
+            </div>
+          </div>
+        )}
         <button className="icon-button" type="button" onClick={onSettings} aria-label="Settings" title="Settings">
           <GearIcon />
         </button>
@@ -3790,6 +3842,15 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
         </button>
       </div>
     </header>
+  );
+}
+
+function NotificationIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
   );
 }
 
@@ -3930,16 +3991,20 @@ function SyncReviewPanel({ proposals = [], syncStatus, onApprove, onDismiss, onS
 }
 
 function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete, chatState, setChatState, syncStatus, syncProposals, onApproveSyncProposal, onDismissSyncProposal, onScanGoogleSync }) {
+  const hasConversation = Boolean(
+    (Array.isArray(chatState?.messages) && chatState.messages.length)
+    || chatState?.pendingAction
+  );
+
   return (
-    <section className="home-view">
-      <div className="home-chat-shell">
+    <section className={`home-view ${hasConversation ? 'home-view-conversation' : 'home-view-landing'}`}>
+      <div className={`home-chat-shell ${hasConversation ? 'home-chat-shell-conversation' : 'home-chat-shell-landing'}`}>
         <div className="home-chat-heading">
           <img
             className="home-chat-logo"
-            src={settings.userTier === 'pro' ? proFullLogoUrl : freeSidebarLogoUrl}
+            src={settings.userTier === 'pro' ? proSearchLogoUrl : freeSidebarLogoUrl}
             alt="Clyde"
           />
-          <p>Ask about interviews, meetings, transcripts, events, or next steps.</p>
         </div>
         <AgentChatSurface
           activeEntityId={activeEntityId}
@@ -3972,6 +4037,37 @@ function sourceModeLabel(sourceMode, activeEntityLabel = '') {
     return 'All sources';
   }
   return `Active context${activeLabel}`;
+}
+
+function renderAgentMessageContent(content = '') {
+  const text = String(content || '').trim();
+  if (!text) {
+    return <p></p>;
+  }
+
+  const numberMatches = Array.from(text.matchAll(/(?:^|\s)(\d+)\.\s+/g));
+  if (numberMatches.length >= 2) {
+    const firstIndex = numberMatches[0].index || 0;
+    const intro = text.slice(0, firstIndex).trim();
+    const items = numberMatches.map((match, index) => {
+      const start = (match.index || 0) + match[0].length;
+      const end = index + 1 < numberMatches.length ? numberMatches[index + 1].index : text.length;
+      return text.slice(start, end).trim();
+    }).filter(Boolean);
+
+    return (
+      <>
+        {intro ? <p>{intro}</p> : null}
+        <ol className="agent-message-list">
+          {items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+        </ol>
+      </>
+    );
+  }
+
+  return text.split(/\n{2,}/).map((paragraph, index) => (
+    <p key={`${paragraph}-${index}`}>{paragraph}</p>
+  ));
 }
 
 function AgentSourceMenu({
@@ -4416,11 +4512,11 @@ function AgentChatSurface({
   }
 
   return (
-    <section className={`agent-chat agent-chat-${variant}`}>
+    <section className={`agent-chat agent-chat-${variant} ${messages.length || pendingAction ? 'agent-chat-has-messages' : 'agent-chat-empty-state'}`}>
       <div className="agent-chat-messages" aria-live="polite">
         {messages.length ? messages.map((message, index) => (
           <article className={`agent-message ${message.role || 'assistant'}`} key={`${message.role}-${index}`}>
-            <p>{message.content}</p>
+            {renderAgentMessageContent(message.content)}
             {Array.isArray(message.citations) && message.citations.length ? (
               <div className="agent-citations">
                 {message.citations.map((citation) => (
@@ -4514,12 +4610,6 @@ function AgentChatSurface({
           </div>
         </div>
         <div className="agent-input-row">
-          <input
-            data-testid="homePromptInput"
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={proTier ? 'Ask Clyde anything or request an app action...' : 'Search local knowledge...'}
-          />
           <button
             type="button"
             className="active-icon-btn active-source-button agent-source-trigger"
@@ -4529,6 +4619,12 @@ function AgentChatSurface({
           >
             <SourceStackIcon />
           </button>
+          <input
+            data-testid="homePromptInput"
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder={proTier ? 'Ask Clyde anything or request an app action...' : 'Search local knowledge...'}
+          />
           <button type="submit" className="primary-action agent-send-button" disabled={loading || !prompt.trim()} aria-label="Send" title="Send">
             {loading ? <SpinnerIcon /> : <SendIcon />}
           </button>
@@ -4705,7 +4801,8 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onOpenNextU
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: 'timeline' },
     ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trends', testId: 'trendsNav', icon: 'trends' }] : []),
     ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge' }] : []),
-    { id: 'calendar', eyebrow: 'Schedule', label: 'Calendar', testId: 'calendarNav', icon: 'calendar' }
+    { id: 'calendar', eyebrow: 'Schedule', label: 'Calendar', testId: 'calendarNav', icon: 'calendar' },
+    ...(mode === 'interview' ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'assist' }] : [])
   ];
 
   return (
@@ -5195,14 +5292,14 @@ function StatusStrip({ health, isStreaming, mode, provider, settings = {}, statu
   );
 }
 
-function SetupPanel({ api, mode, onClose, onSave, onValidate, serviceChecking, settings }) {
+function SetupPanel({ api, mode, onClose, onSave, onValidate, serviceChecking, settings, syncAudit, setSyncAudit }) {
   return (
     <section className="setup-panel">
       <div>
         <h2>First-run setup</h2>
         <p>Choose context, check providers, test audio, then start a live session.</p>
       </div>
-      <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} compact />
+      <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} compact />
       <div className="setup-actions">
         <button type="button" onClick={onValidate} disabled={serviceChecking}>
           {serviceChecking ? 'Checking...' : 'Validate services'}
@@ -6735,7 +6832,7 @@ function EvaluationNotes({ mode = 'interview', summary, examples = [] }) {
 }
 
 function SettingsDrawer(props) {
-  const { api, mode, onClose, onSave, onValidate, serviceChecking, settings } = props;
+  const { api, mode, onClose, onSave, onValidate, serviceChecking, settings, syncAudit, setSyncAudit } = props;
 
   return (
     <div className="drawer-backdrop">
@@ -6747,7 +6844,7 @@ function SettingsDrawer(props) {
           </div>
           <button type="button" onClick={onClose}>Close</button>
         </div>
-        <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} />
+        <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} />
         <div className="drawer-actions">
           <button type="button" onClick={onValidate} disabled={serviceChecking}>
             {serviceChecking ? 'Checking...' : 'Validate services'}
@@ -6758,13 +6855,12 @@ function SettingsDrawer(props) {
   );
 }
 
-function SetupFields({ api, compact = false, mode, onSave, settings }) {
+function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, setSyncAudit }) {
   const [draft, setDraft] = useState({ ...settings });
   const [activeTab, setActiveTab] = useState('context');
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
   const [audioDeviceStatus, setAudioDeviceStatus] = useState('');
   const [googleStatus, setGoogleStatus] = useState(null);
-  const [syncAudit, setSyncAudit] = useState([]);
   const [saveStatus, setSaveStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const mountedRef = useRef(true);
@@ -6789,12 +6885,10 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
       return;
     }
     Promise.all([
-      api.getGoogleSyncStatus(),
-      api.listSyncAuditLog?.(50)
-    ]).then(([status, audit]) => {
+      api.getGoogleSyncStatus()
+    ]).then(([status]) => {
       if (mountedRef.current) {
         setGoogleStatus(status || null);
-        setSyncAudit(Array.isArray(audit) ? audit : []);
       }
     }).catch(() => {});
   }, [api]);
@@ -6906,7 +7000,7 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
       const result = await api?.scanGoogleSync?.();
       setGoogleStatus(result?.status || await api?.getGoogleSyncStatus?.());
       const audit = await api?.listSyncAuditLog?.(50);
-      setSyncAudit(Array.isArray(audit) ? audit : []);
+      setSyncAudit?.(Array.isArray(audit) ? audit : []);
       setSaveStatus('Google scan complete.');
     } catch (error) {
       setSaveStatus(`Google scan failed: ${error.message}`);
@@ -7169,13 +7263,15 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
           </div>
           <div className="sync-audit-log">
             <strong>Audit log</strong>
-            {syncAudit.length ? syncAudit.map((entry) => (
-              <article key={entry.id}>
-                <span>{new Date(entry.createdAt).toLocaleString()}</span>
-                <p>{entry.message || entry.type}</p>
-                <small>{entry.status}</small>
-              </article>
-            )) : <small>No sync audit events yet.</small>}
+            <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
+              {syncAudit && syncAudit.length ? syncAudit.map((entry) => (
+                <article key={entry.id}>
+                  <span>{new Date(entry.createdAt).toLocaleString()}</span>
+                  <p>{entry.message || entry.type}</p>
+                  <small>{entry.status}</small>
+                </article>
+              )) : <small>No sync audit events yet.</small>}
+            </div>
           </div>
         </div>
       )}

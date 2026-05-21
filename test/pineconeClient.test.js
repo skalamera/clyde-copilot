@@ -5,6 +5,7 @@ const {
   detectResumeQuestion,
   extractLikelyInterviewQuestion,
   resolveEmbeddingConfig,
+  sanitizePineconeMetadata,
   searchKnowledgeVectors,
   upsertKnowledgeChunks
 } = require('../src/pineconeClient');
@@ -107,6 +108,66 @@ test('upserts knowledge chunks to pinecone with namespace and metadata', async (
   assert.equal(posts[0].data.namespace, 'pro-memory');
   assert.equal(posts[0].data.vectors[0].metadata.knowledgeId, 'upload:research');
   assert.equal(posts[0].data.vectors[0].metadata.text, 'Billing is moving to Lambda.');
+});
+
+test('sanitizes nested Pinecone metadata before vector upsert', async () => {
+  const posts = [];
+  await upsertKnowledgeChunks({
+    knowledgeItem: {
+      id: 'system:calendar-events',
+      filename: 'Calendar events.txt',
+      type: 'system',
+      metadata: {
+        source: 'system',
+        count: 1,
+        pinecone: { status: 'indexed', count: 1 },
+        tags: ['sync', 'calendar'],
+        nested: { ignored: true },
+        emptyList: [],
+        nullable: null
+      }
+    },
+    chunks: ['Calendar event snapshot'],
+    settings: {
+      pineconeApiKey: 'pine-key',
+      pineconeHost: 'https://example-index.pinecone.io',
+      pineconeNamespace: 'pro-memory'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        posts.push({ url, data });
+        return { data: { upsertedCount: data.vectors.length } };
+      }
+    },
+    getEmbeddingFn: async () => [0.1, 0.2, 0.3]
+  });
+
+  const metadata = posts[0].data.vectors[0].metadata;
+  assert.equal(metadata.source, 'Calendar events.txt');
+  assert.equal(metadata.count, 1);
+  assert.deepEqual(metadata.tags, ['sync', 'calendar']);
+  assert.equal(Object.prototype.hasOwnProperty.call(metadata, 'pinecone'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(metadata, 'nested'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(metadata, 'emptyList'), false);
+});
+
+test('sanitizes metadata helper keeps only Pinecone-supported values', () => {
+  assert.deepEqual(
+    sanitizePineconeMetadata({
+      okString: 'value',
+      okNumber: 3,
+      okBoolean: true,
+      list: [1, 'two', false],
+      obj: { a: 1 },
+      nil: null
+    }),
+    {
+      okString: 'value',
+      okNumber: 3,
+      okBoolean: true,
+      list: ['1', 'two', 'false']
+    }
+  );
 });
 
 test('searches pinecone knowledge vectors with namespace and filter', async () => {

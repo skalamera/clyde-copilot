@@ -163,6 +163,37 @@ test('main process exposes knowledge base and tier IPC handlers', () => {
   assert.match(source, /ipcMain\.handle\('open-knowledge-file-dialog'/);
 });
 
+test('main process mints GA Realtime client secrets', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const start = source.indexOf("ipcMain.handle('get-realtime-token'");
+  const end = source.indexOf("\n  ipcMain.handle('start-agent-chat'", start);
+  const block = source.slice(start, end);
+
+  assert.match(block, /https:\/\/api\.openai\.com\/v1\/realtime\/client_secrets/);
+  assert.match(block, /model: realtimeModel/);
+  assert.match(block, /settings\.proRealtimeModel \|\| 'gpt-realtime-2'/);
+  assert.match(block, /output_modalities: \['audio'\]/);
+  assert.match(block, /turn_detection: \{ type: 'semantic_vad' \}/);
+  assert.match(block, /voice: 'marin'/);
+  assert.match(block, /OpenAI-Safety-Identifier/);
+  assert.doesNotMatch(block, /realtime\/sessions/);
+  assert.doesNotMatch(block, /gpt-4o-realtime-preview/);
+});
+
+test('main process exposes mock interview assessment and save handlers', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /createMockInterviewManager/);
+  assert.match(source, /ipcMain\.handle\('generate-mock-interview-assessment'/);
+  assert.match(source, /mockInterviewManager\.generateAssessment/);
+  assert.match(source, /ipcMain\.handle\('save-mock-interview'/);
+  assert.match(source, /mockInterviewManager\.saveMockInterview/);
+  assert.match(source, /ipcMain\.handle\('list-mock-interviews'/);
+  assert.match(source, /ipcMain\.handle\('delete-mock-interview'/);
+  assert.match(source, /mockInterviewManager\.deleteMockInterview\(id, loadSettings\(\)\)/);
+  assert.match(source, /mock-interview-deleted/);
+});
+
 test('main process uses an app-owned Google OAuth client ID', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
   const connectStart = source.indexOf("ipcMain.handle('connect-google-sync'");
@@ -179,6 +210,16 @@ test('main process uses an app-owned Google OAuth client ID', () => {
   assert.doesNotMatch(connectBlock, /googleOAuthClientId/);
   assert.match(connectBlock, /clientId: getGoogleOAuthClientId\(\)/);
   assert.match(connectBlock, /clientSecret: getGoogleOAuthClientSecret\(\)/);
+});
+
+test('main process triggers a one-shot Google sync scan on app launch', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /async function runGoogleSyncScan\(\{ manual = false, gmailLimit, calendarLimit \} = \{\}\)/);
+  assert.match(source, /function startGoogleSyncOnLaunch\(settings = loadSettings\(\)\)/);
+  assert.match(source, /startGoogleSyncTimer\(settings\);\s+startGoogleSyncOnLaunch\(settings\);/);
+  assert.match(source, /runGoogleSyncScan\(\{ gmailLimit: 50, calendarLimit: 50 \}\)/);
+  assert.match(source, /Google sync startup scan failed:/);
 });
 
 test('main process archives sessions into the pro knowledge base', () => {

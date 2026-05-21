@@ -90,11 +90,25 @@ function createSyncStore({ appPath }) {
       source: entry.source || null,
       action: entry.action || null,
       result: entry.result || null,
-      createdAt: clean(entry.createdAt) || now
+      createdAt: clean(entry.createdAt) || now,
+      autoApproved: Boolean(entry.autoApproved),
+      read: entry.read !== undefined ? Boolean(entry.read) : true
     };
     state.audit = [row, ...state.audit].slice(0, 500);
     writeState(state);
     return row;
+  }
+
+  function markAuditRead(ids = []) {
+    const state = readState();
+    state.audit = state.audit.map(entry => {
+       if (ids.includes(entry.id) || ids.length === 0) {
+           return { ...entry, read: true };
+       }
+       return entry;
+    });
+    writeState(state);
+    return true;
   }
 
   function listAudit(limit = 100) {
@@ -143,6 +157,7 @@ function createSyncStore({ appPath }) {
     listAudit,
     listProposals,
     markProposal,
+    markAuditRead,
     setCursor,
     storePath,
     upsertProposal

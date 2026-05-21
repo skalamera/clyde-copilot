@@ -124,6 +124,7 @@ async function upsertKnowledgeChunks({
 
   const embeddingConfig = resolveEmbeddingConfig(settings);
   const vectors = [];
+  const sharedMetadata = sanitizePineconeMetadata(knowledgeItem.metadata || {});
 
   for (let index = 0; index < cleanChunks.length; index += 1) {
     const text = cleanChunks[index];
@@ -139,7 +140,7 @@ async function upsertKnowledgeChunks({
       id: `${knowledgeItem.id}:chunk:${index}`,
       values: vector,
       metadata: {
-        ...(knowledgeItem.metadata || {}),
+        ...sharedMetadata,
         knowledgeId: knowledgeItem.id,
         filename: knowledgeItem.filename || '',
         source: knowledgeItem.filename || knowledgeItem.file_path || 'knowledge',
@@ -211,6 +212,31 @@ async function searchKnowledgeVectors(queryText, settings = {}, options = {}) {
 
 function normalizeHost(host) {
   return String(host || '').replace(/\/+$/, '');
+}
+
+function sanitizePineconeMetadata(metadata = {}) {
+  const result = {};
+  const entries = metadata && typeof metadata === 'object' ? Object.entries(metadata) : [];
+
+  for (const [key, value] of entries) {
+    if (!key) {
+      continue;
+    }
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      result[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      const values = value
+        .map((item) => (item == null ? '' : String(item).trim()))
+        .filter(Boolean);
+      if (values.length) {
+        result[key] = values;
+      }
+    }
+  }
+
+  return result;
 }
 
 async function detectResumeQuestion(transcript) {
@@ -492,14 +518,15 @@ function isLikelyInterviewQuestionText(text) {
     }
   }
 
-  module.exports = {
-    deleteKnowledgeVectors,
-    getEmbedding,
-  searchResumeVectors,
+module.exports = {
+  deleteKnowledgeVectors,
   detectResumeQuestion,
   extractLikelyInterviewQuestion,
+  getEmbedding,
   resolveEmbeddingConfig,
   resolvePineconeConfig,
+  sanitizePineconeMetadata,
   searchKnowledgeVectors,
+  searchResumeVectors,
   upsertKnowledgeChunks
 };

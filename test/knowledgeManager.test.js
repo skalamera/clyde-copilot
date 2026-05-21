@@ -116,3 +116,81 @@ test('knowledge manager stores and filters entity-scoped files', async () => {
   assert.equal(rows[0].metadata.entityName, 'ACME');
   assert.match(rows[0].content, /ACME interview notes/);
 });
+
+test('uploadToPinecone surfaces Pinecone response body when upsert fails', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-knowledge-pinecone-error-'));
+  const txtPath = path.join(tempDir, 'ops.txt');
+  fs.writeFileSync(txtPath, 'Operational notes for incident review.', 'utf8');
+  const manager = createKnowledgeManager({
+    appPath: tempDir,
+    pineconeClient: {
+      upsertKnowledgeChunks: async () => {
+        const error = new Error('Request failed with status code 400');
+        error.response = {
+          status: 400,
+          data: { code: 'BadRequest', message: 'Vector dimension 1536 does not match index dimension 1024' }
+        };
+        throw error;
+      }
+    }
+  });
+
+  test.after(() => {
+    manager.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const item = await manager.ingestFile(txtPath, { userTier: 'pro', ragEnabled: true });
+
+  await assert.rejects(
+    () => manager.uploadToPinecone(item.id, { userTier: 'pro', ragEnabled: true }),
+    /status=400.*dimension 1536 does not match index dimension 1024/i
+  );
+});
+
+test('deleteKnowledgeItem removes Pinecone vectors when indexed metadata exists', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-knowledge-pinecone-delete-'));
+  const deletedVectors = [];
+  const manager = createKnowledgeManager({
+    appPath: tempDir,
+    pineconeClient: {
+      deleteKnowledgeVectors: async (knowledgeId, settings) => {
+        deletedVectors.push({ knowledgeId, settings });
+        return { ok: true };
+      }
+    }
+  });
+
+  test.after(() => {
+    manager.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  manager.upsertKnowledgeItem({
+    id: 'mock-interview:apollo:practice-1',
+    filename: 'mock interview.txt',
+    file_path: '',
+    content: 'Mock interview scorecard and transcript.',
+    type: 'mock-interview',
+    metadata: {
+      pinecone: { status: 'indexed', count: 2 }
+    }
+  });
+
+  const deleted = await manager.deleteKnowledgeItem('mock-interview:apollo:practice-1', {
+    userTier: 'pro',
+    pineconeApiKey: 'pc-key',
+    pineconeHost: 'https://index.example'
+  });
+
+  assert.equal(deleted, true);
+  assert.equal(manager.getKnowledgeItem('mock-interview:apollo:practice-1'), null);
+  assert.deepEqual(deletedVectors, [{
+    knowledgeId: 'mock-interview:apollo:practice-1',
+    settings: {
+      userTier: 'pro',
+      pineconeApiKey: 'pc-key',
+      pineconeHost: 'https://index.example'
+    }
+  }]);
+});
