@@ -5,7 +5,8 @@ import {
   isTrendAnalysisComplete
 } from './trendAnalysisClient.js';
 
-const logoUrl = new URL('../../clyde.svg', import.meta.url).href;
+const logoUrl = new URL('../../Clyde_title_bar_basic.png', import.meta.url).href;
+const freeSidebarLogoUrl = new URL('../../clyde_free.png', import.meta.url).href;
 const proLogoUrl = new URL('../../clyde_pro.svg', import.meta.url).href;
 const proFullLogoUrl = new URL('../../clyde_pro_full_text_only.svg', import.meta.url).href;
 const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
@@ -1341,7 +1342,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
   };
 
   const renderEntityRow = (entity) => (
-    <div key={entity.id} className="opportunity-row opportunity-row-compact">
+    <div key={entity.id} className="opportunity-row">
       <button
         className={entity.id === selectedEntity ? 'active' : ''}
         type="button"
@@ -1359,6 +1360,14 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
           </span>
         </div>
         <span className="opportunity-row-heading">{entity.role || entity.kind}</span>
+      </button>
+      <button
+        className="opportunity-active-toggle"
+        type="button"
+        title="View trend analysis"
+        onClick={() => onSelectEntity(entity.id)}
+      >
+        {entity.id === selectedEntity ? '★' : '☆'}
       </button>
     </div>
   );
@@ -2348,7 +2357,8 @@ function App() {
   const [capturePaused, setCapturePaused] = useState(false);
   const [health, setHealth] = useState(DEFAULT_HEALTH);
   const [liveLevels, setLiveLevels] = useState([]);
-  const [workspaceView, setWorkspaceView] = useState('live');
+  const [workspaceView, setWorkspaceView] = useState('home');
+  const [workspaceNavCollapsed, setWorkspaceNavCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(true);
   const [entities, setEntities] = useState([]);
@@ -2374,17 +2384,27 @@ function App() {
     applyUiOpacityToRoot(settings.uiOpacity);
   }, [settings.uiOpacity]);
 
-  useEffect(() => {
+  const loadCalendarEvents = useCallback(async () => {
     try {
       const stored = localStorage.getItem('clyde-calendar-events');
-      if (stored) {
+      if (stored && api?.importCalendarEvents && !localStorage.getItem('clyde-calendar-events-migrated')) {
         const parsed = JSON.parse(stored);
-        setCalendarEvents(Array.isArray(parsed) ? parsed : []);
+        if (Array.isArray(parsed) && parsed.length) {
+          await api.importCalendarEvents(parsed);
+        }
+        localStorage.setItem('clyde-calendar-events-migrated', 'true');
       }
-    } catch (e) {
-      console.error(e);
+
+      const events = api?.listCalendarEvents ? await api.listCalendarEvents() : [];
+      setCalendarEvents(Array.isArray(events) ? events : []);
+    } catch (error) {
+      setStatus(`Calendar failed: ${error.message}`);
     }
-  }, []);
+  }, [api]);
+
+  useEffect(() => {
+    loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
+  }, [loadCalendarEvents]);
 
   useEffect(() => {
     const handleAddEvent = (e) => {
@@ -2551,6 +2571,17 @@ function App() {
     startCapture();
   }
 
+  function openNextUpcomingEvent() {
+    if (!nextUpcomingEvent) {
+      return;
+    }
+
+    setWorkspaceView('calendar');
+    setCalendarTargetEntity(null);
+    setCalendarEditEvent(nextUpcomingEvent);
+    setCalendarModalOpen(true);
+  }
+
   const reloadSessions = useCallback(async (nextMode = mode, nextEntity = '') => {
     if (!api?.getSessionEntities || !api?.getSessions) {
       return;
@@ -2570,6 +2601,11 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = api?.onSessionDataChanged?.((_event, change = {}) => {
+      if (change?.reason === 'calendar-changed') {
+        loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
+        return;
+      }
+
       if ((change?.mode || 'interview') !== mode) {
         return;
       }
@@ -2583,7 +2619,7 @@ function App() {
         unsubscribe();
       }
     };
-  }, [api, mode, reloadSessions, selectedEntity]);
+  }, [api, loadCalendarEvents, mode, reloadSessions, selectedEntity]);
 
   useEffect(() => {
     let mounted = true;
@@ -2670,25 +2706,24 @@ function App() {
     reloadSessions(mode).catch((error) => setStatus(`Timeline failed: ${error.message}`));
   }, [mode, reloadSessions]);
 
-  const saveCalendarEvent = (event) => {
-    const prev = Array.isArray(calendarEvents) ? calendarEvents : [];
-    const nextEvents = event.id 
-      ? prev.map(e => e.id === event.id ? event : e)
-      : [...prev, { ...event, id: `evt-${Date.now()}` }];
-    setCalendarEvents(nextEvents);
-    localStorage.setItem('clyde-calendar-events', JSON.stringify(nextEvents));
+  const saveCalendarEvent = async (event) => {
+    await api?.saveCalendarEvent?.(event);
+    await loadCalendarEvents();
     setCalendarModalOpen(false);
   };
 
-  const deleteCalendarEvent = (id) => {
-    const prev = Array.isArray(calendarEvents) ? calendarEvents : [];
-    const nextEvents = prev.filter(e => e.id !== id);
-    setCalendarEvents(nextEvents);
-    localStorage.setItem('clyde-calendar-events', JSON.stringify(nextEvents));
+  const deleteCalendarEvent = async (id) => {
+    await api?.deleteCalendarEvent?.(id);
+    await loadCalendarEvents();
     setCalendarModalOpen(false);
   };
 
   async function chooseMode(nextMode) {
+    if (workspaceView === 'trends' && mode === 'interview' && nextMode === 'meeting') {
+      setStatus('Meeting mode is unavailable in Interview trend analysis.');
+      return;
+    }
+
     setMode(nextMode);
     const nextSettings = { ...settings, appMode: nextMode };
     setSettings(nextSettings);
@@ -3095,6 +3130,11 @@ function App() {
   }
 
   const activeCapture = workspaceView === 'live' && captureSessionActive;
+  const activeEntityId = mode === 'interview'
+    ? (settings.currentCompany || selectedEntity)
+    : (entities.find((entity) => entity.name === settings.meetingTitle || entity.id === settings.meetingTitle)?.id || selectedEntity);
+  const activeEntity = entities.find((entity) => entity.id === activeEntityId || entity.name === activeEntityId);
+  const activeEntityLabel = activeEntity?.name || activeEntityId || (mode === 'meeting' ? settings.meetingTitle : settings.currentCompany) || '';
   
   async function handleAppMinimizedPointerDown(event) {
     if (event.button !== 0) {
@@ -3194,6 +3234,7 @@ function App() {
         onStartCapture={startCapture}
         entities={entities}
         mode={mode}
+        workspaceView={workspaceView}
         onModeChange={chooseMode}
         onSettings={() => setSettingsOpen(true)}
         settings={settings}
@@ -3249,17 +3290,35 @@ function App() {
           />
         ) : (
         <>
-        <WorkspaceNav
-            mode={mode}
-            onViewChange={setWorkspaceView}
-            nextUpcomingEvent={nextUpcomingEvent}
-            onStartEvent={startCalendarEvent}
-            view={workspaceView}
-            onStartCapture={startCapture}
-            isProTier={settings.userTier === 'pro'}
-          />
+        <div className={`workspace-shell ${workspaceNavCollapsed ? 'sidebar-collapsed' : ''}`}>
+          <WorkspaceNav
+              mode={mode}
+              onViewChange={setWorkspaceView}
+              nextUpcomingEvent={nextUpcomingEvent}
+              onOpenNextUpcomingEvent={openNextUpcomingEvent}
+              view={workspaceView}
+              isProTier={settings.userTier === 'pro'}
+              collapsed={workspaceNavCollapsed}
+              onToggleCollapsed={() => setWorkspaceNavCollapsed((current) => !current)}
+            />
 
-        {workspaceView === 'timeline' ? (
+          <section className={`workspace-content ${
+            (workspaceView === 'timeline' || workspaceView === 'trends')
+              ? 'workspace-content-split'
+              : (workspaceView === 'live' ? 'workspace-content-assist' : (workspaceView === 'home' ? 'workspace-content-home' : 'workspace-content-flow'))
+          }`}>
+        {workspaceView === 'home' ? (
+          <HomeView
+            activeEntityId={activeEntityId}
+            activeEntityLabel={activeEntityLabel}
+            mode={mode}
+            settings={settings}
+            onActionComplete={() => {
+              reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
+              loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
+            }}
+          />
+        ) : workspaceView === 'timeline' ? (
           <TimelineView
               entities={entities}
               mode={mode}
@@ -3326,41 +3385,61 @@ function App() {
               pinnedKnowledgeIds: ids
             }))}
           />
-        ) : <>
-            <StatusStrip
-              health={health}
-              isStreaming={isStreaming}
-              mode={mode}
-              provider={settings.llmProvider}
-              status={status}
-              
-            />
-
-          {setupOpen ? (
-            <SetupPanel
-              api={api}
-              mode={mode}
-              onClose={() => setSetupOpen(false)}
-              onSave={saveSettings}
-              onValidate={validateServices}
-              serviceChecking={serviceChecking}
-              settings={settings}
-            />
-          ) : null}
-
-          <section className="context-full-width">
-              <ContextPanel
-                onStart={() => startCapture()}
+        ) : (
+          <section className="assist-split-layout">
+            <div className="assist-top-scroll">
+              <StatusStrip
+                health={health}
+                isStreaming={isStreaming}
                 mode={mode}
-                settings={settings}
-                entities={entities}
-                calendarEvents={calendarEvents}
+                provider={settings.llmProvider}
+                status={status}
               />
-            </section>
-        </>}
+
+              {setupOpen ? (
+                <SetupPanel
+                  api={api}
+                  mode={mode}
+                  onClose={() => setSetupOpen(false)}
+                  onSave={saveSettings}
+                  onValidate={validateServices}
+                  serviceChecking={serviceChecking}
+                  settings={settings}
+                />
+              ) : null}
+            </div>
+
+            <div className="assist-bottom-scroll">
+              <section className="context-full-width">
+                <ContextPanel
+                  onStart={() => startCapture()}
+                  mode={mode}
+                  settings={settings}
+                  entities={entities}
+                  calendarEvents={calendarEvents}
+                />
+              </section>
+            </div>
+          </section>
+        )}
+          </section>
+        </div>
         </>
         )}
       </main>
+
+      {!activeCapture && !appWindowMinimized ? (
+        <FloatingClydeAgent
+          activeEntityId={activeEntityId}
+          activeEntityLabel={activeEntityLabel}
+          mode={mode}
+          settings={settings}
+          onActionComplete={() => {
+            reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
+            loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
+          }}
+        />
+      ) : null}
 
       {settingsOpen ? (
           <SettingsDrawer
@@ -3509,7 +3588,7 @@ function App() {
   );
 }
 
-function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, onSettings, settings, onToggleCaptureProtection,
+function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, onModeChange, onSettings, settings, onToggleCaptureProtection,
   onMinimizeApp, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting }) {
   const isInterview = mode === 'interview';
   const api = window.electronAPI;
@@ -3523,27 +3602,9 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
 
       return (
         <header className="title-bar">
-          <div className="main-drag-tab" aria-hidden="true" title="Drag to move window">
-            <span></span>
-            <span></span>
-          </div>
           <div className="title-brand">
             <img src={settings?.userTier === 'pro' ? proFullLogoUrl : logoUrl} alt="" className="brand-mark" />
           </div>
-
-      <div className="title-center">
-        <ModeToggle mode={mode} onChange={onModeChange} />
-        <button
-          className={`capture-protection-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
-          type="button"
-          onClick={onToggleCaptureProtection}
-          aria-label={captureProtectionEnabled ? 'Disable screen capture protection' : 'Enable screen capture protection'}
-          aria-pressed={captureProtectionEnabled}
-          title={captureProtectionEnabled ? 'Screen capture protection enabled' : 'Screen capture protection disabled'}
-        >
-          <span className="ghost-emoji-icon" aria-hidden="true">👻</span>
-        </button>
-      </div>
 
       <div className="title-context">
         {!isStreaming && <button className="primary-action" type="button" data-testid="startBtn" onClick={onStartCapture} style={{ padding: '6px 20px', minHeight: '34px', fontSize: '0.9rem' }}>Start</button>}
@@ -3601,7 +3662,21 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, onModeChange, o
         )}
       </div>
 
+      <div className="title-center">
+        <ModeToggle mode={mode} workspaceView={workspaceView} onChange={onModeChange} />
+      </div>
+
       <div className="title-actions title-icons">
+        <button
+          className={`capture-protection-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
+          type="button"
+          onClick={onToggleCaptureProtection}
+          aria-label={captureProtectionEnabled ? 'Disable screen capture protection' : 'Enable screen capture protection'}
+          aria-pressed={captureProtectionEnabled}
+          title={captureProtectionEnabled ? 'Screen capture protection enabled' : 'Screen capture protection disabled'}
+        >
+          <span className="ghost-emoji-icon" aria-hidden="true">👻</span>
+        </button>
         <button className="icon-button" type="button" onClick={onSettings} aria-label="Settings" title="Settings">
           <GearIcon />
         </button>
@@ -3632,21 +3707,500 @@ function GearIcon() {
   );
 }
 
-function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEvent, isProTier = false }) {
+function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete }) {
+  return (
+    <section className="home-view">
+      <div className="home-chat-shell">
+        <div className="home-chat-heading">
+          <h1>Clyde</h1>
+          <p>Ask about interviews, meetings, transcripts, events, or next steps.</p>
+        </div>
+        <AgentChatSurface
+          activeEntityId={activeEntityId}
+          activeEntityLabel={activeEntityLabel}
+          mode={mode}
+          settings={settings}
+          onActionComplete={onActionComplete}
+          variant="home"
+        />
+      </div>
+    </section>
+  );
+}
+
+function sourceModeLabel(sourceMode, activeEntityLabel = '') {
+  const activeLabel = activeEntityLabel ? ` (${activeEntityLabel})` : '';
+  if (sourceMode === 'selected') {
+    return 'Selected sources';
+  }
+  if (sourceMode === 'all') {
+    return 'All sources';
+  }
+  return `Active context${activeLabel}`;
+}
+
+function AgentSourceMenu({
+  activeEntityLabel,
+  proTier,
+  sourceMode,
+  selectedSourceIds,
+  setSourceMode,
+  setSelectedSourceIds,
+  sources,
+  onConfirm
+}) {
+  function toggleSource(sourceId) {
+    setSelectedSourceIds((current) => (
+      current.includes(sourceId)
+        ? current.filter((id) => id !== sourceId)
+        : [...current, sourceId]
+    ));
+  }
+
+  return (
+    <div className="agent-source-popover">
+      <label>
+        <input
+          type="checkbox"
+          checked={sourceMode === 'active-context'}
+          onChange={() => setSourceMode('active-context')}
+        />
+        {sourceModeLabel('active-context', activeEntityLabel)}
+      </label>
+      {proTier ? (
+        <>
+          <label>
+            <input
+              type="checkbox"
+              checked={sourceMode === 'selected'}
+              onChange={() => setSourceMode('selected')}
+            />
+            Selected sources
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={sourceMode === 'all'}
+              onChange={() => setSourceMode('all')}
+            />
+            All sources
+          </label>
+
+          <div className="agent-source-list" data-testid="agentSourceSelector">
+            {sources.length ? sources.map((source) => (
+              <label key={source.id} className="agent-source-item">
+                <input
+                  type="checkbox"
+                  checked={selectedSourceIds.includes(source.id)}
+                  onChange={() => toggleSource(source.id)}
+                />
+                <span>{source.label}</span>
+              </label>
+            )) : (
+              <small className="agent-source-empty">No transcripts found yet.</small>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="agent-source-list" data-testid="agentSourceSelector">
+          <small className="agent-source-empty">Free chat uses the active interview or meeting context.</small>
+        </div>
+      )}
+
+      <button type="button" className="active-source-confirm" onClick={onConfirm}>
+        Confirm sources
+      </button>
+    </div>
+  );
+}
+
+function AgentChatSurface({ activeEntityId = '', activeEntityLabel = '', mode = 'interview', settings = {}, onActionComplete, variant = 'panel' }) {
+  const api = window.electronAPI;
+  const [sessionId, setSessionId] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [prompt, setPrompt] = useState('');
+  const [sources, setSources] = useState([]);
+  const [selectedSourceIds, setSelectedSourceIds] = useState([]);
+  const [sourceMode, setSourceMode] = useState('active-context');
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
+  const proTier = settings.userTier === 'pro';
+
+  const loadSources = useCallback(async (query = '') => {
+    try {
+      const nextSources = await api?.listAgentSources?.({ query, mode, activeEntityId, tier: proTier ? 'pro' : 'free' });
+      setSources(Array.isArray(nextSources) ? nextSources : []);
+    } catch (error) {
+      setStatus(`Sources failed: ${error.message}`);
+    }
+  }, [activeEntityId, api, mode, proTier]);
+
+  useEffect(() => {
+    loadSources('').catch((error) => setStatus(`Sources failed: ${error.message}`));
+  }, [loadSources]);
+
+  useEffect(() => {
+    if (!proTier && sourceMode !== 'active-context') {
+      setSourceMode('active-context');
+      setSelectedSourceIds([]);
+    }
+  }, [proTier, sourceMode]);
+
+  async function ensureSession() {
+    if (sessionId) {
+      return sessionId;
+    }
+    const started = await api?.startAgentChat?.({ mode, activeEntityId });
+    const nextSessionId = started?.sessionId || `chat-${Date.now()}`;
+    setSessionId(nextSessionId);
+    return nextSessionId;
+  }
+
+  async function sendMessage(event) {
+    event?.preventDefault?.();
+    const text = prompt.trim();
+    if (!text || loading) {
+      return;
+    }
+
+    setPrompt('');
+    setLoading(true);
+    setStatus('');
+    setPendingAction(null);
+    setMessages((current) => [...current, { role: 'user', content: text }]);
+
+    try {
+      const nextSessionId = await ensureSession();
+      const response = await api?.sendAgentChatMessage?.({
+        sessionId: nextSessionId,
+        message: text,
+        mode,
+        activeEntityId,
+        selectedSourceIds,
+        sourceMode,
+        tier: proTier ? 'pro' : 'free'
+      });
+      if (response?.sessionId && response.sessionId !== sessionId) {
+        setSessionId(response.sessionId);
+      }
+      if (response?.message) {
+        setMessages((current) => [...current, response.message]);
+      }
+      if (response?.pendingAction) {
+        setPendingAction(response.pendingAction);
+      }
+      await loadSources(text);
+    } catch (error) {
+      setMessages((current) => [...current, { role: 'assistant', content: `Clyde could not answer: ${error.message}`, citations: [] }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirmPendingAction() {
+    if (!pendingAction) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await api?.confirmAgentAction?.({ actionId: pendingAction.id, pendingAction });
+      setMessages((current) => [...current, {
+        role: 'assistant',
+        content: result?.message || (result?.ok ? 'Action completed.' : 'Action could not be completed.'),
+        citations: []
+      }]);
+      if (result?.ok || result?.changed) {
+        onActionComplete?.();
+      }
+      setPendingAction(null);
+    } catch (error) {
+      setStatus(`Action failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function declinePendingAction() {
+    setMessages((current) => [...current, { role: 'assistant', content: 'Action declined.', citations: [] }]);
+    setPendingAction(null);
+  }
+
+  function resetChat() {
+    setSessionId('');
+    setMessages([]);
+    setPendingAction(null);
+    setStatus('');
+  }
+
+  return (
+    <section className={`agent-chat agent-chat-${variant}`}>
+      <div className="agent-chat-messages" aria-live="polite">
+        {messages.length ? messages.map((message, index) => (
+          <article className={`agent-message ${message.role || 'assistant'}`} key={`${message.role}-${index}`}>
+            <p>{message.content}</p>
+            {Array.isArray(message.citations) && message.citations.length ? (
+              <div className="agent-citations">
+                {message.citations.map((citation) => (
+                  <span key={`${citation.sourceId}-${citation.label}`}>{citation.label || citation.sourceId}</span>
+                ))}
+              </div>
+            ) : null}
+          </article>
+        )) : (
+          <div className="agent-chat-empty">
+            <strong>{proTier ? 'Ask Clyde to reason across your memory.' : 'Search your local knowledge.'}</strong>
+            <p>{proTier ? 'Clyde can answer, cite sources, and prepare confirmed in-app actions.' : 'Free tier searches local knowledge only.'}</p>
+          </div>
+        )}
+      </div>
+
+      {pendingAction ? (
+        <div className="agent-action-confirm">
+          <strong>{pendingAction.label}</strong>
+          <p>{pendingAction.summary}</p>
+          <div>
+            <button type="button" className="primary-action" onClick={confirmPendingAction} disabled={loading}>Yes</button>
+            <button type="button" className="ghost" onClick={declinePendingAction} disabled={loading}>No</button>
+          </div>
+        </div>
+      ) : null}
+
+      <form className="agent-chat-form" onSubmit={sendMessage}>
+        <div className={`agent-source-menu-wrap ${variant === 'floating' ? 'agent-source-menu-wrap-floating' : ''}`}>
+          {sourceMenuOpen ? (
+            <AgentSourceMenu
+              activeEntityLabel={activeEntityLabel}
+              proTier={proTier}
+              sourceMode={sourceMode}
+              selectedSourceIds={selectedSourceIds}
+              setSourceMode={setSourceMode}
+              setSelectedSourceIds={setSelectedSourceIds}
+              sources={sources}
+              onConfirm={() => setSourceMenuOpen(false)}
+            />
+          ) : null}
+          <div className="agent-source-row">
+            <button
+              type="button"
+              className="active-icon-btn active-source-button agent-source-trigger"
+              onClick={() => setSourceMenuOpen((value) => !value)}
+              aria-label="Sources"
+              title="Sources"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px' }}>
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 12 12 17 22 12"></polyline>
+                <polyline points="2 17 12 22 22 17"></polyline>
+              </svg>
+            </button>
+            <span className="agent-source-mode-label">{sourceModeLabel(sourceMode, activeEntityLabel)}</span>
+            <span className="agent-source-selection-label">
+              {proTier
+                ? (selectedSourceIds.length ? `${selectedSourceIds.length} selected` : 'RAG on by default')
+                : 'Free'}
+            </span>
+          </div>
+        </div>
+        <div className="agent-input-row">
+          <input
+            data-testid="homePromptInput"
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder={proTier ? 'Ask Clyde anything or request an app action...' : 'Search local knowledge...'}
+          />
+          <button type="submit" className="primary-action" disabled={loading || !prompt.trim()}>
+            {loading ? 'Thinking...' : 'Send'}
+          </button>
+          <button type="button" className="ghost" onClick={resetChat}>Reset</button>
+        </div>
+        {status ? <small className="agent-chat-status">{status}</small> : null}
+      </form>
+    </section>
+  );
+}
+
+function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete }) {
+  const api = window.electronAPI;
+  const [prefs, setPrefs] = useState({ enabled: true, x: 24, y: 120, panelOpen: false });
+  const dragRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api?.loadFloatingAgentPrefs?.().then((nextPrefs) => {
+      if (!cancelled && nextPrefs) {
+        setPrefs((current) => clampFloatingPrefs({ ...current, ...nextPrefs }));
+      }
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (event.detail) {
+        setPrefs((current) => clampFloatingPrefs({ ...current, ...event.detail }));
+      }
+    };
+    window.addEventListener('floating-agent-prefs-changed', handler);
+    return () => window.removeEventListener('floating-agent-prefs-changed', handler);
+  }, []);
+
+  function persist(nextPrefs) {
+    const clamped = clampFloatingPrefs(nextPrefs);
+    setPrefs(clamped);
+    api?.saveFloatingAgentPrefs?.(clamped).catch(() => {});
+  }
+
+  function handlePointerDown(event) {
+    event.preventDefault();
+    const start = { x: event.clientX, y: event.clientY, prefs };
+    dragRef.current = start;
+
+    const move = (moveEvent) => {
+      const current = dragRef.current;
+      if (!current) {
+        return;
+      }
+      const nextPrefs = clampFloatingPrefs({
+        ...current.prefs,
+        x: current.prefs.x + moveEvent.clientX - current.x,
+        y: current.prefs.y + moveEvent.clientY - current.y
+      });
+      setPrefs(nextPrefs);
+    };
+
+    const up = (upEvent) => {
+      const current = dragRef.current;
+      dragRef.current = null;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (!current) {
+        return;
+      }
+      const moved = Math.abs(upEvent.clientX - current.x) + Math.abs(upEvent.clientY - current.y);
+      const nextPrefs = clampFloatingPrefs({
+        ...prefs,
+        x: current.prefs.x + upEvent.clientX - current.x,
+        y: current.prefs.y + upEvent.clientY - current.y,
+        panelOpen: moved < 8 ? !prefs.panelOpen : prefs.panelOpen
+      });
+      persist(nextPrefs);
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  if (!prefs.enabled) {
+    return null;
+  }
+
+  return (
+    <div
+      className="floating-clyde-agent"
+      data-testid="floatingClydeAgent"
+      style={{ left: `${prefs.x}px`, top: `${prefs.y}px` }}
+    >
+      <button
+        type="button"
+        className="floating-clyde-button"
+        onPointerDown={handlePointerDown}
+        aria-label="Open Clyde chat"
+        title="Drag or click Clyde"
+      >
+        <img src={settings.userTier === 'pro' ? proLogoUrl : freeSidebarLogoUrl} alt="" />
+      </button>
+      {prefs.panelOpen ? (
+        <div className="floating-clyde-panel">
+          <div className="floating-clyde-head">
+            <strong>Clyde</strong>
+            <div>
+              <button type="button" className="ghost" onClick={() => persist({ ...prefs, enabled: false, panelOpen: false })}>Hide</button>
+              <button type="button" className="ghost" onClick={() => persist({ ...prefs, panelOpen: false })}>Close</button>
+            </div>
+          </div>
+          <AgentChatSurface
+            activeEntityId={activeEntityId}
+            activeEntityLabel={activeEntityLabel}
+            mode={mode}
+            settings={settings}
+            onActionComplete={onActionComplete}
+            variant="floating"
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function clampFloatingPrefs(prefs = {}) {
+  const width = window.innerWidth || 1200;
+  const height = window.innerHeight || 800;
+  return {
+    enabled: prefs.enabled !== false,
+    panelOpen: Boolean(prefs.panelOpen),
+    x: Math.max(8, Math.min(width - 80, Number(prefs.x) || 24)),
+    y: Math.max(58, Math.min(height - 80, Number(prefs.y) || 120))
+  };
+}
+
+function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onOpenNextUpcomingEvent, isProTier = false, collapsed = false, onToggleCollapsed }) {
   const timelineLabel = mode === 'interview' ? 'Timeline' : 'Memory';
   const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
   const nextEventLabel = resolveEventEntityLabel(nextUpcomingEvent);
   const tabs = [
-    { id: 'live', eyebrow: 'Now', label: 'Assist' },
-    { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav' },
-    ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trends', testId: 'trendsNav' }] : []),
-    ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav' }] : []),
-    { id: 'calendar', eyebrow: 'Schedule', label: 'Calendar', testId: 'calendarNav' }
+    { id: 'home', eyebrow: 'Ask', label: 'Home', testId: 'homeNav', icon: 'home' },
+    { id: 'live', eyebrow: 'Now', label: 'Assist', icon: 'assist' },
+    { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: 'timeline' },
+    ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trends', testId: 'trendsNav', icon: 'trends' }] : []),
+    ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge' }] : []),
+    { id: 'calendar', eyebrow: 'Schedule', label: 'Calendar', testId: 'calendarNav', icon: 'calendar' }
   ];
 
   return (
-    <nav className="workspace-nav" aria-label="Workspace view">
+    <nav className={`workspace-nav ${collapsed ? 'collapsed' : 'expanded'}`} aria-label="Workspace view">
       <div className="workspace-nav-inner">
+        {collapsed ? (
+          <div className="workspace-nav-logo-card" aria-label={isProTier ? 'Clyde Pro' : 'Clyde'}>
+            <img src={isProTier ? proLogoUrl : freeSidebarLogoUrl} alt="" />
+          </div>
+        ) : (
+          <section className={nextUpcomingEvent ? 'workspace-nav-event' : 'workspace-nav-event workspace-nav-empty'} aria-label="Next upcoming event">
+            {nextUpcomingEvent ? (
+              <button
+                className="workspace-nav-event-button"
+                type="button"
+                onClick={onOpenNextUpcomingEvent}
+                title="Open next event"
+              >
+                <span>Next up</span>
+                <strong>{nextUpcomingEvent.title || 'Scheduled item'}</strong>
+                {nextEventLabel ? <small>{nextEventLabel}</small> : null}
+                <small>{formatEventDateTime(nextUpcomingEvent.date)}</small>
+              </button>
+            ) : (
+              <div className="workspace-nav-event-copy">
+                <span>Next up</span>
+                <strong>No upcoming events</strong>
+                <small>Calendar is clear</small>
+              </div>
+            )}
+          </section>
+        )}
+
+        <button
+          className="workspace-nav-toggle"
+          type="button"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onClick={onToggleCollapsed}
+        >
+          <SidebarToggleIcon collapsed={collapsed} />
+        </button>
+
         <div className="view-tabs">
           {tabs.map((tab) => (
             <button
@@ -3656,40 +4210,47 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onStartEven
               type="button"
               aria-pressed={view === tab.id}
               onClick={() => onViewChange(tab.id)}
+              title={collapsed ? tab.label : undefined}
             >
-              <span>{tab.eyebrow}</span>
-              <strong>{tab.label}</strong>
+              <span className="view-tab-icon" aria-hidden="true">
+                <WorkspaceNavIcon id={tab.icon} />
+              </span>
+              {collapsed ? null : (
+                <span className="view-tab-copy">
+                  <span>{tab.eyebrow}</span>
+                  <strong>{tab.label}</strong>
+                </span>
+              )}
             </button>
           ))}
         </div>
-
-        <section className={nextUpcomingEvent ? 'workspace-nav-event' : 'workspace-nav-event workspace-nav-empty'} aria-label="Next upcoming event">
-          {nextUpcomingEvent ? (
-            <div className="workspace-nav-event-content">
-              <div className="workspace-nav-event-copy">
-                <span>Next up</span>
-                <strong>{nextUpcomingEvent.title || 'Scheduled item'}</strong>
-                {nextEventLabel ? <small>{nextEventLabel}</small> : null}
-                <small>{formatEventDateTime(nextUpcomingEvent.date)}</small>
-              </div>
-              <button
-                className="workspace-nav-start primary-action"
-                type="button"
-                onClick={() => onStartEvent?.(nextUpcomingEvent)}
-              >
-                Start
-              </button>
-            </div>
-          ) : (
-            <>
-              <span>Next up</span>
-              <strong>No upcoming events</strong>
-              <small>Calendar is clear</small>
-            </>
-          )}
-        </section>
       </div>
     </nav>
+  );
+}
+
+function SidebarToggleIcon({ collapsed }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d={collapsed ? 'M10 6l6 6-6 6' : 'M14 6l-6 6 6 6'} />
+    </svg>
+  );
+}
+
+function WorkspaceNavIcon({ id }) {
+  const iconPaths = {
+    home: 'M5 11l7-6 7 6v8h-5v-5h-4v5H5v-8z',
+    assist: 'M12 4l5 3v5c0 3.1-2 5.9-5 8-3-2.1-5-4.9-5-8V7l5-3zm0 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
+    timeline: 'M6 6h12v3H6V6zm0 5h7v3H6v-3zm0 5h12v3H6v-3z',
+    trends: 'M5 16l4-5 3 3 5-6 2 2-7 8-3-3-2 3z',
+    knowledge: 'M12 4l7 4v8l-7 4-7-4V8l7-4zm0 3.1L8 9.4v5.2l4 2.3 4-2.3V9.4l-4-2.3z',
+    calendar: 'M7 4v2M17 4v2M5 9h14M6 6h12a1 1 0 011 1v11a1 1 0 01-1 1H6a1 1 0 01-1-1V7a1 1 0 011-1z'
+  };
+
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d={iconPaths[id] || iconPaths.assist} />
+    </svg>
   );
 }
 
@@ -4002,7 +4563,9 @@ function formatKnowledgeDate(value) {
   return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toLocaleDateString();
 }
 
-function ModeToggle({ mode, onChange }) {
+function ModeToggle({ mode, workspaceView, onChange }) {
+  const meetingDisabled = workspaceView === 'trends' && mode === 'interview';
+
   return (
     <div className="mode-toggle" aria-label="Mode selector">
       <button
@@ -4017,6 +4580,8 @@ function ModeToggle({ mode, onChange }) {
         className={mode === 'meeting' ? 'active' : ''}
         data-testid="mode-meeting"
         type="button"
+        disabled={meetingDisabled}
+        title={meetingDisabled ? 'Meeting mode is unavailable in Interview trend analysis.' : ''}
         onClick={() => onChange('meeting')}
       >
         Meeting
@@ -5685,6 +6250,31 @@ function SetupFields({ api, compact = false, mode, onSave, settings }) {
               placeholder={mode === 'interview' ? 'Paste resume facts, metrics, and projects.' : 'Persistent context Clyde should use across all meetings.'}
             />
           </label>
+          <div className="wide-field floating-agent-settings">
+            <span>Floating Clyde chatbot</span>
+            <div>
+              <button
+                type="button"
+                className="ghost"
+                onClick={async () => {
+                  const prefs = await api?.saveFloatingAgentPrefs?.({ enabled: true, panelOpen: false });
+                  window.dispatchEvent(new CustomEvent('floating-agent-prefs-changed', { detail: prefs }));
+                }}
+              >
+                Show
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={async () => {
+                  const prefs = await api?.saveFloatingAgentPrefs?.({ enabled: false, panelOpen: false });
+                  window.dispatchEvent(new CustomEvent('floating-agent-prefs-changed', { detail: prefs }));
+                }}
+              >
+                Hide
+              </button>
+            </div>
+          </div>
           <div style={{ marginTop: '15px', padding: '10px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--line)' }}>
             <label className="toggle-row" style={{ marginBottom: draft.ragEnabled ? '10px' : '0' }}>
               <input

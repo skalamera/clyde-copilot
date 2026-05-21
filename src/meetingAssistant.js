@@ -1,4 +1,4 @@
-const { detectResumeQuestion, searchResumeVectors } = require('./pineconeClient');
+const { detectResumeQuestion, searchKnowledgeVectors } = require('./pineconeClient');
 const { generateChat } = require('./llmClient');
 const { buildAssistantPrompt, getAssistantSchema, normalizeMode } = require('./assistantPrompts');
 const { createProRealtimeAgent } = require('./proRealtimeAgent');
@@ -170,7 +170,7 @@ function createMeetingAssistant(options = {}) {
         try {
            const lastTurn = recentHistory[recentHistory.length - 1];
            if (lastTurn && hasPinecone && shouldUseRag) {
-             const vectors = await searchResumeVectors(lastTurn.text);
+             const vectors = await searchKnowledgeVectors(lastTurn.text, settings, { topK: 3 });
              if (vectors && vectors.length > 0) {
                ragContext = "Relevant facts from the user's resume and past projects:\n" + vectors.map(v => `- ${v.text}`).join('\n');
              }
@@ -187,7 +187,7 @@ function createMeetingAssistant(options = {}) {
              logger.log(`[Intent] Detected interview-related question in transcript: "${extractedQuestion}"`);
              targetQuestion = extractedQuestion;
              if (hasPinecone && shouldUseRag) {
-                 const vectors = await searchResumeVectors(extractedQuestion);
+                 const vectors = await searchKnowledgeVectors(extractedQuestion, settings, { topK: 3 });
                  if (vectors && vectors.length > 0) {
                    logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
                    ragContext = "Relevant facts from the user's resume and past projects:\n" + 

@@ -19,6 +19,9 @@ const { createMeetingAssistant } = require('./src/meetingAssistant');
 const { createInterviewManager } = require('./src/interviewManager');
 const { createSessionManager } = require('./src/sessionManager');
 const { createKnowledgeManager } = require('./src/knowledgeManager');
+const { createCalendarStore } = require('./src/calendarStore');
+const { createAgentChat } = require('./src/agentChat');
+const { createAgentActionRegistry } = require('./src/agentActionRegistry');
 const { generateChat } = require('./src/llmClient');
 const {
     buildTranscriptCleanupPrompt,
@@ -57,6 +60,8 @@ let meetingAssistant;
 let interviewManager;
 let sessionManager;
 let knowledgeManager;
+let calendarStore;
+let agentChat;
 let audioLevelTimer;
 let liveAudioLevelTimer;
 let liveAudioLevels;
@@ -825,6 +830,34 @@ function sendSessionDataChanged(change = {}) {
     mainWindow.webContents.send('session-data-changed', change);
 }
 
+function getAgentChat() {
+    if (agentChat) {
+        return agentChat;
+    }
+
+    const actionRegistry = createAgentActionRegistry({
+        sessionManager,
+        interviewManager,
+        calendarStore,
+        loadSettings,
+        saveSettings,
+        emitChange: sendSessionDataChanged,
+        emitCalendarChanged: (change) => sendSessionDataChanged({ ...change, reason: change.reason || 'calendar-changed' })
+    });
+
+    agentChat = createAgentChat({
+        settings: loadSettings(),
+        knowledgeManager,
+        sessionManager,
+        calendarStore,
+        actionRegistry,
+        axiosClient: axios,
+        generateChat
+    });
+
+    return agentChat;
+}
+
 function updateHealth(key, next) {
     healthState[key] = {
         ...healthState[key],
@@ -1423,6 +1456,10 @@ function createWindow () {
         logger: console
     });
 
+    calendarStore = createCalendarStore({
+        appPath: app.getPath('userData')
+    });
+
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     if (!store.get('knowledgeBackfillDone_v2')) {
@@ -1568,6 +1605,78 @@ function createWindow () {
 
   ipcMain.handle('get-tier-status', () => {
       return getTierStatus();
+  });
+
+  ipcMain.handle('start-agent-chat', (event, payload = {}) => {
+      return getAgentChat().startChat(payload || {});
+  });
+
+  ipcMain.handle('send-agent-chat-message', async (event, payload = {}) => {
+      const settings = loadSettings();
+      return getAgentChat().sendMessage({
+          ...(payload || {}),
+          settings,
+          tier: settings.userTier === 'pro' ? 'pro' : 'free'
+      });
+  });
+
+  ipcMain.handle('confirm-agent-action', async (event, payload = {}) => {
+      return getAgentChat().confirmAction(payload || {});
+  });
+
+  ipcMain.handle('list-agent-sources', async (event, filters = {}) => {
+      return getAgentChat().listSources(filters || {});
+  });
+
+  ipcMain.handle('load-floating-agent-prefs', () => {
+      const Store = require('electron-store').default || require('electron-store');
+      const store = new Store();
+      return store.get('floatingAgentPrefs', { enabled: true, x: 24, y: 120, panelOpen: false });
+  });
+
+  ipcMain.handle('save-floating-agent-prefs', (event, prefs = {}) => {
+      const Store = require('electron-store').default || require('electron-store');
+      const store = new Store();
+      const current = store.get('floatingAgentPrefs', { enabled: true, x: 24, y: 120, panelOpen: false });
+      const next = {
+          ...current,
+          ...(prefs || {}),
+          enabled: prefs.enabled !== undefined ? Boolean(prefs.enabled) : current.enabled,
+          panelOpen: prefs.panelOpen !== undefined ? Boolean(prefs.panelOpen) : current.panelOpen
+      };
+      store.set('floatingAgentPrefs', next);
+      return next;
+  });
+
+  ipcMain.handle('list-calendar-events', () => {
+      return calendarStore ? calendarStore.listEvents() : [];
+  });
+
+  ipcMain.handle('save-calendar-event', (event, calendarEvent = {}) => {
+      if (!calendarStore) {
+          throw new Error('Calendar is not ready.');
+      }
+      const saved = calendarStore.saveEvent(calendarEvent || {});
+      sendSessionDataChanged({ reason: 'calendar-changed', eventId: saved.id });
+      return saved;
+  });
+
+  ipcMain.handle('delete-calendar-event', (event, id) => {
+      if (!calendarStore) {
+          return false;
+      }
+      const deleted = calendarStore.deleteEvent(id);
+      sendSessionDataChanged({ reason: 'calendar-changed', eventId: id });
+      return deleted;
+  });
+
+  ipcMain.handle('import-calendar-events', (event, events = []) => {
+      if (!calendarStore) {
+          return [];
+      }
+      const imported = calendarStore.importEvents(events);
+      sendSessionDataChanged({ reason: 'calendar-changed' });
+      return imported;
   });
 
   ipcMain.handle('list-knowledge', (event, filters = {}) => {

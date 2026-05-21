@@ -27,7 +27,24 @@ test('preload exposes mode-aware session APIs', () => {
     'moveActiveCaptureWindow',
     'listAudioDevices',
     'setAudioDevices',
-    'onSessionDataChanged'
+    'onSessionDataChanged',
+    'getTierStatus',
+    'listKnowledge',
+    'ingestKnowledgeFile',
+    'deleteKnowledgeItem',
+    'setPinnedKnowledge',
+    'getPinnedKnowledge',
+    'openKnowledgeFileDialog'
+    ,'startAgentChat'
+    ,'sendAgentChatMessage'
+    ,'confirmAgentAction'
+    ,'listAgentSources'
+    ,'loadFloatingAgentPrefs'
+    ,'saveFloatingAgentPrefs'
+    ,'listCalendarEvents'
+    ,'saveCalendarEvent'
+    ,'deleteCalendarEvent'
+    ,'importCalendarEvents'
   ]) {
     assert.match(source, new RegExp(`${api}:`));
   }
@@ -46,6 +63,13 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /moveActiveCaptureWindow:\s*\(bounds\)\s*=>\s*ipcRenderer\.invoke\('move-active-capture-window', bounds\)/);
   assert.match(source, /listAudioDevices:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-audio-devices'\)/);
   assert.match(source, /setAudioDevices:\s*\(devices\)\s*=>\s*ipcRenderer\.invoke\('set-audio-devices', devices\)/);
+  assert.match(source, /getTierStatus:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-tier-status'\)/);
+  assert.match(source, /listKnowledge:\s*\(filters\)\s*=>\s*ipcRenderer\.invoke\('list-knowledge', filters\)/);
+  assert.match(source, /ingestKnowledgeFile:\s*\(filePath\)\s*=>\s*ipcRenderer\.invoke\('ingest-knowledge-file', filePath\)/);
+  assert.match(source, /openKnowledgeFileDialog:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-knowledge-file-dialog'\)/);
+  assert.match(source, /sendAgentChatMessage:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('send-agent-chat-message', payload\)/);
+  assert.match(source, /confirmAgentAction:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('confirm-agent-action', payload\)/);
+  assert.match(source, /listCalendarEvents:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-calendar-events'\)/);
   assert.match(source, /onSessionDataChanged:\s*\(callback\)\s*=>\s*\{/);
   assert.match(source, /ipcRenderer\.on\('session-data-changed', callback\)/);
   assert.match(source, /ipcRenderer\.off\('session-data-changed', callback\)/);

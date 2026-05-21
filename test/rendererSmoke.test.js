@@ -18,6 +18,10 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'data-testid="liveVoiceMeters"',
     'data-testid="aiReplyBtn"',
     'data-testid="sessionTimeline"',
+    'data-testid="homePromptInput"',
+    'data-testid="floatingClydeAgent"',
+    'data-testid="agentSourceSelector"',
+    'Home',
     "testId: 'timelineNav'",
     'aria-label="Settings"',
     'confidence-pill',
@@ -711,18 +715,24 @@ test('workspace nav shows the next upcoming event next to calendar', () => {
   const navSource = appSource.slice(navStart, navEnd);
 
   assert.match(navSource, /nextUpcomingEvent/);
-  assert.match(navSource, /onStartEvent/);
   assert.match(navSource, /workspace-nav-event/);
+  assert.match(navSource, /workspace-nav-event-button/);
   assert.match(navSource, /Next up/);
+  assert.match(navSource, /onOpenNextUpcomingEvent/);
   assert.match(navSource, /resolveEventEntityLabel\(nextUpcomingEvent/);
-    assert.match(navSource, /formatEventDateTime\(nextUpcomingEvent\.date\)/);
-    assert.match(navSource, /className="workspace-nav-start primary-action"/);
-    assert.match(navSource, />\s*Start\s*<\/button>/);
-    assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
-    assert.match(appSource, /async function startCalendarEvent\(event\)/);
-    assert.match(cssSource, /\.workspace-nav-inner/);
+  assert.match(navSource, /formatEventDateTime\(nextUpcomingEvent\.date\)/);
+  assert.equal(navSource.includes('workspace-nav-start'), false);
+  assert.equal(navSource.includes('onStartEvent'), false);
+  assert.match(navSource, /freeSidebarLogoUrl/);
+  assert.match(navSource, /proLogoUrl/);
+  assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
+  assert.match(appSource, /function openNextUpcomingEvent\(\)/);
+  assert.match(appSource, /setWorkspaceView\('calendar'\)/);
+  assert.match(appSource, /setCalendarEditEvent\(nextUpcomingEvent\)/);
+  assert.match(appSource, /setCalendarModalOpen\(true\)/);
+  assert.match(cssSource, /\.workspace-nav-inner/);
   assert.match(cssSource, /\.workspace-nav-event/);
-  assert.match(cssSource, /\.workspace-nav-start/);
+  assert.match(cssSource, /\.workspace-nav-logo-card/);
   assert.match(cssSource, /\.workspace-nav-empty/);
 });
 

@@ -150,6 +150,27 @@ test('main process treats realtime transcription as OpenAI cloud transcription',
   assert.match(source, /Using OpenAI Realtime Whisper/);
 });
 
+test('main process exposes knowledge base and tier IPC handlers', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /createKnowledgeManager/);
+  assert.match(source, /ipcMain\.handle\('get-tier-status'/);
+  assert.match(source, /ipcMain\.handle\('list-knowledge'/);
+  assert.match(source, /ipcMain\.handle\('ingest-knowledge-file'/);
+  assert.match(source, /ipcMain\.handle\('delete-knowledge-item'/);
+  assert.match(source, /ipcMain\.handle\('set-pinned-knowledge'/);
+  assert.match(source, /ipcMain\.handle\('get-pinned-knowledge'/);
+  assert.match(source, /ipcMain\.handle\('open-knowledge-file-dialog'/);
+});
+
+test('main process archives sessions into the pro knowledge base', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /archiveSessionKnowledge/);
+  assert.match(source, /knowledgeManager\.archiveSession/);
+  assert.match(source, /backfillKnowledgeFromSessions/);
+});
+
 test('main process forwards partial transcripts without saving or sending them to assistant context', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
 
