@@ -4,9 +4,8 @@
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
-    "prestart": "node ./scripts/generate-icon.js && node ./scripts/cleanup-electron-cache.js && npm run electron:rebuild",
+    "prestart": "node ./scripts/generate-icon.js && node ./scripts/cleanup-electron-cache.js && electron-builder install-app-deps",
     "start": "npm run renderer:build && node ./scripts/start-electron.js",
-    "electron:rebuild": "electron-rebuild -f -w better-sqlite3",
     "renderer:build": "vite build",
     "renderer:dev": "vite --host 127.0.0.1",
     "audio-engine:build": "node ./scripts/build-audio-engine.js",
@@ -19,7 +18,8 @@
     "test": "node --test",
     "pack": "electron-builder --dir",
     "predist": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [],
   "author": "",
@@ -46,7 +46,6 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.4",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^41.6.1",
     "electron-builder": "^26.8.1",

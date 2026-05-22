@@ -70,13 +70,16 @@ test('home chat uses compact sticky composer and tier image heading', () => {
   const agentSource = appSource.slice(homeStart, floatingStart);
 
   assert.match(agentSource, /home-chat-logo/);
+  assert.match(appSource, /logoUrl = new URL\('\.\.\/\.\.\/clyde_logo_text_white\.svg'/);
+  assert.match(appSource, /proTitleBarLogoUrl = new URL\('\.\.\/\.\.\/clyde_pro-badge\.svg'/);
   assert.match(appSource, /proSearchLogoUrl = new URL\('\.\.\/\.\.\/clyde_black_goldglow\.svg'/);
-  assert.match(agentSource, /settings\.userTier === 'pro' \? proSearchLogoUrl : freeSidebarLogoUrl/);
-  assert.match(appSource, /settings\?\.userTier === 'pro' \? proBadgeUrl : logoUrl/);
+  assert.match(agentSource, /settings\.userTier === 'pro' \? proSearchLogoUrl : logoUrl/);
+  assert.match(appSource, /settings\?\.userTier === 'pro' \? proTitleBarLogoUrl : logoUrl/);
   assert.match(appSource, /brand-mark-pro/);
   assert.match(agentSource, /home-view-conversation/);
   assert.match(agentSource, /home-view-landing/);
   assert.match(agentSource, /agent-chat-empty-state/);
+  assert.match(agentSource, /agent-input-badge/);
   assert.match(agentSource, /agent-send-button/);
   assert.match(agentSource, /agent-reset-button/);
   assert.match(agentSource, /messagesEndRef/);
@@ -84,6 +87,8 @@ test('home chat uses compact sticky composer and tier image heading', () => {
   assert.match(cssSource, /\.home-chat-shell-conversation\s*\{[\s\S]*grid-template-rows: minmax\(0, 1fr\) auto/);
   assert.match(cssSource, /\.agent-chat-home\.agent-chat-empty-state \.agent-chat-messages\s*\{[\s\S]*display: none/);
   assert.match(cssSource, /\.agent-chat-home \.agent-input-row\s*\{[\s\S]*border-radius: 999px/);
+  assert.match(cssSource, /\.agent-input-row\s*\{[\s\S]*grid-template-columns: 40px minmax\(0, 1fr\) 40px 40px 40px/);
+  assert.match(cssSource, /\.agent-input-badge\s*\{/);
   assert.match(cssSource, /\.agent-message-list\s*\{/);
   assert.match(cssSource, /\.agent-source-menu-wrap-home \.agent-source-popover[\s\S]*top: calc\(100% \+ 12px\)/);
   assert.match(cssSource, /\.agent-input-row input\s*\{[\s\S]*min-height: 34px/);
@@ -836,7 +841,7 @@ test('workspace nav shows the next upcoming event next to calendar', () => {
   assert.equal(navSource.includes('workspace-nav-start'), false);
   assert.equal(navSource.includes('onStartEvent'), false);
   assert.match(navSource, /freeSidebarLogoUrl/);
-  assert.match(navSource, /proLogoUrl/);
+  assert.match(navSource, /proSidebarLogoUrl/);
   assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
   assert.match(appSource, /function openNextUpcomingEvent\(\)/);
   assert.match(appSource, /setWorkspaceView\('calendar'\)/);

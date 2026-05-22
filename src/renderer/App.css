@@ -1194,7 +1194,7 @@ textarea:focus {
   display: block;
   height: 74px;
   justify-self: center;
-  max-width: min(360px, 70vw);
+  max-width: min(380px, 70vw);
   object-fit: contain;
   width: auto;
 }
@@ -1560,7 +1560,7 @@ textarea:focus {
 .agent-input-row {
   display: grid;
   gap: 8px;
-  grid-template-columns: 40px minmax(0, 1fr) 40px 40px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px 40px 40px;
 }
 
 .agent-chat-home .agent-input-row {
@@ -1574,6 +1574,33 @@ textarea:focus {
     0 18px 46px rgba(0, 0, 0, 0.36);
   order: 1;
   padding: 8px 10px;
+}
+
+.agent-input-badge {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(154, 202, 255, 0.16);
+  border-radius: 50%;
+  display: grid;
+  height: 40px;
+  justify-items: center;
+  overflow: hidden;
+  width: 40px;
+}
+
+.agent-input-badge img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.agent-input-badge.pro {
+  box-shadow: 0 0 18px rgba(255, 207, 78, 0.28);
+}
+
+.agent-input-badge.free {
+  box-shadow: 0 0 16px rgba(166, 255, 106, 0.18);
 }
 
 .agent-input-row input {
@@ -1936,11 +1963,11 @@ textarea:focus {
 .brand-mark-pro {
   filter: drop-shadow(0 0 14px rgba(255, 207, 78, 0.36));
   height: 34px;
-  max-width: 132px;
+  max-width: 150px;
 }
 
 .brand-mark-free {
-  max-width: 138px;
+  max-width: 174px;
 }
 
 h1,

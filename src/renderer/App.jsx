@@ -6,11 +6,16 @@ import {
   isTrendAnalysisComplete
 } from './trendAnalysisClient.js';
 
-const logoUrl = new URL('../../Clyde_title_bar_basic.png', import.meta.url).href;
-const freeSidebarLogoUrl = new URL('../../clyde_free.png', import.meta.url).href;
+const logoUrl = new URL('../../clyde_logo_text_white.svg', import.meta.url).href;
+const freeSidebarLogoUrl = new URL('../../clyde_free_white_green.svg', import.meta.url).href;
+const freeFloatingLogoUrl = new URL('../../clyde_free.png', import.meta.url).href;
 const proLogoUrl = new URL('../../clyde_pro.svg', import.meta.url).href;
 const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
+const proTitleBarLogoUrl = new URL('../../clyde_pro-badge.svg', import.meta.url).href;
+const proSidebarLogoUrl = new URL('../../clyde_black_white_glow.svg', import.meta.url).href;
 const proSearchLogoUrl = new URL('../../clyde_black_goldglow.svg', import.meta.url).href;
+const freeSearchBadgeUrl = new URL('../../clyde_free_silver_coin.svg', import.meta.url).href;
+const proSearchBadgeUrl = new URL('../../clyde_pro_coin.png', import.meta.url).href;
 const ghostUrl = new URL('../../clyde_ghost.svg', import.meta.url).href;
 const AGENT_CHAT_CONTEXT_LIMIT = 50;
 
@@ -3718,7 +3723,7 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
         <header className="title-bar">
           <div className="title-brand">
             <img
-              src={settings?.userTier === 'pro' ? proBadgeUrl : logoUrl}
+              src={settings?.userTier === 'pro' ? proTitleBarLogoUrl : logoUrl}
               alt=""
               className={`brand-mark ${settings?.userTier === 'pro' ? 'brand-mark-pro' : 'brand-mark-free'}`}
             />
@@ -4002,7 +4007,7 @@ function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionC
         <div className="home-chat-heading">
           <img
             className="home-chat-logo"
-            src={settings.userTier === 'pro' ? proSearchLogoUrl : freeSidebarLogoUrl}
+            src={settings.userTier === 'pro' ? proSearchLogoUrl : logoUrl}
             alt="Clyde"
           />
         </div>
@@ -4267,6 +4272,7 @@ function AgentChatSurface({
   const [status, setStatus] = useState('');
   const messagesEndRef = useRef(null);
   const proTier = settings.userTier === 'pro';
+  const searchBadgeUrl = proTier ? proSearchBadgeUrl : freeSearchBadgeUrl;
   const controlled = chatState && typeof setChatState === 'function';
   const sessionId = controlled ? (chatState.sessionId || '') : localSessionId;
   const messages = controlled ? (chatState.messages || []) : localMessages;
@@ -4610,6 +4616,15 @@ function AgentChatSurface({
           </div>
         </div>
         <div className="agent-input-row">
+          <span className={`agent-input-badge ${proTier ? 'pro' : 'free'}`} aria-hidden="true">
+            <img src={searchBadgeUrl} alt="" />
+          </span>
+          <input
+            data-testid="homePromptInput"
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder={proTier ? 'Ask Clyde anything or request an app action...' : 'Search local knowledge...'}
+          />
           <button
             type="button"
             className="active-icon-btn active-source-button agent-source-trigger"
@@ -4619,12 +4634,6 @@ function AgentChatSurface({
           >
             <SourceStackIcon />
           </button>
-          <input
-            data-testid="homePromptInput"
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={proTier ? 'Ask Clyde anything or request an app action...' : 'Search local knowledge...'}
-          />
           <button type="submit" className="primary-action agent-send-button" disabled={loading || !prompt.trim()} aria-label="Send" title="Send">
             {loading ? <SpinnerIcon /> : <SendIcon />}
           </button>
@@ -4729,7 +4738,7 @@ function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings,
         aria-label="Open Clyde chat"
         title="Drag or click Clyde"
       >
-        <img src={settings.userTier === 'pro' ? proLogoUrl : freeSidebarLogoUrl} alt="" />
+        <img src={settings.userTier === 'pro' ? proLogoUrl : freeFloatingLogoUrl} alt="" />
       </button>
       {prefs.panelOpen ? (
         <div className={`floating-clyde-panel panel-${placement.horizontal} panel-${placement.vertical}`}>
@@ -4810,7 +4819,7 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onOpenNextU
       <div className="workspace-nav-inner">
         {collapsed ? (
           <div className="workspace-nav-logo-card" aria-label={isProTier ? 'Clyde Pro' : 'Clyde'}>
-            <img src={isProTier ? proLogoUrl : freeSidebarLogoUrl} alt="" />
+            <img src={isProTier ? proSidebarLogoUrl : freeSidebarLogoUrl} alt="" />
           </div>
         ) : (
           <section className={nextUpcomingEvent ? 'workspace-nav-event' : 'workspace-nav-event workspace-nav-empty'} aria-label="Next upcoming event">
