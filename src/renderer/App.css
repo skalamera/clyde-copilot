@@ -4625,7 +4625,7 @@ body:has(.app-shell-active) {
 
 .workspace-nav-footer.expanded {
   flex-direction: row;
-  justify-content: flex-start;
+  justify-content: space-between;
 }
 
 .workspace-nav-footer.collapsed {
