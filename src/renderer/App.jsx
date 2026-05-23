@@ -5166,10 +5166,10 @@ function WorkspaceNavIcon({ id, active }) {
       <section className="knowledge-view">
         <div className="knowledge-head">
           <div>
-            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              Knowledge
-              <img src={proBadgeUrl} alt="Pro" style={{ height: '32px', width: 'auto', display: 'inline-block' }} />
-            </h2>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                Knowledge
+                <img src={proGoldBadgeUrl} alt="Pro" style={{ height: '22px', width: 'auto', display: 'inline-block' }} />
+              </h2>
           </div>
           <button className="primary-action" type="button" onClick={openPicker}>Add files</button>
         </div>
