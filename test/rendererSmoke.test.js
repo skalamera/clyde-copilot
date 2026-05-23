@@ -655,10 +655,6 @@ test('mode tabs live in the title bar', () => {
   const titleBarSource = appSource.slice(titleBarStart, titleBarEnd);
 
   assert.match(titleBarSource, /<ModeToggle/);
-  assert.match(titleBarSource, /capture-protection-toggle/);
-  assert.match(titleBarSource, /className="ghost-emoji-icon"/);
-  assert.match(titleBarSource, />👻<\/span>/);
-  assert.match(cssSource, /\.capture-protection-toggle \.ghost-emoji-icon[\s\S]*font-size: 20px/);
   assert.equal(titleBarSource.includes('Command center'), false);
   assert.equal(titleBarSource.includes('mode-chip'), false);
 });

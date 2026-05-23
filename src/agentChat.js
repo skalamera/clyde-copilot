@@ -8,15 +8,16 @@ const {
 
 const MAX_HISTORY_MESSAGES = 8;
 
-function createAgentChat(options = {}) {
-  const settings = options.settings || {};
-  const knowledgeManager = options.knowledgeManager;
-  const sessionManager = options.sessionManager;
-  const calendarStore = options.calendarStore;
-  const actionRegistry = options.actionRegistry;
-  const pineconeClient = options.pineconeClient || defaultPineconeClient;
-  const generateChat = options.generateChat || defaultGenerateChat;
-  const axiosClient = options.axiosClient || axios;
+  function createAgentChat(options = {}) {
+    const settings = options.settings || {};
+    const knowledgeManager = options.knowledgeManager;
+    const sessionManager = options.sessionManager;
+    const calendarStore = options.calendarStore;
+    const actionRegistry = options.actionRegistry;
+    const interviewManager = options.interviewManager;
+    const pineconeClient = options.pineconeClient || defaultPineconeClient;
+    const generateChat = options.generateChat || defaultGenerateChat;
+    const axiosClient = options.axiosClient || axios;
   const histories = new Map();
   const pendingActions = new Map();
 
@@ -125,34 +126,47 @@ function createAgentChat(options = {}) {
     const selectedSourceIds = Array.isArray(payload.selectedSourceIds) ? payload.selectedSourceIds.filter(Boolean) : [];
     const tier = payload.tier || payload.settings?.userTier || settings.userTier || 'free';
     const sources = [];
+    const activeEntityId = clean(payload.activeEntityId || payload.entityId);
+    const activeMode = payload.mode === 'meeting' ? 'meeting' : 'interview';
 
-    if (tier !== 'pro') {
-      return [
-        ...activeSessionSources(payload),
-        ...activeEntityKnowledgeSources(payload)
-      ].filter((source) => source.text);
-    }
-
-    if (payload.sourceMode === 'selected') {
-      for (const id of selectedSourceIds) {
-        const session = findSessionBySourceId(id);
-        if (session) {
-          sources.push(sourceFromSession(session));
-        }
+      if (tier !== 'pro') {
+        return [
+          ...activeSessionSources(payload),
+          ...activeEntityKnowledgeSources(payload),
+          ...resumeSource(payload.settings)
+        ].filter((source) => source.text);
       }
-    } else if (payload.sourceMode === 'all') {
-      sources.push(...allSessionSources());
-      sources.push(...pinnedKnowledgeSources(payload.settings));
-      sources.push(...systemKnowledgeSources());
-    } else {
-      sources.push(...activeSessionSources(payload));
-      sources.push(...activeEntityKnowledgeSources(payload));
-      sources.push(...pinnedKnowledgeSources(payload.settings));
-      sources.push(...systemKnowledgeSources());
-    }
+
+      if (payload.sourceMode === 'selected') {
+        for (const id of selectedSourceIds) {
+          const session = findSessionBySourceId(id);
+          if (session) {
+            sources.push(sourceFromSession(session));
+          }
+        }
+      } else if (payload.sourceMode === 'all') {
+        sources.push(...allSessionSources());
+        sources.push(...pinnedKnowledgeSources(payload.settings));
+        sources.push(...systemKnowledgeSources());
+        sources.push(...resumeSource(payload.settings));
+      } else {
+        sources.push(...activeSessionSources(payload));
+        sources.push(...activeEntityKnowledgeSources(payload));
+        sources.push(...pinnedKnowledgeSources(payload.settings));
+        sources.push(...systemKnowledgeSources());
+        sources.push(...resumeSource(payload.settings));
+      }
 
     if (tier === 'pro' && canSearchPinecone(payload.settings)) {
-      const matches = await pineconeClient.searchKnowledgeVectors(payload.message, payload.settings, { topK: 5 });
+      const pineconeOptions = { topK: 5 };
+      if (payload.sourceMode === 'active-context' && activeEntityId) {
+        pineconeOptions.filter = {
+          mode: { $eq: activeMode },
+          entityId: { $eq: activeEntityId }
+        };
+      }
+
+      const matches = await pineconeClient.searchKnowledgeVectors(payload.message, payload.settings, pineconeOptions);
       for (const match of matches) {
         sources.push({
           id: match.knowledgeId || match.source || `pinecone-${sources.length}`,
@@ -174,18 +188,33 @@ function createAgentChat(options = {}) {
     return sessionManager.getSessions({ mode, entityId: payload.activeEntityId || '' }).map(sourceFromSession);
   }
 
-  function activeEntityKnowledgeSources(payload = {}) {
-    if (!knowledgeManager?.listEntityKnowledge || !payload.activeEntityId) {
-      return [];
+    function activeEntityKnowledgeSources(payload = {}) {
+      const mode = payload.mode === 'meeting' ? 'meeting' : 'interview';
+      const sources = [];
+      
+      if (knowledgeManager?.listEntityKnowledge && payload.activeEntityId) {
+        sources.push(...knowledgeManager.listEntityKnowledge({ mode, entityId: payload.activeEntityId })
+          .map((item) => ({
+            ...sourceFromKnowledge(item),
+            id: `entity-file:${item.id}`,
+            type: 'entity-file'
+          })));
+      }
+
+      if (mode === 'interview' && payload.activeEntityId && interviewManager?.getCompanyJobDescription) {
+        const jd = interviewManager.getCompanyJobDescription(payload.activeEntityId);
+        if (jd) {
+          sources.push({
+            id: `entity-jd:${payload.activeEntityId}`,
+            label: 'Job Description',
+            type: 'entity-file',
+            text: jd
+          });
+        }
+      }
+
+      return sources;
     }
-    const mode = payload.mode === 'meeting' ? 'meeting' : 'interview';
-    return knowledgeManager.listEntityKnowledge({ mode, entityId: payload.activeEntityId })
-      .map((item) => ({
-        ...sourceFromKnowledge(item),
-        id: `entity-file:${item.id}`,
-        type: 'entity-file'
-      }));
-  }
 
   function allSessionSources() {
     if (!sessionManager?.getSessions) {
@@ -212,19 +241,22 @@ function createAgentChat(options = {}) {
     if (!knowledgeManager?.getKnowledgeItem) {
       return [];
     }
-    return [OPPORTUNITIES_STATUS_ID, CALENDAR_EVENTS_ID]
-      .map((id) => knowledgeManager.getKnowledgeItem(id))
-      .filter(Boolean)
-      .map(sourceFromKnowledge);
+    return [
+      knowledgeManager.getKnowledgeItem(CALENDAR_EVENTS_ID),
+      knowledgeManager.getKnowledgeItem(OPPORTUNITIES_STATUS_ID)
+    ].filter(Boolean).map(sourceFromKnowledge);
   }
 
-  function findSessionBySourceId(id) {
-    const parts = clean(id).split(':');
-    if (parts[0] !== 'session' || parts.length < 4 || !sessionManager?.getSessions) {
-      return null;
+  function resumeSource(settings) {
+    if (settings && settings.resumeText) {
+      return [{
+        id: 'user-resume',
+        label: 'User Resume/Background',
+        type: 'system',
+        text: settings.resumeText
+      }];
     }
-    const [, mode, entityId, sessionId] = parts;
-    return sessionManager.getSessions({ mode, entityId }).find((session) => session.id === sessionId) || null;
+    return [];
   }
 
   return {

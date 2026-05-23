@@ -130,6 +130,56 @@ test('pro active context includes pinned files and pinecone matches', async () =
   assert.equal(result.message.content, 'Found Intercom context.');
 });
 
+test('pro active context scopes pinecone matches to the active Apollo entity', async () => {
+  const filters = [];
+  const agent = createAgentChat({
+    settings: {
+      userTier: 'pro',
+      llmProvider: 'local',
+      llmModel: 'model',
+      pineconeApiKey: 'pine',
+      pineconeHost: 'https://index.example'
+    },
+    knowledgeManager: { listKnowledge: () => [] },
+    sessionManager: {
+      getSessions: () => [{
+        id: 'apollo-1',
+        mode: 'interview',
+        entity: { id: 'apollo', name: 'Apollo' },
+        title: 'Apollo Support Operations Manager',
+        transcript: [{ speaker: 'Interviewer', text: 'Apollo onboarding question.' }]
+      }]
+    },
+    pineconeClient: {
+      searchKnowledgeVectors: async (_query, _settings, options) => {
+        filters.push(options.filter || null);
+        return [{
+          knowledgeId: 'apollo-1',
+          source: 'Apollo transcript',
+          text: 'Apollo onboarding context.'
+        }];
+      }
+    },
+    generateChat: async (request) => {
+      assert.match(request.messages[0].content, /Apollo onboarding context/);
+      assert.doesNotMatch(request.messages[0].content, /Sigma/);
+      return JSON.stringify({ message: { content: 'Apollo only.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-active-context',
+    message: 'What matters for Apollo?',
+    tier: 'pro',
+    mode: 'interview',
+    activeEntityId: 'apollo',
+    sourceMode: 'active-context'
+  });
+
+  assert.deepEqual(filters, [{ mode: { $eq: 'interview' }, entityId: { $eq: 'apollo' } }]);
+  assert.equal(result.message.content, 'Apollo only.');
+});
+
 test('active context includes entity-scoped files', async () => {
   const agent = createAgentChat({
     settings: { userTier: 'free', llmProvider: 'local', llmModel: 'model' },
@@ -237,9 +287,9 @@ test('pro active and all sources include system knowledge documents', async () =
     sourceMode: 'active-context'
   });
 
-  assert.equal(active.message.content, 'System docs included.');
-  assert.deepEqual(ids, ['system:opportunities-status', 'system:calendar-events']);
-});
+    assert.equal(active.message.content, 'System docs included.');
+    assert.deepEqual(ids, ['system:calendar-events', 'system:opportunities-status']);
+  });
 
 test('chat preserves short history for follow-up turns', async () => {
   const prompts = [];
