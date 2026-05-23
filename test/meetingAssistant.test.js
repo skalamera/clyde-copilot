@@ -212,14 +212,14 @@ test('reruns intent detection when a final question fragment arrives during an i
 
     const firstRun = assistant.addTranscript({
       speaker: 'System Audio',
-      text: 'If you were to get the job, what would your 30'
+      text: 'Can you tell me about your support career?'
     });
 
     await firstIntentStartedPromise;
 
     const finalFragment = await assistant.addTranscript({
       speaker: 'System Audio',
-      text: 'sixty ninety day plan look like?'
+      text: 'If you were to get the job, what would your 30 sixty ninety day plan look like?'
     });
 
     assert.equal(finalFragment.skipped, 'in-flight');
@@ -334,6 +334,62 @@ test('runs intent detection only after interviewer utterance settles', async () 
       delete require.cache[pineconeClientPath];
     }
   }
+});
+
+test('pro automatic assist waits for a complete interviewer prompt', async () => {
+  const proDigests = [];
+  const updates = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      userTier: 'pro',
+      proAgentEnabled: true,
+      transcriptionApiKey: 'openai-key',
+      llmApiKey: 'openai-key',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'fallback-model'
+    },
+    proAgent: {
+      run: async (payload) => {
+        proDigests.push(payload.digest);
+        return {
+          ok: true,
+          text: '{"answers":[{"question":"Q","bullets":["A"]}]}',
+          cards: [{ type: 'answer', title: 'Answer', question: 'Q', bullets: ['A'] }],
+          toolCalls: 0
+        };
+      }
+    },
+    axiosClient: {
+      post: async () => {
+        throw new Error('free path should not run');
+      }
+    },
+    intervalMs: 0,
+    utteranceSettleMs: 20,
+    incompleteUtteranceSettleMs: 50,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  const firstFragment = await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you describe a challenging incident you managed at Sigma and'
+  });
+
+  assert.equal(firstFragment.skipped, 'waiting-for-utterance');
+  await new Promise((resolve) => setTimeout(resolve, 90));
+  assert.equal(proDigests.length, 0);
+  assert.equal(updates.length, 0);
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'how you approached it?'
+  });
+
+  await waitFor(() => proDigests.length === 1, 3500);
+  assert.match(proDigests[0], /Can you describe a challenging incident you managed at Sigma and/);
+  assert.match(proDigests[0], /how you approached it\?/);
 });
 
 test('keeps settled interviewer questions separate when a new question starts quickly', async () => {
@@ -865,20 +921,33 @@ test('pro tier uses realtime agent and emits agentic memory cards', async () => 
         llmModel: 'fallback-model'
       },
     proAgent: {
-      run: async (payload) => {
-        proCalls++;
+      searchMemoryCards: async (payload) => {
         assert.equal(payload.allowMemorySearch, true);
         return {
-          ok: true,
-          text: '{"memory_cards":[{"fact":"Cody mentioned Lambda.","source":"Interview_with_Cody.txt"}]}',
+          contextText: 'Cody mentioned Lambda. (Source: Interview_with_Cody.txt)',
           cards: [{
             type: 'memory',
             title: 'Memory',
             body: 'Cody mentioned Lambda.',
             detail: 'Interview_with_Cody.txt',
             agentic: true
+          }]
+        };
+      },
+      run: async (payload) => {
+        proCalls++;
+        assert.equal(payload.allowMemorySearch, false);
+        assert.equal(payload.toolsEnabled, false);
+        return {
+          ok: true,
+          text: '{"answers":[{"question":"Q","bullets":["A"]}]}',
+          cards: [{
+            type: 'answer',
+            title: 'Answer',
+            question: 'Q',
+            bullets: ['A']
           }],
-          toolCalls: 1
+          toolCalls: 0
         };
       }
     },
@@ -897,8 +966,11 @@ test('pro tier uses realtime agent and emits agentic memory cards', async () => 
   });
 
   assert.equal(result.ok, true);
-  assert.equal(proCalls, 1);
-  assert.equal(updates[0].cards[0].agentic, true);
+  assert.equal(proCalls, 2);
+  assert.equal(updates[0].cards[0].type, 'answer');
+  assert.equal(updates[1].cards[0].type, 'memory');
+  assert.equal(updates[1].cards[0].agentic, true);
+  assert.equal(result.cards[0].type, 'answer');
 });
 
 test('pro tier falls back to free assistant path when realtime agent fails', async () => {
@@ -949,6 +1021,7 @@ test('pro tier falls back to free assistant path when realtime agent fails', asy
 
 test('pro memory search is throttled across automatic transcript turns', async () => {
   const allowFlags = [];
+  const runFlags = [];
 
   const assistant = createMeetingAssistant({
       settings: {
@@ -962,13 +1035,17 @@ test('pro memory search is throttled across automatic transcript turns', async (
       },
     proMemorySearchIntervalMs: 15000,
     proAgent: {
-      run: async (payload) => {
+      searchMemoryCards: async (payload) => {
         allowFlags.push(payload.allowMemorySearch);
+        return { cards: [], contextText: '' };
+      },
+      run: async (payload) => {
+        runFlags.push(payload.allowMemorySearch);
         return {
           ok: true,
           text: '{"answers":[{"question":"Q","bullets":["A"]}]}',
           cards: [{ type: 'answer', title: 'Answer', question: 'Q', bullets: ['A'] }],
-          toolCalls: payload.allowMemorySearch ? 1 : 0
+          toolCalls: 0
         };
       }
     },
@@ -983,7 +1060,8 @@ test('pro memory search is throttled across automatic transcript turns', async (
   await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you tell me about the My Career Max project?' });
   await assistant.addTranscript({ speaker: 'System Audio', text: 'Can you tell me about your support career?' });
 
-  assert.deepEqual(allowFlags, [true, false]);
+  assert.deepEqual(allowFlags, [true]);
+  assert.deepEqual(runFlags, [false, false]);
 });
 
 test('detects the user speaker label', () => {

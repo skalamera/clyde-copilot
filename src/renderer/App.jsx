@@ -2416,6 +2416,7 @@ function App() {
   const [editEntityTarget, setEditEntityTarget] = useState(null);
   const [editSessionTarget, setEditSessionTarget] = useState(null);
   const [postSessionPromptOpen, setPostSessionPromptOpen] = useState(false);
+  const [preflightRequest, setPreflightRequest] = useState(null);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncProposals, setSyncProposals] = useState([]);
@@ -2516,7 +2517,7 @@ function App() {
       } else {
         await setActiveMeeting(entity.id);
       }
-      startCapture();
+      requestStartCapture({ mode, entityId: entity.id, entityName: entity.name || entity.id, returnView: workspaceView });
     };
     window.addEventListener('start-from-event', handleStartEvent);
 
@@ -2579,6 +2580,16 @@ function App() {
     [assistantCards]
   );
 
+  const responseCards = useMemo(
+    () => filteredCards.filter((card) => card.type !== 'memory'),
+    [filteredCards]
+  );
+
+  const memoryCards = useMemo(
+    () => filteredCards.filter((card) => card.type === 'memory'),
+    [filteredCards]
+  );
+
   const nextUpcomingEvent = useMemo(() => {
     const events = Array.isArray(calendarEvents) ? calendarEvents : [];
     return events
@@ -2592,7 +2603,7 @@ function App() {
 
   async function startCalendarEvent(event) {
     if (!event) {
-      startCapture();
+      requestStartCapture();
       return;
     }
 
@@ -2643,7 +2654,7 @@ function App() {
       }
     }
 
-    startCapture();
+    requestStartCapture({ mode: eventMode, entityId: entity?.id || entityId, entityName: entity?.name || event.title || entityId, returnView: workspaceView });
   }
 
   function openNextUpcomingEvent() {
@@ -2756,10 +2767,10 @@ function App() {
     });
 
     api?.onAudioLevelUpdate?.((_event, update) => {
-      if ((update?.type === 'live-started' || update?.type === 'live-levels') && Array.isArray(update.sources)) {
+      if ((update?.type === 'live-started' || update?.type === 'live-levels' || update?.type === 'started' || update?.type === 'levels') && Array.isArray(update.sources)) {
         setLiveLevels(update.sources);
       }
-      if (update?.type === 'live-stopped') {
+      if (update?.type === 'live-stopped' || update?.type === 'stopped') {
         setLiveLevels([]);
       }
     });
@@ -2775,7 +2786,11 @@ function App() {
       const nextCards = Array.isArray(update?.cards) && update.cards.length
         ? update.cards
         : [{ type: 'note', title: update?.title || 'Live help', body: update?.text || '' }];
-      setAssistantCards((current) => prependAssistantCards(nextCards, current));
+      if (update?.replaceCardId || update?.groupId) {
+        setAssistantCards((current) => prependAssistantCards(nextCards, current, update?.replaceCardId || '', update?.groupId || ''));
+      } else {
+        setAssistantCards((current) => prependAssistantCards(nextCards, current));
+      }
       setAskPending(false);
     });
 
@@ -3264,6 +3279,31 @@ function App() {
   const activeEntity = entities.find((entity) => entity.id === activeEntityId || entity.name === activeEntityId);
   const activeInterview = mode === 'interview' ? activeEntity : null;
   const activeEntityLabel = activeEntity?.name || activeEntityId || (mode === 'meeting' ? settings.meetingTitle : settings.currentCompany) || '';
+
+  function requestStartCapture(overrides = {}) {
+    const nextMode = overrides.mode || mode;
+    const entityId = overrides.entityId || (nextMode === mode ? activeEntityId : '');
+    const entityName = overrides.entityName || (nextMode === mode ? activeEntityLabel : entityId);
+    setPreflightRequest({
+      mode: nextMode,
+      entityId: entityId || '',
+      entityName: entityName || '',
+      returnView: overrides.returnView || workspaceView,
+      openedAt: Date.now()
+    });
+  }
+
+  function cancelPreflight() {
+    if (!captureSessionActive && preflightRequest?.returnView && workspaceView === 'live') {
+      setWorkspaceView(preflightRequest.returnView);
+    }
+    setPreflightRequest(null);
+  }
+
+  function confirmPreflightStart() {
+    setPreflightRequest(null);
+    startCapture();
+  }
   
   async function handleAppMinimizedPointerDown(event) {
     if (event.button !== 0) {
@@ -3360,7 +3400,7 @@ function App() {
       {activeCapture ? null : (
       <TitleBar
         isStreaming={isStreaming}
-        onStartCapture={startCapture}
+        onStartCapture={() => requestStartCapture()}
         entities={entities}
         mode={mode}
         workspaceView={workspaceView}
@@ -3399,7 +3439,8 @@ function App() {
       <main className={`workspace ${workspaceView !== 'live' ? 'workspace-timeline' : ''} ${activeCapture ? 'workspace-active-capture' : ''}`}>
         {activeCapture ? (
           <ActiveCaptureView
-            cards={filteredCards}
+            cards={responseCards}
+            memoryCards={memoryCards}
             isAsking={askPending}
             isPaused={capturePaused}
             mode={mode}
@@ -3570,7 +3611,7 @@ function App() {
             <div className="assist-bottom-scroll">
               <section className="context-full-width">
                 <ContextPanel
-                  onStart={() => startCapture()}
+                  onStart={() => requestStartCapture()}
                   mode={mode}
                   settings={settings}
                   entities={entities}
@@ -3612,6 +3653,16 @@ function App() {
             settings={settings}
             syncAudit={syncAudit}
             setSyncAudit={setSyncAudit}
+          />
+        ) : null}
+
+        {preflightRequest ? (
+          <CallPreflightModal
+            api={api}
+            request={preflightRequest}
+            mode={preflightRequest.mode || mode}
+            onCancel={cancelPreflight}
+            onStart={confirmPreflightStart}
           />
         ) : null}
 
@@ -3742,12 +3793,272 @@ function App() {
                 await setActiveMeeting(id);
               }
               setWorkspaceView('live');
-              startCapture();
+              requestStartCapture({ mode: type === 'meeting' ? 'meeting' : 'interview', entityId: id, entityName: id, returnView: 'calendar' });
             }}
           />
         )}
     </div>
   );
+}
+
+function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, request = {} }) {
+  const [preflight, setPreflight] = useState(null);
+  const [status, setStatus] = useState('Checking connection...');
+  const [testingAudio, setTestingAudio] = useState(false);
+  const [audioLevels, setAudioLevels] = useState([]);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    refreshPreflight();
+    const handleAudioLevels = (_event, update) => {
+      if ((update?.type === 'live-started' || update?.type === 'live-levels' || update?.type === 'started' || update?.type === 'levels') && Array.isArray(update.sources)) {
+        setAudioLevels(update.sources);
+      }
+      if (update?.type === 'live-stopped' || update?.type === 'stopped') {
+        setAudioLevels([]);
+      }
+    };
+    api?.onAudioLevelUpdate?.(handleAudioLevels);
+    return () => {
+      mountedRef.current = false;
+      api?.stopAudioLevelTest?.();
+    };
+  }, [request?.openedAt]);
+
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCancel();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  async function refreshPreflight() {
+    setStatus('Running preflight checks...');
+    try {
+      const next = await api?.getCallPreflightContext?.({
+        mode,
+        entityId: request.entityId || '',
+        entityName: request.entityName || ''
+      });
+      if (!mountedRef.current) return;
+      setPreflight(next || null);
+      setStatus('Ready to start.');
+    } catch (error) {
+      setStatus(`Preflight failed: ${error.message}`);
+    }
+  }
+
+  function handleCancel() {
+    api?.stopAudioLevelTest?.();
+    setTestingAudio(false);
+    onCancel?.();
+  }
+
+  function handleStart() {
+    api?.stopAudioLevelTest?.();
+    setTestingAudio(false);
+    onStart?.();
+  }
+
+  function toggleAudioTest() {
+    if (testingAudio) {
+      api?.stopAudioLevelTest?.();
+      setTestingAudio(false);
+      return;
+    }
+    setAudioLevels([]);
+    api?.startAudioLevelTest?.();
+    setTestingAudio(true);
+  }
+
+  async function ingestFiles(filePaths = []) {
+    const paths = filePaths.filter(Boolean);
+    if (!paths.length) return;
+    setUploadStatus(`Adding ${paths.length} file${paths.length === 1 ? '' : 's'} to active context...`);
+    try {
+      await api?.ingestActiveContextFiles?.({
+        mode,
+        entityId: preflight?.entityId || request.entityId || '',
+        entityName: preflight?.entityName || request.entityName || '',
+        filePaths: paths
+      });
+      setUploadStatus('Active context files added.');
+      await refreshPreflight();
+    } catch (error) {
+      setUploadStatus(`Upload failed: ${error.message}`);
+    }
+  }
+
+  async function openFilePicker() {
+    setUploadStatus('Opening file picker...');
+    try {
+      const rows = await api?.openEntityFileDialog?.({
+        mode,
+        entityId: preflight?.entityId || request.entityId || '',
+        entityName: preflight?.entityName || request.entityName || ''
+      });
+      if (Array.isArray(rows) && rows.length) {
+        setUploadStatus(`${rows.length} file${rows.length === 1 ? '' : 's'} added to active context.`);
+        await refreshPreflight();
+      } else {
+        setUploadStatus('');
+      }
+    } catch (error) {
+      setUploadStatus(`Upload failed: ${error.message}`);
+    }
+  }
+
+  const health = preflight?.health || DEFAULT_HEALTH;
+  const models = preflight?.models || {};
+  const activeContext = preflight?.activeContext || {};
+  const audio = preflight?.audio || {};
+  const callLabel = mode === 'meeting' ? 'meeting' : 'interview';
+
+  return (
+    <div className="modal-backdrop preflight-backdrop" role="presentation">
+      <section className="preflight-modal" role="dialog" aria-modal="true" aria-label={`Start ${callLabel} preflight`}>
+        <header className="preflight-hero">
+          <div>
+            <span className="preflight-eyebrow">Preflight</span>
+            <h2>Start {callLabel}</h2>
+            <p>{preflight?.entityName || request.entityName || (mode === 'meeting' ? 'Meeting session' : 'Interview session')}</p>
+          </div>
+          <div className={`preflight-ready-pill ${preflight ? 'ready' : 'checking'}`}>{status}</div>
+        </header>
+
+        <div className="preflight-grid">
+          <section className="preflight-panel preflight-checks">
+            <div className="preflight-panel-head">
+              <strong>Connection checks</strong>
+              <button type="button" className="ghost" onClick={refreshPreflight}>Recheck</button>
+            </div>
+            <div className="preflight-status-grid">
+              {Object.entries(health).map(([key, item]) => (
+                <article className={`preflight-status-card ${item.state || 'unknown'}`} key={key}>
+                  <span>{item.label || key}</span>
+                  <strong>{item.state || 'unknown'}</strong>
+                  <small>{item.detail || 'No details yet.'}</small>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="preflight-panel">
+            <div className="preflight-panel-head">
+              <strong>Models in use</strong>
+              <span>{models.proAgentEnabled ? 'Pro realtime enabled' : 'Standard assistant'}</span>
+            </div>
+            <div className="preflight-model-list">
+              <PreflightModel label="Transcription" value={`${models.transcriptionProvider || 'local'} · ${models.transcriptionModel || 'Configured model'}`} />
+              <PreflightModel label="Assistant" value={`${models.assistantProvider || 'local'} · ${models.assistantModel || 'Configured model'}`} />
+              <PreflightModel label="Pro realtime" value={models.proAgentEnabled ? models.proRealtimeModel : 'Disabled'} />
+              <PreflightModel label="RAG / Memory" value={models.ragEnabled ? (models.pineconeConfigured ? 'Enabled and configured' : 'Enabled, needs Pinecone') : 'Async memory disabled'} />
+            </div>
+          </section>
+
+          <section className="preflight-panel preflight-audio-panel">
+            <div className="preflight-panel-head">
+              <strong>Audio test</strong>
+              <button type="button" className={testingAudio ? 'ghost active' : 'ghost'} onClick={toggleAudioTest}>{testingAudio ? 'Stop test' : 'Test audio'}</button>
+            </div>
+            <div className="preflight-audio-grid">
+              {(audio.sources || []).map((source) => {
+                const level = audioLevels.find((item) => item.id === source.id || item.label === source.label) || {};
+                const width = Math.max(0, Math.min(100, level.level || 0));
+                return (
+                  <article className={`preflight-audio-source ${level.speaking ? 'speaking' : ''}`} key={source.id || source.label}>
+                    <div>
+                      <strong>{source.label}</strong>
+                      <span>{source.device || 'Default device'}</span>
+                    </div>
+                    <div className="preflight-meter"><span style={{ width: `${width}%` }} /></div>
+                    <small>{testingAudio ? `${Math.round(level.rms || 0)} RMS` : 'Start the audio test to verify signal.'}</small>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="preflight-panel preflight-context-panel">
+            <div className="preflight-panel-head">
+              <strong>Active context</strong>
+              <span>{mode === 'meeting' ? activeContext.meetingTitle || 'No meeting selected' : [activeContext.company, activeContext.role].filter(Boolean).join(' · ') || 'No interview selected'}</span>
+            </div>
+            <div className="preflight-context-list">
+              <PreflightContextRow title="Resume / background" meta={`${activeContext.resume?.chars || 0} chars`} body={activeContext.resume?.excerpt} />
+              <PreflightContextRow title="Job description" meta={`${activeContext.jobDescription?.chars || 0} chars`} body={activeContext.jobDescription?.excerpt} />
+              <PreflightContextRow title="Meeting memory" meta={`${activeContext.meetingMemory?.chars || 0} chars`} body={activeContext.meetingMemory?.excerpt} />
+              <PreflightContextRow title="Pinned knowledge brief" meta={`${activeContext.pinnedKnowledgeBrief?.chars || 0} chars`} body={activeContext.pinnedKnowledgeBrief?.excerpt} />
+              <PreflightContextRow title="Active files" meta={`${activeContext.entityFiles?.length || 0}/${preflight?.limits?.activeEntityFiles || 5} included`} body={(activeContext.entityFiles || []).map((file) => file.filename).join(', ')} />
+            </div>
+          </section>
+
+          <section
+            className={`preflight-panel preflight-upload-panel ${dragActive ? 'drag-active' : ''}`}
+            onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={(event) => { event.preventDefault(); setDragActive(false); }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+              ingestFiles(Array.from(event.dataTransfer.files || []).map((file) => file.path));
+            }}
+          >
+            <div className="preflight-panel-head">
+              <strong>Add active context</strong>
+              <button type="button" className="ghost" onClick={openFilePicker}>Choose files</button>
+            </div>
+            <div className="preflight-dropzone">
+              <strong>Drop .txt, .md, or .pdf files</strong>
+              <span>Files attach to this {callLabel}. Up to {preflight?.limits?.activeEntityFiles || 5} active files are included directly in fast context.</span>
+              <small>{formatBytes(preflight?.limits?.maxUploadBytes || 25 * 1024 * 1024)} max per file.</small>
+            </div>
+            {uploadStatus ? <p className="preflight-upload-status">{uploadStatus}</p> : null}
+          </section>
+        </div>
+
+        <footer className="preflight-actions">
+          <button type="button" className="ghost" onClick={handleCancel}>Cancel</button>
+          <button type="button" className="primary-action" onClick={handleStart} disabled={!preflight}>Start {mode === 'meeting' ? 'Meeting' : 'Interview'}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function PreflightModel({ label, value }) {
+  return (
+    <div className="preflight-model-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PreflightContextRow({ body, meta, title }) {
+  return (
+    <article className="preflight-context-row">
+      <div>
+        <strong>{title}</strong>
+        <span>{meta}</span>
+      </div>
+      <p>{body || 'Not configured.'}</p>
+    </article>
+  );
+}
+
+function formatBytes(bytes = 0) {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 * 1024) return `${Math.round(value / (1024 * 1024))} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${value} B`;
 }
 
 function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, onModeChange, onSettings, settings, onToggleCaptureProtection,
@@ -5178,28 +5489,30 @@ function WorkspaceNavIcon({ id, active }) {
                 <img src={proGoldBadgeUrl} alt="Pro" style={{ height: '22px', width: 'auto', display: 'inline-block' }} />
               </h2>
           </div>
-          <button className="primary-action" type="button" onClick={openPicker}>Add files</button>
         </div>
 
-      <div
-        className={`knowledge-dropzone ${dragActive ? 'active' : ''}`}
-        onDragEnter={(event) => {
-          event.preventDefault();
-          setDragActive(true);
-        }}
-        onDragOver={(event) => event.preventDefault()}
-        onDragLeave={(event) => {
-          event.preventDefault();
-          setDragActive(false);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragActive(false);
-          ingestPaths(Array.from(event.dataTransfer.files || []).map((file) => file.path));
-        }}
-      >
-        <strong>Drop research files</strong>
-        <span>.txt, .md, and .pdf files are indexed locally and sent to Pinecone when configured.</span>
+      <div className="knowledge-upload-row">
+        <div
+          className={`knowledge-dropzone ${dragActive ? 'active' : ''}`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            setDragActive(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragActive(false);
+            ingestPaths(Array.from(event.dataTransfer.files || []).map((file) => file.path));
+          }}
+        >
+          <strong>Drop research files</strong>
+          <span>.txt, .md, and .pdf files are indexed locally and sent to Pinecone when configured.</span>
+        </div>
+        <button className="primary-action knowledge-add-files" type="button" onClick={openPicker}>Add files</button>
       </div>
 
       <form className="knowledge-search" onSubmit={runSearch}>
@@ -5509,6 +5822,7 @@ function ActiveSourceMenu({ includeScreenshot, mode, onConfirm, setIncludeScreen
 
 function ActiveCaptureView({
   cards,
+  memoryCards = [],
   hidden,
   isAsking,
   isPaused,
@@ -5602,7 +5916,7 @@ function ActiveCaptureView({
       resizeObserver.disconnect();
       mutationObserver.disconnect();
     };
-  }, [cards, hidden, includeScreenshot, isAsking, promptType, sourceMenuOpen, showMeters, showTranscript, transcript?.length]);
+  }, [cards, hidden, includeScreenshot, isAsking, memoryCards, promptType, sourceMenuOpen, showMeters, showTranscript, transcript?.length]);
 
   async function submitAsk(event) {
     event?.preventDefault?.();
@@ -5911,6 +6225,7 @@ function ActiveCaptureView({
           ) : null}
           {showTranscript ? <ActiveTranscriptPanel transcript={transcript} /> : null}
           <AssistantCards cards={cards} variant="active" status={status} onDismissCard={onDismissCard} />
+          <MemoryCardsWindow cards={memoryCards} onDismissCard={onDismissCard} />
         </div>
       ) : null}
     </section>
@@ -6097,7 +6412,7 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
           const showCardTitle = cardTitle && cardTitle.toLowerCase() !== cardLabel.toLowerCase();
 
             return (
-              <article className={`assistant-card ${card.type || 'note'} ${card.agentic ? 'assistant-card-agentic' : ''}`} key={card.id || `${card.title}-${index}`}>
+              <article className={`assistant-card ${card.type || 'note'} ${card.agentic ? 'assistant-card-agentic' : ''} ${card.draft ? 'assistant-card-draft' : ''}`} key={card.id || `${card.title}-${index}`}>
                 <div className="card-top-actions">
                   {card.agentic ? <img src={proBadgeUrl} alt="Pro" className="agentic-badge-img" /> : null}
                   {onDismissCard && (
@@ -6138,6 +6453,52 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
         )}
       </div>
     </div>
+  );
+}
+
+function MemoryCardsWindow({ cards = [], onDismissCard }) {
+  if (!cards.length) {
+    return null;
+  }
+
+  return (
+    <section className="active-memory-window" data-active-size-content="memory-cards" aria-label="Memory cards">
+      <div className="active-memory-window-head">
+        <strong>Memory</strong>
+        <span>{cards.length} matched</span>
+      </div>
+      <div className="active-memory-card-stack">
+        {cards.map((card, index) => (
+          <article className={`assistant-card memory ${card.agentic ? 'assistant-card-agentic' : ''} ${card.draft ? 'assistant-card-draft' : ''}`} key={card.id || `${card.title}-${index}`}>
+            <div className="card-top-actions">
+              {card.agentic ? <img src={proBadgeUrl} alt="Pro" className="agentic-badge-img" /> : null}
+              {onDismissCard ? (
+                <button
+                  type="button"
+                  className="card-dismiss-btn"
+                  onClick={() => onDismissCard(card.id)}
+                  aria-label="Dismiss memory card"
+                  title="Dismiss"
+                >
+                  &times;
+                </button>
+              ) : null}
+            </div>
+            <div className="card-kicker">
+              <span>{labelForCard(card.type)}</span>
+            </div>
+            {card.title && card.title.toLowerCase() !== 'memory' ? <h4>{card.title}</h4> : null}
+            {card.body ? <p>{card.body}</p> : null}
+            {card.bullets?.length ? (
+              <ul>
+                {card.bullets.map((bullet, bulletIndex) => <li key={`${bullet}-${bulletIndex}`}>{bullet}</li>)}
+              </ul>
+            ) : null}
+            {card.detail ? <small>{card.detail}</small> : null}
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -7435,7 +7796,8 @@ function normalizeCardForRender(card) {
     question: card.question || '',
     bullets: Array.isArray(card.bullets) ? card.bullets : [],
     detail: card.detail || card.why || '',
-    agentic: Boolean(card.agentic)
+    agentic: Boolean(card.agentic),
+    draft: Boolean(card.draft)
   };
 }
 

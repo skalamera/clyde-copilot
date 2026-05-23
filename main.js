@@ -216,7 +216,7 @@ function saveSettings(newSettings) {
         meetingAssistant = createMeetingAssistant({
             settings: settingsToStore,
             intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
-            utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 700),
+            utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 650),
             maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
             maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
             timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
@@ -901,6 +901,33 @@ function getActiveEntityFiles(settings = loadSettings()) {
     return knowledgeManager.listEntityKnowledge({ mode, entityId }).slice(0, 5);
 }
 
+function getPinnedKnowledgeBrief(settings = loadSettings()) {
+    if (!knowledgeManager || typeof knowledgeManager.getPinnedKnowledge !== 'function') {
+        return '';
+    }
+
+    const pinnedItems = knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []);
+    const rows = pinnedItems
+        .map((item) => {
+            const label = item.filename || item.id || 'Pinned knowledge';
+            const excerpt = summarizePinnedKnowledgeContent(item.content || '');
+            return excerpt ? `${label}: ${excerpt}` : '';
+        })
+        .filter(Boolean);
+
+    return rows.length ? rows.join('\n') : '';
+}
+
+function summarizePinnedKnowledgeContent(content = '') {
+    const text = String(content || '').replace(/\s+/g, ' ').trim();
+    return text.length > 700 ? `${text.slice(0, 697)}...` : text;
+}
+
+function summarizeContextText(content = '', limit = 320) {
+    const text = String(content || '').replace(/\s+/g, ' ').trim();
+    return text.length > limit ? `${text.slice(0, Math.max(0, limit - 3))}...` : text;
+}
+
 function buildAssistantContext(settings = loadSettings()) {
     const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
     return {
@@ -912,7 +939,82 @@ function buildAssistantContext(settings = loadSettings()) {
         meetingTitle: settings.meetingTitle || '',
         attendees: Array.isArray(settings.meetingAttendees) ? settings.meetingAttendees : [],
         memory: settings.meetingMemory || '',
+        pinnedKnowledgeBrief: getPinnedKnowledgeBrief(settings),
         entityFiles: getActiveEntityFiles(settings)
+    };
+}
+
+function buildCallPreflightContext(settings = loadSettings()) {
+    const context = buildAssistantContext(settings);
+    const mode = context.mode === 'meeting' ? 'meeting' : 'interview';
+    const entityId = mode === 'meeting' ? context.meetingTitle : context.company;
+    const audioSources = getAudioSources(settings).map((source) => ({
+        id: source.id,
+        label: source.label,
+        device: source.device,
+        color: source.color
+    }));
+    const entityFiles = Array.isArray(context.entityFiles) ? context.entityFiles : [];
+
+    return {
+        mode,
+        entityId,
+        entityName: mode === 'meeting' ? context.meetingTitle : context.company,
+        health: JSON.parse(JSON.stringify(healthState)),
+        models: {
+            transcriptionProvider: settings.transcriptionProvider || 'local',
+            transcriptionModel: isOpenAiTranscriptionProvider(settings.transcriptionProvider)
+                ? (settings.transcriptionProvider === 'openai-realtime-whisper' ? 'gpt-realtime-whisper' : 'OpenAI Cloud Transcription')
+                : settings.localTranscriptionUrl || 'Local transcription',
+            assistantProvider: settings.llmProvider || 'local',
+            assistantModel: settings.llmProvider === 'local' ? (settings.llmModel || 'Local model not selected') : (settings.llmModel || settings.llmProvider || 'Cloud LLM'),
+            proRealtimeModel: settings.proRealtimeModel || 'gpt-realtime-2',
+            proAgentEnabled: Boolean(settings.userTier === 'pro' && settings.proAgentEnabled),
+            ragEnabled: Boolean(settings.ragEnabled),
+            pineconeConfigured: Boolean(settings.pineconeApiKey || process.env.PINECONE_API_KEY) && Boolean(settings.pineconeHost || process.env.PINECONE_HOST)
+        },
+        audio: {
+            engine: settings.audioEngine || (process.platform === 'win32' ? 'rust' : 'legacy'),
+            microphoneDeviceId: settings.microphoneDeviceId || '',
+            systemAudioDeviceId: settings.systemAudioDeviceId || '',
+            sources: audioSources
+        },
+        activeContext: {
+            company: context.company,
+            role: context.role,
+            meetingTitle: context.meetingTitle,
+            attendees: context.attendees,
+            resume: {
+                chars: String(context.resumeText || '').length,
+                excerpt: summarizeContextText(context.resumeText)
+            },
+            jobDescription: {
+                chars: String(context.jobDescription || '').length,
+                excerpt: summarizeContextText(context.jobDescription)
+            },
+            meetingMemory: {
+                chars: String(context.memory || '').length,
+                excerpt: summarizeContextText(context.memory)
+            },
+            pinnedKnowledgeBrief: {
+                chars: String(context.pinnedKnowledgeBrief || '').length,
+                excerpt: summarizeContextText(context.pinnedKnowledgeBrief, 500)
+            },
+            entityFiles: entityFiles.map((item) => ({
+                id: item.id,
+                filename: item.filename,
+                type: item.type,
+                chars: String(item.content || '').length,
+                excerpt: summarizeContextText(item.content, 220),
+                included: true
+            }))
+        },
+        limits: {
+            activeEntityFiles: 5,
+            pinnedKnowledge: 3,
+            maxUploadBytes: 25 * 1024 * 1024,
+            supportedUploadTypes: ['.txt', '.md', '.pdf']
+        }
     };
 }
 
@@ -1340,7 +1442,7 @@ function getMeetingAssistant() {
     meetingAssistant = createMeetingAssistant({
         settings,
         intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
-        utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 700),
+        utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 650),
         maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
         maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
         timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
@@ -1418,6 +1520,7 @@ function stopAudioCaptures() {
     stopRustAudioEngineCapture();
     closeTranscriptionProcessors();
     transcriptionProcessors = null;
+    meetingAssistant?.resetTranscript?.();
     meetingAssistant = null;
     stopLiveAudioLevels();
 }
@@ -1681,9 +1784,10 @@ function createWindow () {
           log.info(`✅ show() called. Now visible: ${mainWindow.isVisible()}`);
       }
       
-      // Enable DevTools for debugging
-      log.info('🔧 Opening DevTools for debugging...');
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
+      if (process.env.CLYDE_OPEN_DEVTOOLS === '1') {
+          log.info('Opening DevTools for debugging...');
+          mainWindow.webContents.openDevTools({ mode: 'detach' });
+      }
       
       sendAudioStatus({ state: 'idle', message: 'Ready. Press Start to begin.' });
       checkServiceHealth(loadSettings());
@@ -1761,7 +1865,9 @@ function createWindow () {
 
       fullSessionTranscript = []; // Reset full session transcript on new start
       capturePaused = false;
-      getMeetingAssistant(); // ensure initialized
+      getMeetingAssistant().warmup?.().catch((error) => {
+          log.warn(`Clyde Pro warmup failed: ${error.message}`);
+      });
       const settings = loadSettings();
       startLiveAudioLevels();
       const failed = shouldUseRustAudioEngine(settings)
@@ -2244,12 +2350,53 @@ function createWindow () {
           pinnedKnowledgeIds
       };
       saveSettings(nextSettings);
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(nextSettings));
+      }
       return knowledgeManager ? knowledgeManager.getPinnedKnowledge(pinnedKnowledgeIds) : [];
   });
 
   ipcMain.handle('get-pinned-knowledge', () => {
       const ids = getPinnedKnowledgeIds();
       return knowledgeManager ? knowledgeManager.getPinnedKnowledge(ids) : [];
+  });
+
+  ipcMain.handle('get-call-preflight-context', async (event, context = {}) => {
+      const settings = loadSettings();
+      const nextSettings = context && context.mode
+          ? {
+              ...settings,
+              appMode: context.mode === 'meeting' ? 'meeting' : 'interview',
+              currentCompany: context.mode === 'interview' && context.entityId ? context.entityId : settings.currentCompany,
+              meetingTitle: context.mode === 'meeting' && (context.entityName || context.entityId) ? (context.entityName || context.entityId) : settings.meetingTitle
+          }
+          : settings;
+
+      await checkServiceHealth(nextSettings);
+      return buildCallPreflightContext(nextSettings);
+  });
+
+  ipcMain.handle('ingest-active-context-files', async (event, payload = {}) => {
+      if (!knowledgeManager) {
+          return [];
+      }
+
+      const settings = loadSettings();
+      const mode = payload.mode === 'meeting' ? 'meeting' : 'interview';
+      const entityId = String(payload.entityId || (mode === 'meeting' ? settings.meetingTitle : settings.currentCompany) || '').trim();
+      const entityName = String(payload.entityName || entityId || '').trim();
+      const filePaths = Array.isArray(payload.filePaths) ? payload.filePaths.filter(Boolean) : [];
+      const ingested = [];
+
+      for (const filePath of filePaths) {
+          ingested.push(await knowledgeManager.ingestFile(filePath, settings, { mode, entityId, entityName }));
+      }
+
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(settings));
+      }
+
+      return ingested;
   });
 
   ipcMain.handle('open-knowledge-file-dialog', async () => {

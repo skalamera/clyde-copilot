@@ -159,6 +159,8 @@ test('main process exposes knowledge base and tier IPC handlers', () => {
   assert.match(source, /ipcMain\.handle\('ingest-knowledge-file'/);
   assert.match(source, /ipcMain\.handle\('delete-knowledge-item'/);
   assert.match(source, /ipcMain\.handle\('set-pinned-knowledge'/);
+  assert.match(source, /pinnedKnowledgeBrief: getPinnedKnowledgeBrief\(settings\)/);
+  assert.match(source, /summarizePinnedKnowledgeContent/);
   assert.match(source, /ipcMain\.handle\('get-pinned-knowledge'/);
   assert.match(source, /ipcMain\.handle\('open-knowledge-file-dialog'/);
 });

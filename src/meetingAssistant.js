@@ -8,6 +8,7 @@ const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_TOKENS = 800;
 const DEFAULT_UTTERANCE_SETTLE_MS = 0;
+const DEFAULT_INCOMPLETE_UTTERANCE_SETTLE_MS = 2400;
 
 function createMeetingAssistant(options = {}) {
   const settings = options.settings || {};
@@ -25,6 +26,11 @@ function createMeetingAssistant(options = {}) {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
   const utteranceSettleMs = Math.max(0, Number(options.utteranceSettleMs ?? DEFAULT_UTTERANCE_SETTLE_MS) || 0);
+  const incompleteUtteranceSettleMs = Math.max(
+    utteranceSettleMs,
+    Number(options.incompleteUtteranceSettleMs ?? DEFAULT_INCOMPLETE_UTTERANCE_SETTLE_MS) || DEFAULT_INCOMPLETE_UTTERANCE_SETTLE_MS
+  );
+  const proFinalMemoryWaitMs = Math.max(0, Number(options.proFinalMemoryWaitMs ?? 350) || 0);
   const proMemorySearchIntervalMs = Number(options.proMemorySearchIntervalMs ?? 15000) || 15000;
   const proAgent = options.proAgent || createProRealtimeAgent({
     settings,
@@ -181,32 +187,47 @@ function createMeetingAssistant(options = {}) {
       } else if (mode === 'meeting') {
         targetQuestion = '';
       } else {
-        try {
-          const extractedQuestion = await detectResumeQuestion(digest);
-          if (extractedQuestion) {
-             logger.log(`[Intent] Detected interview-related question in transcript: "${extractedQuestion}"`);
-             targetQuestion = extractedQuestion;
-             if (hasPinecone && shouldUseRag) {
-                 const vectors = await searchKnowledgeVectors(extractedQuestion, settings, { topK: 3 });
-                 if (vectors && vectors.length > 0) {
-                   logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
-                   ragContext = "Relevant facts from the user's resume and past projects:\n" + 
-                     vectors.map(v => `- ${v.text}`).join('\n');
-                 }
-             }
-          } else {
-             if (proCandidate) {
-               logger.log(`[Intent] No explicit interview question detected; sending settled turn to Clyde Pro.`);
-             } else {
-             logger.log(`[Intent] No interview-related question detected in current transcript window.`);
-             inFlight = false;
-             // Wait another tick, do not update lastRunAt or lastDigest to allow 
-             // the transcript to accumulate more context for the next run
-             return { ok: true, skipped: 'no-question' };
-             }
+        if (isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion) && !hasLikelyCompleteInterviewerPrompt(digest)) {
+          logger.log(`[Intent] Waiting for a complete interviewer question before generating an answer card.`);
+          inFlight = false;
+          return { ok: true, skipped: 'waiting-for-complete-question' };
+        }
+
+        if (proCandidate && isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion)) {
+          targetQuestion = extractLatestInterviewerPrompt(digest);
+          logger.log(`[Intent] Sending complete interviewer prompt directly to Clyde Pro.`);
+        } else {
+          try {
+            const extractedQuestion = await detectResumeQuestion(digest);
+            if (extractedQuestion) {
+              logger.log(`[Intent] Detected interview-related question in transcript: "${extractedQuestion}"`);
+              targetQuestion = extractedQuestion;
+              if (hasPinecone && shouldUseRag) {
+                const vectors = await searchKnowledgeVectors(extractedQuestion, settings, { topK: 3 });
+                if (vectors && vectors.length > 0) {
+                  logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
+                  ragContext = "Relevant facts from the user's resume and past projects:\n" +
+                    vectors.map(v => `- ${v.text}`).join('\n');
+                }
+              }
+            } else if (proCandidate) {
+              if (!hasLikelyCompleteInterviewerPrompt(digest)) {
+                logger.log(`[Intent] Waiting for a complete interviewer question before sending to Clyde Pro.`);
+                inFlight = false;
+                return { ok: true, skipped: 'waiting-for-complete-question' };
+              }
+
+              logger.log(`[Intent] No explicit interview question detected; sending complete settled turn to Clyde Pro.`);
+            } else {
+              logger.log(`[Intent] No interview-related question detected in current transcript window.`);
+              inFlight = false;
+              // Wait another tick, do not update lastRunAt or lastDigest to allow
+              // the transcript to accumulate more context for the next run
+              return { ok: true, skipped: 'no-question' };
+            }
+          } catch (err) {
+            logger.error('[RAG] Intent/retrieval error:', err);
           }
-        } catch (err) {
-          logger.error('[RAG] Intent/retrieval error:', err);
         }
       }
 
@@ -284,8 +305,32 @@ function createMeetingAssistant(options = {}) {
         proMemorySearchIntervalMs
       });
 
+      let pendingDraftCardId = '';
+      let pendingDraftGroupId = '';
+      let memorySearchStarted = false;
+      const memorySearchPromise = proCandidate && allowMemorySearch && typeof proAgent.searchMemoryCards === 'function'
+        ? startProMemorySearch({
+            query: targetQuestion || manualPrompt || digest,
+            digest,
+            manualPrompt,
+            mode,
+            context: currentContext,
+            allowMemorySearch
+          })
+        : null;
+
+      if (memorySearchPromise) {
+        memorySearchStarted = true;
+        lastProMemorySearchAt = now;
+      }
+
       if (proCandidate) {
         try {
+          const proGroupId = `pro-${now}-${Math.random().toString(16).slice(2)}`;
+          const proDraftCardId = `${proGroupId}-draft`;
+          let proDraftShown = false;
+          pendingDraftCardId = proDraftCardId;
+          pendingDraftGroupId = proGroupId;
           const proResult = await proAgent.run({
             digest,
             manualPrompt,
@@ -294,27 +339,77 @@ function createMeetingAssistant(options = {}) {
             context: currentContext,
             targetQuestion,
             selectedSources,
-            allowMemorySearch
-          });
-          const proCards = Array.isArray(proResult?.cards) ? proResult.cards : [];
+            allowMemorySearch: false,
+            toolsEnabled: false,
+            reasoningEffort: 'low',
+            groupId: proGroupId,
+            draftCardId: proDraftCardId,
+            onDraft: (draft) => {
+              const draftCards = Array.isArray(draft?.cards) ? draft.cards : [];
+              if (!draftCards.length) {
+                return;
+              }
 
-          if (proResult?.toolCalls && allowMemorySearch) {
+              proDraftShown = true;
+              sendUpdate({
+                title: 'Draft answer',
+                text: draft.text || '',
+                cards: draftCards,
+                replaceCardId: proDraftCardId,
+                groupId: proGroupId
+              });
+            }
+          });
+          const quickMemory = await waitForMemoryResult(memorySearchPromise, proFinalMemoryWaitMs);
+          const enrichedResult = quickMemory?.contextText
+            ? await runMemoryEnrichedFinal({
+                digest,
+                manualPrompt,
+                mode,
+                command,
+                context: currentContext,
+                targetQuestion,
+                selectedSources,
+                groupId: proGroupId,
+                draftCardId: proDraftCardId,
+                memoryContext: quickMemory.contextText
+              }).catch((error) => {
+                logger.warn?.('Memory-enriched final answer failed:', describeAssistantError(error));
+                return null;
+              })
+            : null;
+          const finalProResult = enrichedResult || proResult;
+          const proCards = Array.isArray(finalProResult?.cards) ? finalProResult.cards.filter((card) => card.type !== 'memory') : [];
+
+          if ((finalProResult?.toolCalls || memorySearchStarted) && allowMemorySearch) {
             lastProMemorySearchAt = now;
           }
 
           if (proCards.length) {
             sendUpdate({
               title: 'Live help',
-              text: proResult.text || '',
-              cards: proCards
+              text: finalProResult.text || '',
+              cards: proCards,
+              replaceCardId: proDraftShown ? proDraftCardId : '',
+              groupId: finalProResult.groupId || proGroupId
             });
+
+            if (quickMemory?.cards?.length) {
+              sendMemoryUpdate(quickMemory.cards);
+            } else if (memorySearchPromise) {
+              memorySearchPromise.then((memoryResult) => {
+                if (memoryResult?.cards?.length) {
+                  sendMemoryUpdate(memoryResult.cards);
+                }
+              }).catch((error) => logger.warn?.('Deferred memory update failed:', describeAssistantError(error)));
+            }
 
             transcriptTurns = [];
             intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
             lastDigest = '';
             newlyAccumulatedTurns = 0;
             sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
-            return { ok: true, text: proResult.text || '', cards: proCards };
+            return { ok: true, text: finalProResult.text || '', cards: proCards };
           }
         } catch (error) {
           logger.error('Clyde Pro agent failed:', describeAssistantError(error));
@@ -364,7 +459,9 @@ function createMeetingAssistant(options = {}) {
         sendUpdate({
           title: 'Live help',
           text,
-          cards: renderedCards
+          cards: renderedCards,
+          replaceCardId: pendingDraftCardId,
+          groupId: pendingDraftGroupId
         });
         
         // CLEAR the transcript buffer of the current digest so we don't accidentally re-answer these old questions!
@@ -413,6 +510,72 @@ function createMeetingAssistant(options = {}) {
     return maybeRun(true, true, options);
   }
 
+  async function startProMemorySearch(payload = {}) {
+    try {
+      const result = await proAgent.searchMemoryCards(payload);
+      return result || null;
+    } catch (error) {
+      logger.warn?.('Clyde Pro memory search failed:', describeAssistantError(error));
+      return null;
+    }
+  }
+
+  function sendMemoryUpdate(memoryCards = []) {
+    if (!memoryCards.length) {
+      return;
+    }
+
+    sendUpdate({
+      title: 'Memory',
+      text: '',
+      cards: memoryCards,
+      groupId: `memory-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    });
+  }
+
+  async function runMemoryEnrichedFinal(payload = {}) {
+    if (typeof proAgent.run !== 'function') {
+      return null;
+    }
+
+    return proAgent.run({
+      ...payload,
+      toolsEnabled: false,
+      allowMemorySearch: false,
+      reasoningEffort: 'low'
+    });
+  }
+
+  async function waitForMemoryResult(memoryPromise, waitMs) {
+    if (!memoryPromise || waitMs <= 0) {
+      return null;
+    }
+
+    let timeoutId;
+    return Promise.race([
+      memoryPromise,
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), waitMs);
+      })
+    ]).finally(() => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
+  async function warmup() {
+    if (!shouldUseProAgent(settings, {}) || typeof proAgent.warmup !== 'function') {
+      return false;
+    }
+
+    return proAgent.warmup({
+      mode: normalizeMode(currentContext.mode || settings.appMode || settings.mode || 'interview'),
+      command: 'assist',
+      context: currentContext
+    });
+  }
+
   function resetTranscript() {
     transcriptTurns = [];
     intentTurns = [];
@@ -421,12 +584,14 @@ function createMeetingAssistant(options = {}) {
     lastRunAt = 0;
     lastDigest = '';
     newlyAccumulatedTurns = 0;
+    proAgent.close?.();
   }
 
   return {
     addTranscript,
     maybeRun,
     requestSuggestion,
+    warmup,
     setContext,
     resetTranscript,
     getTranscriptTurns: () => [...transcriptTurns]
@@ -515,6 +680,12 @@ function createMeetingAssistant(options = {}) {
       clearTimeout(intentSettleTimer);
     }
 
+    const settleDelay = getIntentSettleDelay(
+      pendingIntentUtterance?.text || '',
+      utteranceSettleMs,
+      incompleteUtteranceSettleMs
+    );
+
     intentSettleTimer = setTimeout(() => {
       intentSettleTimer = null;
 
@@ -523,7 +694,7 @@ function createMeetingAssistant(options = {}) {
           logger.error('Settled meeting assistant run failed:', describeAssistantError(error));
         });
       }
-    }, utteranceSettleMs);
+    }, settleDelay);
   }
 
   function scheduleSettledIntentRun() {
@@ -533,6 +704,14 @@ function createMeetingAssistant(options = {}) {
       });
     }, 0);
   }
+}
+
+function getIntentSettleDelay(text, utteranceSettleMs, incompleteUtteranceSettleMs) {
+  if (hasLikelyCompleteInterviewerPrompt(text)) {
+    return utteranceSettleMs;
+  }
+
+  return incompleteUtteranceSettleMs;
 }
 
 function extractAssistantText(data) {
@@ -977,6 +1156,62 @@ function shouldStartNewIntentUtterance(currentText, nextText) {
   const next = normalizeUtteranceText(nextText);
 
   return /[?.!]\s*$/.test(current) && /^(can|could|would|what|why|how|tell|walk|if|where|when|do|did|are|is|was|were)\b/i.test(next);
+}
+
+function isAutomaticInterviewAssist(mode, isSuggestionRequest = false, isManualQuestion = false) {
+  return mode === 'interview' && !isSuggestionRequest && !isManualQuestion;
+}
+
+function hasLikelyCompleteInterviewerPrompt(text) {
+  const lastSpeakerText = extractLatestInterviewerPrompt(text);
+
+  if (!lastSpeakerText) {
+    return false;
+  }
+
+  const hasQuestionCue = /\b(can|could|would|what|why|how|tell me|walk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there)\b/i.test(lastSpeakerText);
+  const hasTerminalPunctuation = /[?.!]\s*$/.test(lastSpeakerText);
+
+  return hasTerminalPunctuation && hasQuestionCue;
+}
+
+function extractLatestInterviewerPrompt(text) {
+  const value = String(text || '').trim();
+
+  if (!value) {
+    return '';
+  }
+
+  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const last = parseSpeakerLine(lines[lines.length - 1] || value);
+
+  if (!last.speaker) {
+    return normalizeUtteranceText(last.text);
+  }
+
+  const parts = [last.text];
+  for (let index = lines.length - 2; index >= 0; index -= 1) {
+    const row = parseSpeakerLine(lines[index]);
+    if (row.speaker !== last.speaker) {
+      break;
+    }
+    parts.unshift(row.text);
+  }
+
+  return parts.reduce((merged, part) => mergeUtteranceText(merged, part), '');
+}
+
+function parseSpeakerLine(line = '') {
+  const value = String(line || '').trim();
+  const separatorIndex = value.indexOf(':');
+  if (separatorIndex === -1) {
+    return { speaker: '', text: value };
+  }
+
+  return {
+    speaker: value.slice(0, separatorIndex).trim(),
+    text: value.slice(separatorIndex + 1).trim()
+  };
 }
 
 function mergeUtteranceText(left, right) {

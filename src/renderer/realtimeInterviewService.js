@@ -8,6 +8,8 @@ export class RealtimeInterviewService {
         this.videoRef = null;
         this.voiceStartTimer = null;
         this.transcriptionChunks = new Map();
+        this.activeTranscriptions = new Map();
+        this.recentFinalTranscriptions = new Map();
     }
 
     setVideoElement(videoEl) {
@@ -30,6 +32,8 @@ export class RealtimeInterviewService {
             // 2. Initialize the SDK session
             this.session = new LiveAvatarSession(sessionToken);
             this.transcriptionChunks.clear();
+            this.activeTranscriptions.clear();
+            this.recentFinalTranscriptions.clear();
 
             // 3. Attach Event Listeners
             this.session.on(SessionEvent.SESSION_STREAM_READY, () => {
@@ -64,6 +68,7 @@ export class RealtimeInterviewService {
             });
 
             this.session.on(AgentEventsEnum.USER_SPEAK_STARTED, () => {
+                this._startTranscriptionTurn('you');
                 if (this.onMessage) this.onMessage({ type: 'input_audio_buffer.speech_started' });
             });
 
@@ -72,6 +77,7 @@ export class RealtimeInterviewService {
             });
 
             this.session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
+                this._startTranscriptionTurn('interviewer');
                 if (this.onMessage) this.onMessage({ type: 'response.audio.delta' });
             });
 
@@ -116,22 +122,28 @@ export class RealtimeInterviewService {
     }
 
     _forwardTranscription(role, event, { final }) {
-        const itemId = event?.source_event_id || event?.event_id || `${role}-${Date.now()}`;
-        const text = final ? event?.text : this._appendTranscriptionChunk(itemId, event?.text);
+        const itemId = this._getTranscriptionTurnId(role, event, { final });
+        const text = final ? event?.text : this._appendTranscriptionChunk(role, itemId, event?.text);
+        const hadActiveTurn = this.activeTranscriptions.has(role);
 
         if (!text || !this.onMessage) {
             return;
         }
 
+        if (final && this._isDuplicateFinal(role, text) && !hadActiveTurn) {
+            return;
+        }
+
         if (final) {
-            this.transcriptionChunks.delete(itemId);
+            this._finishTranscriptionTurn(role, itemId, text);
         }
 
         if (role === 'you') {
             this.onMessage({
                 type: 'conversation.item.input_audio_transcription.completed',
                 transcript: text,
-                item_id: itemId
+                item_id: itemId,
+                partial: !final
             });
             return;
         }
@@ -139,13 +151,75 @@ export class RealtimeInterviewService {
         this.onMessage({
             type: 'response.output_text.delta',
             delta: text,
-            response_id: itemId
+            response_id: itemId,
+            partial: !final
         });
     }
 
-    _appendTranscriptionChunk(itemId, chunk = '') {
-        const next = `${this.transcriptionChunks.get(itemId) || ''}${chunk}`;
+    _startTranscriptionTurn(role) {
+        this.activeTranscriptions.set(role, {
+            id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            text: ''
+        });
+    }
+
+    _getTranscriptionTurnId(role, event, { final }) {
+        const active = this.activeTranscriptions.get(role);
+        if (active) {
+            return active.id;
+        }
+
+        if (final) {
+            return event?.source_event_id || event?.event_id || `${role}-${Date.now()}`;
+        }
+
+        this._startTranscriptionTurn(role);
+        return this.activeTranscriptions.get(role).id;
+    }
+
+    _appendTranscriptionChunk(role, itemId, chunk = '') {
+        const active = this.activeTranscriptions.get(role) || { id: itemId, text: '' };
+        const next = this._mergeTranscriptText(active.text || this.transcriptionChunks.get(itemId) || '', chunk);
+
+        this.activeTranscriptions.set(role, { id: itemId, text: next });
         this.transcriptionChunks.set(itemId, next);
         return next;
+    }
+
+    _finishTranscriptionTurn(role, itemId, text) {
+        this.transcriptionChunks.delete(itemId);
+        this.activeTranscriptions.delete(role);
+        this.recentFinalTranscriptions.set(role, {
+            text: this._normalizeTranscriptText(text),
+            timestamp: Date.now()
+        });
+    }
+
+    _isDuplicateFinal(role, text) {
+        const recent = this.recentFinalTranscriptions.get(role);
+        return Boolean(
+            recent &&
+            Date.now() - recent.timestamp < 4000 &&
+            recent.text === this._normalizeTranscriptText(text)
+        );
+    }
+
+    _mergeTranscriptText(previous = '', chunk = '') {
+        if (!previous) {
+            return chunk;
+        }
+        if (!chunk || previous.endsWith(chunk)) {
+            return previous;
+        }
+        if (chunk.startsWith(previous)) {
+            return chunk;
+        }
+
+        const needsSpace = !/\s$/.test(previous) && !/^\s|^[.,!?;:)]/.test(chunk);
+        return `${previous}${needsSpace ? ' ' : ''}${chunk}`;
+    }
+
+    _normalizeTranscriptText(text = '') {
+        return text.trim().replace(/\s+/g, ' ').toLowerCase();
     }
 }

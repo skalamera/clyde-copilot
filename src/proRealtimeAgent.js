@@ -18,157 +18,324 @@ function createProRealtimeAgent(options = {}) {
   const sendStatus = options.sendStatus || (() => {});
   const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const eagerToolOutputs = Boolean(options.eagerToolOutputs || WebSocketImpl !== WebSocket);
+  const openReadyState = WebSocketImpl.OPEN ?? WebSocket.OPEN ?? 1;
+  let socket = null;
+  let connectPromise = null;
+  let activeRun = null;
+  let intentionallyClosing = false;
+  let nextRunId = 1;
 
   async function run(payload = {}) {
-    const apiKey = settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY || '';
+    const apiKey = getApiKey();
     if (!apiKey) {
       throw new Error('OpenAI API key is required for Clyde Pro.');
     }
 
-    const model = encodeURIComponent(settings.proRealtimeModel || DEFAULT_MODEL);
-    const ws = new WebSocketImpl(`wss://api.openai.com/v1/realtime?model=${model}`, {
+    if (activeRun) {
+      throw new Error('Clyde Pro realtime agent is already generating.');
+    }
+
+    const model = getModel();
+    const ws = await ensureSocket(apiKey, model);
+
+    return new Promise((resolve, reject) => {
+      const runId = `pro-${Date.now()}-${nextRunId++}`;
+      const draftCardId = payload.draftCardId || `${runId}-draft`;
+      const groupId = payload.groupId || runId;
+
+      activeRun = {
+        payload,
+        resolve,
+        reject,
+        toolCalls: 0,
+        text: '',
+        lastDraftSignature: '',
+        lastDraftAt: 0,
+        draftCardId,
+        groupId,
+        timeout: setTimeout(() => {
+          finishActiveRunWithError(new Error('Clyde Pro realtime agent timed out.'));
+        }, timeoutMs)
+      };
+
+      sendJson(ws, {
+        type: 'session.update',
+        session: buildRealtimeSessionConfig(payload)
+      });
+
+      sendJson(ws, {
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [{
+            type: 'input_text',
+            text: buildProAgentUserMessage(payload)
+          }]
+        }
+      });
+
+      sendJson(ws, {
+        type: 'response.create',
+        response: {
+          output_modalities: ['text']
+        }
+      });
+    });
+  }
+
+  async function warmup(payload = {}) {
+    const apiKey = getApiKey();
+    if (!apiKey || activeRun) {
+      return false;
+    }
+
+    const ws = await ensureSocket(apiKey, getModel());
+    sendJson(ws, {
+      type: 'session.update',
+      session: buildRealtimeSessionConfig({ ...payload, command: payload.command || 'assist' })
+    });
+    return true;
+  }
+
+  async function searchMemoryCards(payload = {}) {
+    if (payload.allowMemorySearch === false) {
+      return { cards: [], results: [], contextText: '', throttled: true };
+    }
+
+    sendStatus({ state: 'processing', message: 'Searching memory...' });
+    const query = clean(payload.query || payload.targetQuestion || payload.manualPrompt || payload.digest || '');
+    const results = await searchMemory(query, payload.context || {}, payload.mode);
+    const cards = memoryCardsFromResults(results);
+
+    return {
+      cards,
+      results,
+      contextText: memoryContextFromResults(results)
+    };
+  }
+
+  function buildRealtimeSessionConfig(payload = {}) {
+    const toolsEnabled = payload.toolsEnabled !== false;
+
+    return {
+      type: 'realtime',
+      instructions: buildProAgentInstructions({
+        mode: payload.mode,
+        context: payload.context,
+        command: payload.command,
+        toolsEnabled
+      }),
+      output_modalities: ['text'],
+      reasoning: { effort: payload.reasoningEffort || 'low' },
+      tool_choice: toolsEnabled ? 'auto' : 'none',
+      tools: toolsEnabled ? getProAgentTools() : []
+    };
+  }
+
+  function close() {
+    intentionallyClosing = true;
+    if (activeRun) {
+      finishActiveRunWithError(new Error('Clyde Pro realtime agent was closed.'));
+    }
+    if (socket) {
+      safeClose(socket);
+    }
+    socket = null;
+    connectPromise = null;
+    intentionallyClosing = false;
+  }
+
+  function ensureSocket(apiKey, model) {
+    if (socket && socket.readyState === openReadyState) {
+      return Promise.resolve(socket);
+    }
+
+    if (connectPromise) {
+      return connectPromise;
+    }
+
+    intentionallyClosing = false;
+    socket = new WebSocketImpl(`wss://api.openai.com/v1/realtime?model=${model}`, {
       headers: {
         Authorization: `Bearer ${apiKey}`
       }
     });
 
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      let toolCalls = 0;
-      const timeout = setTimeout(() => {
-        finishWithError(new Error('Clyde Pro realtime agent timed out.'));
-      }, timeoutMs);
+    connectPromise = new Promise((resolve, reject) => {
+      let opened = false;
 
-      function finish(result) {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timeout);
-        safeClose(ws);
-        resolve(result);
-      }
-
-      function finishWithError(error) {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timeout);
-        safeClose(ws);
-        reject(error);
-      }
-
-      ws.on('open', () => {
-        sendJson(ws, {
-          type: 'session.update',
-          session: {
-            type: 'realtime',
-            instructions: buildProAgentInstructions({
-              mode: payload.mode,
-              context: payload.context,
-              command: payload.command
-            }),
-              output_modalities: ['text'],
-            tool_choice: 'auto',
-            tools: getProAgentTools()
-          }
-        });
-
-        sendJson(ws, {
-          type: 'conversation.item.create',
-          item: {
-            type: 'message',
-            role: 'user',
-            content: [{
-              type: 'input_text',
-              text: buildProAgentUserMessage(payload)
-            }]
-          }
-        });
-
-        sendJson(ws, {
-          type: 'response.create',
-            response: {
-              output_modalities: ['text']
-            }
-        });
+      socket.on('open', () => {
+        opened = true;
+        resolve(socket);
       });
 
-      ws.on('message', (raw) => {
-        let event;
-        try {
-          event = JSON.parse(String(raw));
-        } catch (error) {
-          logger.warn?.('Ignored non-JSON realtime event:', error);
-          return;
-        }
+      socket.on('message', handleSocketMessage);
 
-        if (event.type === 'error') {
-          finishWithError(new Error(event.error?.message || 'Clyde Pro realtime agent returned an error.'));
-          return;
+      socket.on('error', (error) => {
+        if (!opened) {
+          reject(error);
         }
-
-        if (event.type === 'response.done') {
-          handleResponseDone(event).catch(finishWithError);
-        }
+        finishActiveRunWithError(error);
       });
 
-      ws.on('error', (error) => {
-        finishWithError(error);
+      socket.on('close', () => {
+        if (!opened && !intentionallyClosing) {
+          reject(new Error('Clyde Pro realtime agent disconnected before it was ready.'));
+        }
+        socket = null;
+        connectPromise = null;
+        if (!intentionallyClosing) {
+          finishActiveRunWithError(new Error('Clyde Pro realtime agent disconnected.'));
+        }
       });
+    });
 
-      async function handleResponseDone(event) {
-        const output = Array.isArray(event.response?.output) ? event.response.output : [];
-        const functionCalls = output.filter((item) => item?.type === 'function_call' && item.name);
+    return connectPromise;
+  }
 
-        if (functionCalls.length) {
-          for (const call of functionCalls) {
-            toolCalls += 1;
-            if (eagerToolOutputs) {
-              executeToolCall(call, payload).catch(finishWithError);
-              sendJson(ws, {
-                type: 'conversation.item.create',
-                item: {
-                  type: 'function_call_output',
-                  call_id: call.call_id || call.id,
-                  output: JSON.stringify({ pending: true })
-                }
-              });
-              continue;
-            }
+  function getApiKey() {
+    return settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY || '';
+  }
 
-            const result = await executeToolCall(call, payload);
-            sendJson(ws, {
-              type: 'conversation.item.create',
-              item: {
-                type: 'function_call_output',
-                call_id: call.call_id || call.id,
-                output: JSON.stringify(result)
-              }
-            });
-          }
+  function getModel() {
+    return encodeURIComponent(settings.proRealtimeModel || DEFAULT_MODEL);
+  }
 
-          sendJson(ws, {
-            type: 'response.create',
-            response: {
-              output_modalities: ['text']
+  function handleSocketMessage(raw) {
+    let event;
+    try {
+      event = JSON.parse(String(raw));
+    } catch (error) {
+      logger.warn?.('Ignored non-JSON realtime event:', error);
+      return;
+    }
+
+    if (event.type === 'error') {
+      finishActiveRunWithError(new Error(event.error?.message || 'Clyde Pro realtime agent returned an error.'));
+      return;
+    }
+
+    const delta = extractRealtimeDelta(event);
+    if (delta && activeRun) {
+      activeRun.text += delta;
+      emitDraft(activeRun);
+      return;
+    }
+
+    if (event.type === 'response.done') {
+      handleResponseDone(event).catch(finishActiveRunWithError);
+    }
+  }
+
+  async function handleResponseDone(event) {
+    if (!activeRun || !socket) {
+      return;
+    }
+
+    const run = activeRun;
+    const output = Array.isArray(event.response?.output) ? event.response.output : [];
+    const functionCalls = output.filter((item) => item?.type === 'function_call' && item.name);
+
+    if (functionCalls.length) {
+      for (const call of functionCalls) {
+        run.toolCalls += 1;
+        if (eagerToolOutputs) {
+          executeToolCall(call, run.payload).catch(finishActiveRunWithError);
+          sendJson(socket, {
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: call.call_id || call.id,
+              output: JSON.stringify({ pending: true })
             }
           });
-          return;
+          continue;
         }
 
-        const text = extractRealtimeText(output);
-        const cards = parseAgentCards(text);
-        finish({
-          ok: true,
-          text,
-          cards,
-          toolCalls
+        const result = await executeToolCall(call, run.payload);
+        sendJson(socket, {
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: call.call_id || call.id,
+            output: JSON.stringify(result)
+          }
         });
       }
+
+      run.text = '';
+      sendJson(socket, {
+        type: 'response.create',
+        response: {
+          output_modalities: ['text']
+        }
+      });
+      return;
+    }
+
+    const text = extractRealtimeText(output) || run.text;
+    const cards = parseAgentCards(text);
+    finishActiveRun({
+      ok: true,
+      text,
+      cards,
+      toolCalls: run.toolCalls,
+      draftCardId: run.draftCardId,
+      groupId: run.groupId
+    });
+  }
+
+  function finishActiveRun(result) {
+    if (!activeRun) {
+      return;
+    }
+
+    const run = activeRun;
+    activeRun = null;
+    clearTimeout(run.timeout);
+    run.resolve(result);
+  }
+
+  function finishActiveRunWithError(error) {
+    if (!activeRun) {
+      return;
+    }
+
+    const run = activeRun;
+    activeRun = null;
+    clearTimeout(run.timeout);
+    run.reject(error);
+  }
+
+  function emitDraft(run) {
+    if (typeof run.payload.onDraft !== 'function') {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - run.lastDraftAt < 180) {
+      return;
+    }
+
+    const card = parseDraftAgentCard(run.text, run.payload, run.draftCardId);
+    if (!card) {
+      return;
+    }
+
+    const signature = assistantDraftSignature(card);
+    if (signature === run.lastDraftSignature) {
+      return;
+    }
+
+    run.lastDraftAt = now;
+    run.lastDraftSignature = signature;
+    run.payload.onDraft({
+      text: run.text,
+      cards: [card],
+      replaceCardId: run.draftCardId,
+      groupId: run.groupId,
+      draftCardId: run.draftCardId
     });
   }
 
@@ -280,7 +447,10 @@ function createProRealtimeAgent(options = {}) {
   }
 
   return {
-    run
+    run,
+    warmup,
+    searchMemoryCards,
+    close
   };
 }
 
@@ -313,6 +483,173 @@ function extractRealtimeText(output = []) {
   }
 
   return '';
+}
+
+function extractRealtimeDelta(event = {}) {
+  if (
+    event.type === 'response.output_text.delta'
+    || event.type === 'response.text.delta'
+    || event.type === 'response.audio_transcript.delta'
+  ) {
+    return String(event.delta || '');
+  }
+
+  if (event.type === 'response.content_part.delta') {
+    return String(event.delta?.text || event.delta?.transcript || event.part?.text || '');
+  }
+
+  return '';
+}
+
+function parseDraftAgentCard(text, payload = {}, draftCardId = '') {
+  const parsedCards = parseAgentCards(text).filter((card) => card.type === 'answer' || card.type === 'suggestion');
+  if (parsedCards.length) {
+    return {
+      ...parsedCards[0],
+      id: draftCardId,
+      title: 'Draft answer',
+      draft: true,
+      agentic: true
+    };
+  }
+
+  const question = extractJsonStringValue(text, 'question') || clean(payload.targetQuestion);
+  const bullets = extractJsonArrayStrings(text, 'bullets').slice(0, 4);
+  const body = extractJsonStringValue(text, 'answer') || extractJsonStringValue(text, 'text') || extractJsonStringValue(text, 'body');
+
+  if (!body && !bullets.length) {
+    return null;
+  }
+
+  return {
+    id: draftCardId,
+    type: 'answer',
+    title: 'Draft answer',
+    question,
+    body,
+    bullets,
+    draft: true,
+    agentic: true
+  };
+}
+
+function extractJsonStringValue(text = '', key = '') {
+  const pattern = new RegExp(`"${escapeRegExp(key)}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
+  const match = String(text || '').match(pattern);
+  return match ? clean(unescapeJsonString(match[1])) : '';
+}
+
+function extractJsonArrayStrings(text = '', key = '') {
+  const pattern = new RegExp(`"${escapeRegExp(key)}"\\s*:\\s*\\[([\\s\\S]*)`);
+  const match = String(text || '').match(pattern);
+  if (!match) {
+    return [];
+  }
+
+  const arrayText = match[1].split(']')[0] || '';
+  const values = [];
+  const valuePattern = /"((?:\\.|[^"\\])*)"/g;
+  let valueMatch;
+  while ((valueMatch = valuePattern.exec(arrayText))) {
+    const value = clean(unescapeJsonString(valueMatch[1]));
+    if (value) {
+      values.push(value);
+    }
+  }
+  return values;
+}
+
+function unescapeJsonString(value = '') {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch (_error) {
+    return value.replace(/\\"/g, '"').replace(/\\n/g, '\n');
+  }
+}
+
+function assistantDraftSignature(card = {}) {
+  return [
+    card.question || '',
+    card.body || '',
+    Array.isArray(card.bullets) ? card.bullets.join('|') : ''
+  ].join('::');
+}
+
+function memoryCardsFromResults(results = []) {
+  const seen = new Set();
+  const cards = [];
+
+  for (const result of Array.isArray(results) ? results : []) {
+    const body = clean(result.text || result.content || '');
+    const bullets = summarizeMemoryBullets(body);
+    if (!body || !bullets.length) {
+      continue;
+    }
+
+    const detail = clean(result.source || result.filename || result.knowledgeId || '');
+    const key = `${body.toLowerCase()}::${detail.toLowerCase()}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    cards.push({
+      type: 'memory',
+      title: 'Memory',
+      body: '',
+      bullets,
+      detail,
+      agentic: true,
+      score: result.score
+    });
+
+    if (cards.length >= 3) {
+      break;
+    }
+  }
+
+  return cards;
+}
+
+function summarizeMemoryBullets(text = '') {
+  const value = clean(text);
+  const bullets = value
+    .replace(/\b(?:Interviewer|Candidate)\s*\([^)]*\):/gi, '. ')
+    .replace(/\b(?:Interviewer|Candidate):/gi, '. ')
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => clean(sentence.replace(/^[-*•\s]+/, '')))
+    .filter((sentence) => sentence.length >= 24)
+    .filter((sentence) => !/^yes[,.]?\s*$/i.test(sentence))
+    .slice(0, 3)
+    .map((sentence) => shortenSentence(sentence, 150));
+
+  return bullets.length ? bullets : [shortenSentence(value, 150)].filter(Boolean);
+}
+
+function shortenSentence(sentence = '', maxLength = 150) {
+  const value = clean(sentence);
+  if (value.length <= maxLength) {
+    return value;
+  }
+  const truncated = value.slice(0, maxLength + 1);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return `${clean(truncated.slice(0, lastSpace > 80 ? lastSpace : maxLength))}...`;
+}
+
+function memoryContextFromResults(results = []) {
+  return (Array.isArray(results) ? results : [])
+    .slice(0, 4)
+    .map((result, index) => {
+      const text = clean(result.text || result.content || '');
+      const source = clean(result.source || result.filename || result.knowledgeId || '');
+      return text ? `${index + 1}. ${text}${source ? ` (Source: ${source})` : ''}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function escapeRegExp(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function parseAgentCards(text) {

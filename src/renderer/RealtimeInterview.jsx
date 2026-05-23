@@ -273,13 +273,27 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
   function upsertTurn(current, role, text, id) {
     if (!text) return current;
     const turnId = id || `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const normalizedText = text.trimStart();
     const last = current[current.length - 1];
-    if (last && last.id === turnId) {
+    const existingIndex = current.findIndex((turn) => turn.id === turnId);
+    if (existingIndex !== -1) {
       const updated = [...current];
-      updated[updated.length - 1] = { ...last, text };
+      updated[existingIndex] = { ...updated[existingIndex], text: normalizedText };
       return updated;
     }
-    return [...current, { id: turnId, role, text: text.trimStart() }];
+    if (last && last.role === role && normalizeTurnText(last.text) === normalizeTurnText(normalizedText)) {
+      return current;
+    }
+    if (last && last.id === turnId) {
+      const updated = [...current];
+      updated[updated.length - 1] = { ...last, text: normalizedText };
+      return updated;
+    }
+    return [...current, { id: turnId, role, text: normalizedText }];
+  }
+
+  function normalizeTurnText(text = '') {
+    return text.trim().replace(/\s+/g, ' ').toLowerCase();
   }
 
   return (

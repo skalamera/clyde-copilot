@@ -10,7 +10,8 @@ test('interview mode prompt focuses on candidate answers and follow-up questions
       company: 'Acme',
       role: 'Staff Engineer',
       jobDescription: 'Build platform systems.',
-      resumeText: 'Led migration work.'
+      resumeText: 'Led migration work.',
+      pinnedKnowledgeBrief: 'Story bank: Reduced support escalations by 35%.'
     },
     command: 'assist'
   });
@@ -18,6 +19,8 @@ test('interview mode prompt focuses on candidate answers and follow-up questions
   assert.match(prompt, /live job interview copilot/i);
   assert.match(prompt, /Acme/);
   assert.match(prompt, /Staff Engineer/);
+  assert.match(prompt, /Pinned Knowledge Brief/);
+  assert.match(prompt, /Reduced support escalations/);
   assert.deepEqual(getAllowedCardTypes('interview'), ['answer', 'suggestion', 'follow_up', 'risk', 'note']);
 });
 
@@ -27,7 +30,8 @@ test('meeting mode prompt focuses on notes, recap, actions, and memory', () => {
     context: {
       meetingTitle: 'Platform weekly',
       attendees: [{ name: 'Morgan', role: 'PM' }],
-      memory: 'Morgan asked for release notes last time.'
+      memory: 'Morgan asked for release notes last time.',
+      pinnedKnowledgeBrief: 'Account brief: Migration deadline is June.'
     },
     command: 'recap'
   });
@@ -36,6 +40,8 @@ test('meeting mode prompt focuses on notes, recap, actions, and memory', () => {
   assert.match(prompt, /Platform weekly/);
   assert.match(prompt, /Long term memory across meetings/);
   assert.match(prompt, /release notes/);
+  assert.match(prompt, /Pinned knowledge brief/);
+  assert.match(prompt, /Migration deadline/);
   assert.deepEqual(getAllowedCardTypes('meeting'), ['recap', 'action', 'follow_up', 'suggestion', 'insight', 'screen_description', 'note']);
 });
 

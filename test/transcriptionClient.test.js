@@ -60,8 +60,9 @@ function createPcm16(samples, value = 1200) {
   return pcm;
 }
 
-test('simulates transcript updates when no transcription API URL is configured', async () => {
+test('skips transcript updates when no transcription API URL is configured', async () => {
   const transcripts = [];
+  const statuses = [];
   let postCalls = 0;
   const processor = createTranscriptionProcessor({
     settings: {
@@ -77,14 +78,16 @@ test('simulates transcript updates when no transcription API URL is configured',
       }
     },
     sendTranscript: (transcript) => transcripts.push(transcript),
+    sendStatus: (status) => statuses.push(status),
     logger: { log() {}, warn() {}, error() {} }
   });
 
-  await processor.processAudioChunk(Buffer.from('audio'));
+  const result = await processor.processAudioChunk(Buffer.from('audio'));
 
   assert.equal(postCalls, 0);
-  assert.equal(transcripts.length, 1);
-  assert.match(transcripts[0].text, /Captured audio/);
+  assert.equal(transcripts.length, 0);
+  assert.equal(result.skipped, 'missing-transcription-endpoint');
+  assert.match(statuses[0].message, /No transcription endpoint configured/);
 });
 
 test('posts audio to the configured transcription API URL', async () => {

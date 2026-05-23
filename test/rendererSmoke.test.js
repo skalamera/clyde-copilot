@@ -254,9 +254,9 @@ test('active capture view replaces the full live workspace while streaming', () 
   assert.match(activeSource, /rect\.top - panelRect\.top \+ visibleStackHeight/);
   assert.match(activeSource, /const contentHeight = Math\.max\(panel\.scrollHeight, contentBounds\.bottom, scrollContentBottom\)/);
   assert.match(activeSource, /showMeters, showTranscript/);
-  assert.match(cssSource, /\.assistant-pane-active \.scroll-area\s*\{[\s\S]*max-height: var\(--active-card-stack-max-height, calc\(100vh - 138px\)\)/);
-  assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*min-height: clamp\(160px, 24vh, 260px\)/);
-  assert.match(cssSource, /\.assistant-pane-active \.assistant-card:only-child\s*\{[\s\S]*min-height: clamp\(320px, 58vh, 560px\)/);
+  assert.match(cssSource, /\.assistant-pane-active \.scroll-area\s*\{[\s\S]*max-height: min\(58vh, var\(--active-card-stack-max-height, calc\(100vh - 260px\)\)\)/);
+  assert.match(cssSource, /\.assistant-pane-active \.assistant-card\s*\{[\s\S]*min-height: 0/);
+  assert.match(cssSource, /\.active-memory-window\s*\{[\s\S]*max-height: min\(220px, 28vh\)/);
   assert.match(cssSource, /\.active-restore-chip[\s\S]*border-radius: 50%/);
   assert.match(cssSource, /\.active-restore-chip[\s\S]*width: 84px/);
   assert.match(cssSource, /\.active-restore-chip[\s\S]*height: 84px/);

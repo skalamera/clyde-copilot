@@ -133,8 +133,11 @@ function createTranscriptionProcessor(options = {}) {
     });
 
     if (!apiUrl) {
-      sendTranscript(createSimulatedTranscript(wavAudio));
-      return { ok: true, simulated: true };
+      sendStatus({
+        state: 'warning',
+        message: 'No transcription endpoint configured; skipping audio transcription.'
+      });
+      return { ok: true, skipped: 'missing-transcription-endpoint' };
     }
 
     inFlight = true;
