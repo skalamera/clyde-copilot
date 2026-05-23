@@ -4828,8 +4828,8 @@ function WorkspaceNav({
     { id: 'live', eyebrow: 'Now', label: 'Pre-Call Prep', icon: 'assist' },
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: 'timeline' },
     ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trend Analysis', testId: 'trendsNav', icon: 'trends' }] : []),
-    ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge', hasProBadge: true }] : []),
-    ...(mode === 'interview' && isProTier ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true }] : [])
+    { id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge', hasProBadge: true, requiresPro: true },
+    ...(mode === 'interview' ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true, requiresPro: true }] : [])
   ];
 
   return (
@@ -4874,14 +4874,18 @@ function WorkspaceNav({
         </button>
 
         <div className="view-tabs">
-          {tabs.map((tab) => (
+          {tabs.map((tab) => {
+            const isDisabled = tab.requiresPro && !isProTier;
+            return (
             <button
               key={tab.id}
-              className={view === tab.id ? 'view-tab active' : 'view-tab'}
+              className={view === tab.id ? 'view-tab active' : (isDisabled ? 'view-tab disabled-tab' : 'view-tab')}
               data-testid={tab.testId}
               type="button"
               aria-pressed={view === tab.id}
-              onClick={() => onViewChange(tab.id)}
+              onClick={() => {
+                if (!isDisabled) onViewChange(tab.id)
+              }}
               title={collapsed ? tab.label : undefined}
               >
                 <span className="view-tab-icon" aria-hidden="true">
@@ -4896,7 +4900,7 @@ function WorkspaceNav({
                 </span>
               )}
             </button>
-          ))}
+          )})}
         </div>
 
         <div className={`workspace-nav-footer ${collapsed ? 'collapsed' : 'expanded'}`}>
