@@ -187,7 +187,7 @@ function createProRealtimeAgent(options = {}) {
 
       sendStatus({ state: 'processing', message: 'Searching memory...' });
       const query = clean(args.query || payload.digest || '');
-      const results = await searchMemory(query);
+      const results = await searchMemory(query, payload.context || {}, payload.mode);
       return { results };
     }
 
@@ -215,7 +215,7 @@ function createProRealtimeAgent(options = {}) {
     throw new Error(`Unknown Clyde Pro tool: ${call.name}`);
   }
 
-  async function searchMemory(query) {
+  async function searchMemory(query, context = {}, mode = 'interview') {
     if (!query) {
       return [];
     }
@@ -226,7 +226,11 @@ function createProRealtimeAgent(options = {}) {
       && (settings.pineconeApiKey || process.env.PINECONE_API_KEY)
       && (settings.pineconeHost || process.env.PINECONE_HOST)
     ) {
-      const matches = await pineconeClient.searchKnowledgeVectors(query, settings, { topK: 5 });
+      const filter = buildContextFilter(context, mode);
+      const matches = await pineconeClient.searchKnowledgeVectors(query, settings, {
+        topK: 5,
+        ...(filter ? { filter } : {})
+      });
       return matches.map((match) => ({
         text: match.text,
         source: match.source,
@@ -261,6 +265,18 @@ function createProRealtimeAgent(options = {}) {
       content: item.content,
       metadata: item.metadata || {}
     }));
+  }
+
+  function buildContextFilter(context = {}, mode = 'interview') {
+    const entityId = clean(context.entityId || context.activeEntityId || context.company || context.meetingTitle || '');
+    if (!entityId) {
+      return null;
+    }
+
+    return {
+      mode: { $eq: mode === 'meeting' ? 'meeting' : 'interview' },
+      entityId: { $eq: entityId }
+    };
   }
 
   return {

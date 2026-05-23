@@ -118,6 +118,81 @@ test('pro realtime agent executes memory tool calls and returns normalized cards
   assert.equal(ws.closed, true);
 });
 
+test('pro realtime agent scopes memory search to the active entity context', async () => {
+  FakeWebSocket.instances = [];
+  const filters = [];
+  const agent = createProRealtimeAgent({
+    WebSocketImpl: FakeWebSocket,
+    timeoutMs: 1000,
+    settings: {
+      transcriptionApiKey: 'openai-key',
+      llmApiKey: 'openai-key',
+      proRealtimeModel: 'gpt-realtime-2',
+      pineconeApiKey: 'pine-key',
+      pineconeHost: 'https://example-index.pinecone.io'
+    },
+    knowledgeManager: {
+      getPinnedKnowledge: () => []
+    },
+    pineconeClient: {
+      searchKnowledgeVectors: async (_query, _settings, options) => {
+        filters.push(options.filter || null);
+        return [{
+          text: 'Apollo only memory.',
+          source: 'Apollo Interview',
+          knowledgeId: 'session:interview:apollo:1'
+        }];
+      }
+    }
+  });
+
+  const run = agent.run({
+    digest: 'Apollo support context',
+    mode: 'interview',
+    command: 'assist',
+    allowMemorySearch: true,
+    context: {
+      entityId: 'apollo'
+    }
+  });
+
+  const ws = FakeWebSocket.instances[0];
+  ws.emit('open');
+
+  emitJson(ws, {
+    type: 'response.done',
+    response: {
+      output: [{
+        type: 'function_call',
+        name: 'searchPastMeetings',
+        call_id: 'call-1',
+        arguments: JSON.stringify({ query: 'Apollo onboarding' })
+      }]
+    }
+  });
+
+  emitJson(ws, {
+    type: 'response.done',
+    response: {
+      output: [{
+        type: 'message',
+        content: [{
+          type: 'output_text',
+          text: JSON.stringify({
+            answers: [{ question: 'Apollo?', bullets: ['Use Apollo context.'] }],
+            memory_cards: []
+          })
+        }]
+      }]
+    }
+  });
+
+  const result = await run;
+  assert.deepEqual(filters, [{ mode: { $eq: 'interview' }, entityId: { $eq: 'apollo' } }]);
+  assert.equal(result.ok, true);
+  assert.equal(ws.closed, true);
+});
+
 test('pro realtime agent reports websocket errors', async () => {
   FakeWebSocket.instances = [];
   const agent = createProRealtimeAgent({

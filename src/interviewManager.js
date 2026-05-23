@@ -496,7 +496,7 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
             return cleanedTranscript;
         }
 
-        console.error("Failed to parse cleaned transcript JSON:", responseText);
+        console.error("Cleaned transcript response was rejected:", responseText);
         return null;
     }
 

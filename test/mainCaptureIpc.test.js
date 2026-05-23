@@ -188,10 +188,24 @@ test('main process exposes mock interview assessment and save handlers', () => {
   assert.match(source, /mockInterviewManager\.generateAssessment/);
   assert.match(source, /ipcMain\.handle\('save-mock-interview'/);
   assert.match(source, /mockInterviewManager\.saveMockInterview/);
+  assert.match(source, /Mock interview assessment requested:/);
+  assert.match(source, /Mock interview saved:/);
   assert.match(source, /ipcMain\.handle\('list-mock-interviews'/);
   assert.match(source, /ipcMain\.handle\('delete-mock-interview'/);
   assert.match(source, /mockInterviewManager\.deleteMockInterview\(id, loadSettings\(\)\)/);
   assert.match(source, /mock-interview-deleted/);
+});
+
+test('main process creates unique LiveAvatar context names for mock interviews', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const start = source.indexOf("ipcMain.handle('generate-mock-interview-session-token'");
+  const end = source.indexOf("\n    ipcMain.handle('generate-mock-interview-assessment'", start);
+  const block = source.slice(start, end);
+
+  assert.match(block, /const contextName = \[/);
+  assert.match(block, /new Date\(\)\.toISOString\(\)/);
+  assert.match(block, /Math\.random\(\)\.toString\(16\)/);
+  assert.match(block, /name: contextName/);
 });
 
 test('main process uses an app-owned Google OAuth client ID', () => {

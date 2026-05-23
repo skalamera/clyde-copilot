@@ -43,6 +43,31 @@ test('transcript cleanup accepts cleaned transcript that keeps the substance', (
   ]);
 });
 
+test('transcript cleanup accepts concise cleaned output from noisy long captures', () => {
+  const noisyTranscript = Array.from({ length: 40 }, (_, index) => ({
+    speaker: index % 2 ? 'You' : 'System Audio',
+    text: `${index % 2 ? 'Candidate answer' : 'Interviewer question'} ${index}. This turn contains useful interview content plus repeated filler filler filler filler filler filler.`
+  }));
+  const cleanedTranscript = Array.from({ length: 16 }, (_, index) => ({
+    speaker: index % 2 ? 'You' : 'System Audio',
+    text: `${index % 2 ? 'Candidate answer' : 'Interviewer question'} ${index}. This turn keeps the useful interview content.`
+  }));
+
+  const cleaned = normalizeCleanedTranscriptResponse(JSON.stringify({ transcript: cleanedTranscript }), noisyTranscript);
+
+  assert.deepEqual(cleaned, cleanedTranscript);
+});
+
+test('transcript cleanup prompt uses role labels when speaker labels are missing', () => {
+  const prompt = buildTranscriptCleanupPrompt([
+    { role: 'you', text: 'I built a support analytics tool.' },
+    { role: 'interviewer', text: 'What did it improve?' }
+  ]);
+
+  assert.match(prompt, /you: I built a support analytics tool\./);
+  assert.match(prompt, /interviewer: What did it improve\?/);
+});
+
 test('transcript cleanup prompt asks for full transcript retention', () => {
   const prompt = buildTranscriptCleanupPrompt(rawTranscript);
 

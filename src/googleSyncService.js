@@ -124,7 +124,7 @@ function createGoogleSyncService(options = {}) {
         }
         return proposals;
       } catch (err) {
-        console.error('LLM parsing for gmail failed, falling back to regex:', err);
+        logSyncLlmFallback('gmail', err);
       }
     }
 
@@ -214,7 +214,7 @@ function createGoogleSyncService(options = {}) {
             entityName = result.companyName;
         }
        } catch (err) {
-         console.error('LLM parsing for calendar event failed, falling back to regex:', err);
+         logSyncLlmFallback('calendar event', err);
        }
     }
 
@@ -394,6 +394,23 @@ function resolveSyncLlmConfig(settings = {}) {
     return { provider: 'openai', apiKey: openAiEnvKey, model: 'gpt-4o-mini' };
   }
   return null;
+}
+
+function logSyncLlmFallback(source, error) {
+  if (isLocalConnectionRefused(error)) {
+    return;
+  }
+
+  const status = error?.response?.status || error?.status;
+  const code = clean(error?.code);
+  const message = clean(error?.response?.data?.error?.message || error?.response?.data?.message || error?.message);
+  const detail = [status ? `status ${status}` : '', code, message].filter(Boolean).join(' - ');
+  console.warn(`LLM parsing for ${source} failed, falling back to regex${detail ? `: ${detail}` : '.'}`);
+}
+
+function isLocalConnectionRefused(error) {
+  const url = clean(error?.config?.url);
+  return error?.code === 'ECONNREFUSED' && (url.includes('127.0.0.1') || url.includes('localhost'));
 }
 
 function clean(value) {

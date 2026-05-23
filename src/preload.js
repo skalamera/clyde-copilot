@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ingestKnowledgeFile: (filePath) => ipcRenderer.invoke('ingest-knowledge-file', filePath),
       uploadKnowledgeToPinecone: (id) => ipcRenderer.invoke('upload-knowledge-to-pinecone', id),
       deleteKnowledgeItem: (id) => ipcRenderer.invoke('delete-knowledge-item', id),
+    generateMockInterviewSessionToken: (payload) => ipcRenderer.invoke('generate-mock-interview-session-token', payload),
     generateMockInterviewAssessment: (payload) => ipcRenderer.invoke('generate-mock-interview-assessment', payload),
     saveMockInterview: (payload) => ipcRenderer.invoke('save-mock-interview', payload),
     listMockInterviews: () => ipcRenderer.invoke('list-mock-interviews'),
@@ -76,6 +77,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     closeApp: () => ipcRenderer.invoke('close-app'),
     minimizeAppWindow: () => ipcRenderer.invoke('minimize-app-window'),
     maximizeAppWindow: () => ipcRenderer.invoke('maximize-app-window'),
+    isAppWindowMaximized: () => ipcRenderer.invoke('is-app-window-maximized'),
     hideApp: () => ipcRenderer.invoke('hide-app'),
     showApp: () => ipcRenderer.invoke('show-app'),
     getAppWindowBounds: () => ipcRenderer.invoke('get-app-window-bounds'),
@@ -89,6 +91,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onAudioLevelUpdate: (callback) => ipcRenderer.on('audio-level-update', callback),
     onSessionReset: (callback) => ipcRenderer.on('session-reset', callback),
     onAudioStatus: (callback) => ipcRenderer.on('audio-status', callback),
+    onAppWindowMaximizedStateChange: (callback) => {
+        ipcRenderer.on('app-window-maximized-state-change', callback);
+        return () => ipcRenderer.off('app-window-maximized-state-change', callback);
+    },
     onSessionDataChanged: (callback) => {
         ipcRenderer.on('session-data-changed', callback);
         return () => ipcRenderer.off('session-data-changed', callback);

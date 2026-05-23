@@ -286,6 +286,7 @@ function normalizeMockRecord(record = {}) {
     title: clean(record.title) || `Mock interview - ${name}`,
     transcript: normalizeTranscript(record.transcript),
     assessment: normalizeAssessment(record.assessment),
+    avatar: normalizeAvatarMetadata(record.avatar || record.avatarMetadata),
     savedToKnowledge: Boolean(record.savedToKnowledge)
   };
 }
@@ -355,6 +356,16 @@ function normalizeTextArray(values = []) {
     .filter(Boolean);
 }
 
+function normalizeAvatarMetadata(avatar = {}) {
+  const normalized = avatar && typeof avatar === 'object' ? avatar : {};
+  return {
+    provider: clean(normalized.provider),
+    avatarId: clean(normalized.avatarId),
+    voiceId: clean(normalized.voiceId),
+    sessionId: clean(normalized.sessionId)
+  };
+}
+
 function buildAssessmentPrompt({ opportunity, transcript, durationSeconds }) {
   const company = clean(opportunity.name || 'the target company');
   const role = clean(opportunity.role || 'the target role');
@@ -422,6 +433,7 @@ function buildKnowledgeContent(record = {}) {
 
   return [
     `Mock interview for ${record.opportunity?.name || 'General'}${record.opportunity?.role ? `, ${record.opportunity.role}` : ''}`,
+    record.avatar?.provider ? `Interviewer avatar: ${record.avatar.provider}${record.avatar.avatarId ? ` (${record.avatar.avatarId})` : ''}` : '',
     `Overall score: ${assessment.overallScore}`,
     assessment.verdict ? `Verdict: ${assessment.verdict}` : '',
     assessment.executiveSummary ? `Summary: ${assessment.executiveSummary}` : '',

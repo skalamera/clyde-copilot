@@ -33,11 +33,13 @@ test('mock interview manager saves local records grouped by opportunity folder',
   const saved = await manager.saveMockInterview({
     opportunity: { id: 'apollo', name: 'Apollo', role: 'Support Operations Manager' },
     transcript: [{ role: 'you', text: 'I improved support QA.' }],
-    assessment: JSON.parse(assessmentJson)
+    assessment: JSON.parse(assessmentJson),
+    avatar: { provider: 'legacy-avatar', avatarId: 'avatar-1', voiceId: 'voice-1', sessionId: 'session-1' }
   }, { userTier: 'free' });
 
   assert.equal(saved.opportunity.id, 'apollo');
   assert.equal(saved.assessment.overallScore, 82);
+  assert.deepEqual(saved.avatar, { provider: 'legacy-avatar', avatarId: 'avatar-1', voiceId: 'voice-1', sessionId: 'session-1' });
   assert.equal(manager.listMockInterviews().length, 1);
   assert.ok(fs.existsSync(path.join(appPath, 'Mock Interviews', 'apollo', `${saved.id}.json`)));
 });
