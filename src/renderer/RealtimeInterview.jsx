@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RealtimeInterviewService } from './realtimeInterviewService';
 
-const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
+const proBadgeUrl = new URL('../../clyde_pro-badge.svg', import.meta.url).href;
 
 export function RealtimeInterview({ api, targetEntity, settings = {} }) {
   const [status, setStatus] = useState('disconnected');
@@ -287,10 +287,10 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
       <section className="mock-interview-main">
           <div className="mock-interview-header">
             <div>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Mock Interview <img src={proBadgeUrl} alt="Pro" style={{ height: '14px', width: 'auto', display: 'inline-block', transform: 'translateY(-1px)' }} />
-                {targetEntity ? ` - ${targetEntity.name}` : ''}
-              </h2>
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  Mock Interview <img src={proBadgeUrl} alt="Pro" style={{ height: '22px', width: 'auto', display: 'inline-block', transform: 'translateY(-1px)' }} />
+                  {targetEntity ? ` - ${targetEntity.name}` : ''}
+                </h2>
               <p>{currentOpportunity.role || 'General interview practice'}</p>
             </div>
             <div className="mock-header-actions">
