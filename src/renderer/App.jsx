@@ -4820,7 +4820,7 @@ function WorkspaceNav({
   onMarkAuditRead,
   onSettings
 }) {
-  const timelineLabel = mode === 'interview' ? 'Opportunity Tracker' : 'Memory';
+  const timelineLabel = mode === 'interview' ? 'Opportunity Tracker' : 'Meeting Notes';
   const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
   const nextEventLabel = resolveEventEntityLabel(nextUpcomingEvent);
   const tabs = [
