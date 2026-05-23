@@ -4650,9 +4650,9 @@ body:has(.app-shell-active) {
   color: var(--text);
 }
 
-.workspace-nav-footer .icon-button svg {
-  width: 20px;
-  height: 20px;
+.footer-emoji-icon {
+  font-size: 1.4rem;
+  line-height: 1;
 }
 
 .notifications-wrapper {

@@ -4829,8 +4829,7 @@ function WorkspaceNav({
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: 'timeline' },
     ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trend Analysis', testId: 'trendsNav', icon: 'trends' }] : []),
     ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge', hasProBadge: true }] : []),
-    { id: 'calendar', eyebrow: 'Schedule', label: 'Scheduler', testId: 'calendarNav', icon: 'calendar' },
-    ...(mode === 'interview' && isProTier ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Live Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true }] : [])
+    ...(mode === 'interview' && isProTier ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true }] : [])
   ];
 
   return (
@@ -4909,11 +4908,11 @@ function WorkspaceNav({
             aria-pressed={captureProtectionEnabled}
             title={captureProtectionEnabled ? 'Screen capture protection enabled' : 'Screen capture protection disabled'}
           >
-            <span className="ghost-emoji-icon" aria-hidden="true">👻</span>
+            <span className="footer-emoji-icon" aria-hidden="true">👻</span>
           </button>
           <div className="notifications-wrapper">
             <button className="icon-button notifications-trigger" type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications" title="Notifications">
-              <NotificationIcon />
+              <span className="footer-emoji-icon" aria-hidden="true">🔔</span>
               {unreadAutoApproved.length > 0 && (
                 <span className="notifications-badge">
                   {unreadAutoApproved.length}
@@ -4943,7 +4942,10 @@ function WorkspaceNav({
             )}
           </div>
           <button className="icon-button" type="button" onClick={onSettings} aria-label="Settings" title="Settings">
-            <GearIcon />
+            <span className="footer-emoji-icon" aria-hidden="true">⚙️</span>
+          </button>
+          <button className="icon-button" type="button" onClick={() => onViewChange('calendar')} aria-label="Calendar" title="Calendar">
+            <span className="footer-emoji-icon" aria-hidden="true">🗓️</span>
           </button>
         </div>
       </div>
