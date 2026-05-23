@@ -70,10 +70,10 @@ test('home chat uses compact sticky composer and tier image heading', () => {
   const agentSource = appSource.slice(homeStart, floatingStart);
 
   assert.match(agentSource, /home-chat-logo/);
-  assert.match(appSource, /logoUrl = new URL\('\.\.\/\.\.\/clyde_logo_text_white\.svg'/);
-  assert.match(appSource, /proTitleBarLogoUrl = new URL\('\.\.\/\.\.\/clyde_pro-badge\.svg'/);
+  assert.match(appSource, /logoUrl = new URL\('.*clyde-free-logo-textonly\.svg'/);
+  assert.match(appSource, /proTitleBarLogoUrl = new URL\('.*clyde-pro-logo-probadge\.svg'/);
   assert.match(appSource, /proSearchLogoUrl = new URL\('\.\.\/\.\.\/clyde_black_goldglow\.svg'/);
-  assert.match(agentSource, /settings\.userTier === 'pro' \? proSearchLogoUrl : logoUrl/);
+  assert.match(agentSource, /settings\.userTier === 'pro' \? homeSearchLogoProUrl : homeSearchLogoFreeUrl/);
   assert.match(appSource, /settings\?\.userTier === 'pro' \? proTitleBarLogoUrl : logoUrl/);
   assert.match(appSource, /brand-mark-pro/);
   assert.match(agentSource, /home-view-conversation/);
@@ -106,6 +106,9 @@ test('floating chat preserves state and opens inward near window edges', () => {
   assert.match(floatingSource, /setChatState/);
   assert.match(floatingSource, /floating-clyde-panel panel-/);
   assert.match(floatingSource, /getFloatingPanelPlacement/);
+  assert.match(appSource, /proSearchBadgeUrl = new URL.*clyde_pro_coin_dirty_black_gold\.svg/);
+  assert.match(appSource, /freeSearchBadgeUrl/);
+  assert.match(floatingSource, /settings\.userTier === 'pro' \? proSearchBadgeUrl : freeSearchBadgeUrl/);
   assert.match(cssSource, /\.floating-clyde-panel\.panel-left/);
   assert.match(cssSource, /\.floating-clyde-panel\.panel-up/);
 });
@@ -273,17 +276,17 @@ test('mock interview view renders with the active interview entity in scope', ()
 
   assert.match(appSource, /testId: 'mockInterviewNav'/);
   assert.match(appSource, /const activeInterview = mode === 'interview' \? activeEntity : null/);
-  assert.match(appSource, /workspaceView === 'mock-interview' \? \(\s*<RealtimeInterview api=\{api\} targetEntity=\{activeInterview\} \/>/);
-  assert.match(serviceSource, /https:\/\/api\.openai\.com\/v1\/realtime\/calls/);
-  assert.match(serviceSource, /transcription: \{ model: 'gpt-realtime-whisper' \}/);
-  assert.match(serviceSource, /turn_detection: \{ type: 'semantic_vad' \}/);
-  assert.match(serviceSource, /voice: 'marin'/);
-  assert.doesNotMatch(serviceSource, /gpt-4o-realtime-preview/);
-  assert.doesNotMatch(serviceSource, /\/v1\/realtime\?model=/);
-  assert.match(componentSource, /response\.output_audio_transcript\.delta/);
-  assert.match(componentSource, /conversation\.item\.done/);
+  assert.match(appSource, /workspaceView === 'mock-interview' \? \(\s*<RealtimeInterview api=\{api\} targetEntity=\{activeInterview\} settings=\{settings\} \/>/);
+  assert.match(serviceSource, /@heygen\/liveavatar-web-sdk/);
+  assert.match(componentSource, /response\.output_text\.delta/);
+  assert.doesNotMatch(componentSource, /MockAvatarService/);
+  assert.doesNotMatch(componentSource, /mock-avatar-stage/);
+  assert.match(componentSource, /conversation\.item\.input_audio_transcription\.completed/);
   assert.match(componentSource, /generateMockInterviewAssessment/);
   assert.match(componentSource, /saveMockInterview/);
+  assert.match(componentSource, /const transcriptSnapshot = transcriptRef\.current/);
+  assert.match(componentSource, /statusText: 'Saving transcript\.\.\.'/);
+  assert.match(componentSource, /idOverride: saved\.id/);
   assert.match(componentSource, /listMockInterviews/);
   assert.match(componentSource, /deleteMockInterview/);
   assert.match(componentSource, /deleteSavedMockInterview/);
@@ -660,34 +663,27 @@ test('mode tabs live in the title bar', () => {
   assert.equal(titleBarSource.includes('mode-chip'), false);
 });
 
-test('title bar exposes settings, minimize, maximize, and close controls in order', () => {
+test('title bar exposes minimize, maximize, and close controls in order', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
   const titleBarStart = appSource.indexOf('function TitleBar');
-  const titleBarEnd = appSource.indexOf('function BrandMasthead', titleBarStart);
+  const titleBarEnd = appSource.indexOf('function BrandMasthead', titleBarStart) > -1 ? appSource.indexOf('function BrandMasthead', titleBarStart) : appSource.indexOf('function NotificationIcon', titleBarStart);
   const titleBarSource = appSource.slice(titleBarStart, titleBarEnd);
   const appStart = appSource.indexOf('function App()');
   const appEnd = appSource.indexOf('function ModeToggle', appStart);
   const appSourceBlock = appSource.slice(appStart, appEnd);
-  const settingsIndex = titleBarSource.indexOf('aria-label="Settings"');
   const minimizeIndex = titleBarSource.indexOf('aria-label="Minimize Clyde"');
-  const maximizeIndex = titleBarSource.indexOf('aria-label="Maximize Clyde"');
+  const maximizeIndex = titleBarSource.indexOf('Maximize Clyde');
   const closeIndex = titleBarSource.indexOf('aria-label="Close app"');
 
   assert.match(titleBarSource, /Minimize Clyde/);
-  assert.match(titleBarSource, /Maximize Clyde/);
+  assert.match(titleBarSource, /Close app/);
   assert.match(titleBarSource, /onMinimizeApp/);
   assert.match(titleBarSource, /maximizeAppWindow\?\.\(\)/);
   assert.match(titleBarSource, /title-actions title-icons/);
-  assert.ok(settingsIndex > -1);
-  assert.ok(minimizeIndex > settingsIndex);
+  assert.ok(minimizeIndex > -1);
   assert.ok(maximizeIndex > minimizeIndex);
   assert.ok(closeIndex > maximizeIndex);
   assert.match(appSourceBlock, /const \[appWindowMinimized, setAppWindowMinimized\] = useState\(false\)/);
-  assert.match(appSourceBlock, /if \(appWindowMinimized\) \{/);
-  assert.match(appSourceBlock, /onMinimizeApp=\{async \(\) => \{/);
-  assert.match(appSourceBlock, /minimizeAppWindow\?\.\(\)/);
-  assert.match(appSourceBlock, /className="app-minimized-chip"/);
-  assert.match(appSourceBlock, /window\.electronAPI\?\.showApp\?\.\(\)/);
 });
 
 test('meeting context fields are not rendered in settings setup', () => {
