@@ -6,17 +6,34 @@ import {
   isTrendAnalysisComplete
 } from './trendAnalysisClient.js';
 
-const logoUrl = new URL('../../clyde_logo_text_white.svg', import.meta.url).href;
-const freeSidebarLogoUrl = new URL('../../clyde_free_white_green.svg', import.meta.url).href;
-const freeFloatingLogoUrl = new URL('../../clyde_free.png', import.meta.url).href;
+const logoUrl = new URL('../../clyde-free-logo-textonly.svg', import.meta.url).href;
+const freeSidebarLogoUrl = new URL('../../clydefree.svg', import.meta.url).href;
 const proLogoUrl = new URL('../../clyde_pro.svg', import.meta.url).href;
 const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
-const proTitleBarLogoUrl = new URL('../../clyde_pro-badge.svg', import.meta.url).href;
-const proSidebarLogoUrl = new URL('../../clyde_black_white_glow.svg', import.meta.url).href;
+const proGoldBadgeUrl = new URL('../../clyde_pro-badge.svg', import.meta.url).href;
+const proTitleBarLogoUrl = new URL('../../clyde-pro-logo-probadge.svg', import.meta.url).href;
+const proSidebarLogoUrl = new URL('../../clydepro.svg', import.meta.url).href;
 const proSearchLogoUrl = new URL('../../clyde_black_goldglow.svg', import.meta.url).href;
-const freeSearchBadgeUrl = new URL('../../clyde_free_silver_coin.svg', import.meta.url).href;
-const proSearchBadgeUrl = new URL('../../clyde_pro_coin.png', import.meta.url).href;
-const ghostUrl = new URL('../../clyde_ghost.svg', import.meta.url).href;
+const freeSearchBadgeUrl = new URL('../../clyde-free-coin.svg', import.meta.url).href;
+const proSearchBadgeUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', import.meta.url).href;
+const ghostUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', import.meta.url).href; // Use pro coin for ghost? Wait, ghostUrl is used for floating chat
+const homeSearchLogoFreeUrl = new URL('../../clyde-plus-ghost-free.svg', import.meta.url).href;
+const homeSearchLogoProUrl = new URL('../../clyde_text_with_pro_ghost.svg', import.meta.url).href;
+
+const iconHomeUrl = new URL('../../navbar-icons/Home.svg', import.meta.url).href;
+const iconHomeColorUrl = new URL('../../navbar-icons/Home_color.svg', import.meta.url).href;
+const iconAssistUrl = new URL('../../navbar-icons/Pre-call_Prep.svg', import.meta.url).href;
+const iconAssistColorUrl = new URL('../../navbar-icons/Pre-call_Prep_color.svg', import.meta.url).href;
+const iconTimelineUrl = new URL('../../navbar-icons/Interview_Tracker.svg', import.meta.url).href;
+const iconTimelineColorUrl = new URL('../../navbar-icons/Interview_Tracker_color.svg', import.meta.url).href;
+const iconTrendsUrl = new URL('../../navbar-icons/Trend_Analysis.svg', import.meta.url).href;
+const iconTrendsColorUrl = new URL('../../navbar-icons/Trend_Analysis_color.svg', import.meta.url).href;
+const iconKnowledgeUrl = new URL('../../navbar-icons/Knowledge.svg', import.meta.url).href;
+const iconKnowledgeColorUrl = new URL('../../navbar-icons/Knowledge_color.svg', import.meta.url).href;
+const iconCalendarUrl = new URL('../../navbar-icons/Calendar.svg', import.meta.url).href;
+const iconCalendarColorUrl = new URL('../../navbar-icons/Calendar_color.svg', import.meta.url).href;
+const iconMockInterviewUrl = new URL('../../navbar-icons/Mock_Interviews.svg', import.meta.url).href;
+const iconMockInterviewColorUrl = new URL('../../navbar-icons/Mock_Interviews_color.svg', import.meta.url).href;
 const AGENT_CHAT_CONTEXT_LIMIT = 50;
 
 function unwrapTrendAnalysisRecord(record) {
@@ -2375,8 +2392,9 @@ function App() {
   const [assistantCards, setAssistantCards] = useState([]);
   const [askPending, setAskPending] = useState(false);
   const [overlayHidden, setOverlayHidden] = useState(false);
-  const [appWindowMinimized, setAppWindowMinimized] = useState(false);
-  const [capturePaused, setCapturePaused] = useState(false);
+    const [appWindowMinimized, setAppWindowMinimized] = useState(false);
+    const [appWindowMaximized, setAppWindowMaximized] = useState(false);
+    const [capturePaused, setCapturePaused] = useState(false);
   const [health, setHealth] = useState(DEFAULT_HEALTH);
   const [liveLevels, setLiveLevels] = useState([]);
   const [workspaceView, setWorkspaceView] = useState('home');
@@ -2401,19 +2419,22 @@ function App() {
   const [syncProposals, setSyncProposals] = useState([]);
   const [syncAudit, setSyncAudit] = useState([]);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
-  const [calendarTargetEntity, setCalendarTargetEntity] = useState(null);
-  const [calendarEditEvent, setCalendarEditEvent] = useState(null);
-  const [homeChatState, setHomeChatState] = useState({
-    sessionId: '',
-    messages: [],
-    pendingAction: null,
-    selectedSourceIds: [],
-    sourceMode: 'active-context',
-    sourceCategory: 'interview'
-  });
-  const nowMs = useNowMs();
+    const [calendarTargetEntity, setCalendarTargetEntity] = useState(null);
+    const [calendarEditEvent, setCalendarEditEvent] = useState(null);
+    const [notificationsOpen, setNotificationsOpen] = useState(false);
+    const [homeChatState, setHomeChatState] = useState({
+      sessionId: '',
+      messages: [],
+      pendingAction: null,
+      selectedSourceIds: [],
+      sourceMode: 'active-context',
+      sourceCategory: 'interview'
+    });
+    const nowMs = useNowMs();
 
-  useEffect(() => {
+    const unreadAutoApproved = Array.isArray(syncAudit) ? syncAudit.filter(item => item.autoApproved && !item.read) : [];
+
+    useEffect(() => {
     applyUiOpacityToRoot(settings.uiOpacity);
   }, [settings.uiOpacity]);
 
@@ -2684,21 +2705,26 @@ function App() {
   useEffect(() => {
     let mounted = true;
 
-    async function load() {
-      if (!api?.loadSettings) {
-        return;
-      }
+      async function load() {
+        if (!api?.loadSettings) {
+          return;
+        }
 
-      const loaded = await api.loadSettings();
-      if (!mounted) {
-        return;
-      }
+        const [loaded, isMaximized] = await Promise.all([
+          api.loadSettings(),
+          api.isAppWindowMaximized?.()
+        ]);
+        
+        if (!mounted) {
+          return;
+        }
 
-      const nextSettings = { ...EMPTY_SETTINGS, ...(loaded || {}) };
-      setSettings(nextSettings);
-      setMode(nextSettings.appMode === 'meeting' ? 'meeting' : 'interview');
-      setSetupOpen(!nextSettings.currentCompany && !nextSettings.meetingTitle);
-    }
+        const nextSettings = { ...EMPTY_SETTINGS, ...(loaded || {}) };
+        setSettings(nextSettings);
+        setMode(nextSettings.appMode === 'meeting' ? 'meeting' : 'interview');
+        setSetupOpen(!nextSettings.currentCompany && !nextSettings.meetingTitle);
+        setAppWindowMaximized(Boolean(isMaximized));
+      }
 
     load().catch((error) => setStatus(`Settings failed: ${error.message}`));
 
@@ -2757,8 +2783,15 @@ function App() {
       setStatus('Session reset.');
     });
 
+    const unsubscribeMaximized = api?.onAppWindowMaximizedStateChange?.((_event, isMaximized) => {
+      setAppWindowMaximized(Boolean(isMaximized));
+    });
+
     return () => {
       mounted = false;
+      if (typeof unsubscribeMaximized === 'function') {
+        unsubscribeMaximized();
+      }
     };
   }, [api]);
 
@@ -2812,8 +2845,8 @@ function App() {
   }
 
   async function chooseMode(nextMode) {
-    if (workspaceView === 'trends' && mode === 'interview' && nextMode === 'meeting') {
-      setStatus('Meeting mode is unavailable in Interview trend analysis.');
+    if ((workspaceView === 'trends' || workspaceView === 'mock-interview') && mode === 'interview' && nextMode === 'meeting') {
+      setStatus(`Meeting mode is unavailable in ${workspaceView === 'trends' ? 'Interview trend analysis' : 'Mock Interview'}.`);
       return;
     }
 
@@ -3332,6 +3365,7 @@ function App() {
         onModeChange={chooseMode}
         onSettings={() => setSettingsOpen(true)}
         settings={settings}
+        appWindowMaximized={appWindowMaximized}
         onToggleCaptureProtection={toggleCaptureProtection}
         onMinimizeApp={async () => {
           const minimized = await api?.minimizeAppWindow?.();
@@ -3391,15 +3425,25 @@ function App() {
         <>
         <div className={`workspace-shell ${workspaceNavCollapsed ? 'sidebar-collapsed' : ''}`}>
           <WorkspaceNav
-              mode={mode}
-              onViewChange={setWorkspaceView}
-              nextUpcomingEvent={nextUpcomingEvent}
-              onOpenNextUpcomingEvent={openNextUpcomingEvent}
-              view={workspaceView}
-              isProTier={settings.userTier === 'pro'}
-              collapsed={workspaceNavCollapsed}
-              onToggleCollapsed={() => setWorkspaceNavCollapsed((current) => !current)}
-            />
+                mode={mode}
+                onViewChange={setWorkspaceView}
+                nextUpcomingEvent={nextUpcomingEvent}
+                onOpenNextUpcomingEvent={openNextUpcomingEvent}
+                view={workspaceView}
+                isProTier={settings.userTier === 'pro'}
+                collapsed={workspaceNavCollapsed}
+                onToggleCollapsed={() => setWorkspaceNavCollapsed((current) => !current)}
+                captureProtectionEnabled={settings.captureProtectionEnabled !== false}
+                onToggleCaptureProtection={toggleCaptureProtection}
+                notificationsOpen={notificationsOpen}
+                setNotificationsOpen={setNotificationsOpen}
+                unreadAutoApproved={unreadAutoApproved}
+                onMarkAuditRead={(ids) => {
+                   api?.markSyncAuditRead?.(ids).catch(() => {});
+                   setSyncAudit(current => current.map(item => ids.includes(item.id) || ids.length === 0 ? { ...item, read: true } : item));
+                }}
+                onSettings={() => setSettingsOpen(true)}
+              />
 
           <section className={`workspace-content ${
             (workspaceView === 'timeline' || workspaceView === 'trends')
@@ -3493,7 +3537,7 @@ function App() {
             }))}
           />
         ) : workspaceView === 'mock-interview' ? (
-          <RealtimeInterview api={api} targetEntity={activeInterview} />
+          <RealtimeInterview api={api} targetEntity={activeInterview} settings={settings} />
         ) : (
           <section className="assist-split-layout">
             <div className="assist-top-scroll">
@@ -3705,22 +3749,19 @@ function App() {
 }
 
 function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, onModeChange, onSettings, settings, onToggleCaptureProtection,
-  onMinimizeApp, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting, syncAudit, onMarkAuditRead }) {
+    onMinimizeApp, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting, syncAudit, onMarkAuditRead, appWindowMaximized }) {
   const isInterview = mode === 'interview';
   const api = window.electronAPI;
   const captureProtectionEnabled = settings.captureProtectionEnabled !== false;
   const selectableInterviewEntities = isInterview
     ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) !== 'rejected')
     : entities;
-  const activeMeetingId = isInterview
-    ? ''
-    : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
+    const activeMeetingId = isInterview
+      ? ''
+      : entities.find((entity) => entity.id === settings.meetingTitle || entity.name === settings.meetingTitle)?.id || '';
 
-  const unreadAutoApproved = Array.isArray(syncAudit) ? syncAudit.filter(item => item.autoApproved && !item.read) : [];
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-
-      return (
-        <header className="title-bar">
+        return (
+          <header className="title-bar">
           <div className="title-brand">
             <img
               src={settings?.userTier === 'pro' ? proTitleBarLogoUrl : logoUrl}
@@ -3790,56 +3831,18 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
       </div>
 
       <div className="title-actions title-icons">
-        <button
-          className={`capture-protection-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
-          type="button"
-          onClick={onToggleCaptureProtection}
-          aria-label={captureProtectionEnabled ? 'Disable screen capture protection' : 'Enable screen capture protection'}
-          aria-pressed={captureProtectionEnabled}
-          title={captureProtectionEnabled ? 'Screen capture protection enabled' : 'Screen capture protection disabled'}
-        >
-          <span className="ghost-emoji-icon" aria-hidden="true">👻</span>
-        </button>
-        <button className="icon-button notifications-trigger" type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications" title="Notifications">
-          <NotificationIcon />
-          {unreadAutoApproved.length > 0 && (
-            <span className="notifications-badge">
-              {unreadAutoApproved.length}
-            </span>
-          )}
-        </button>
-        {notificationsOpen && (
-          <div className="notifications-modal">
-            <div className="notifications-modal-head">
-              <strong>Notifications</strong>
-              {unreadAutoApproved.length > 0 && (
-                <button type="button" className="ghost" onClick={() => onMarkAuditRead(unreadAutoApproved.map(a => a.id))}>Dismiss all</button>
-              )}
-            </div>
-            <div className="notifications-modal-list">
-              {unreadAutoApproved.length ? unreadAutoApproved.map((entry) => (
-                <article key={entry.id} className="notifications-modal-item">
-                  <div className="notifications-modal-item-row">
-                     <p>{entry.message || entry.type}</p>
-                     <button type="button" className="ghost notifications-dismiss-button" onClick={() => onMarkAuditRead([entry.id])}>X</button>
-                  </div>
-                  <small>{new Date(entry.createdAt).toLocaleString()}</small>
-                </article>
-              )) : <small>No new notifications.</small>}
-            </div>
-          </div>
-        )}
-        <button className="icon-button" type="button" onClick={onSettings} aria-label="Settings" title="Settings">
-          <GearIcon />
-        </button>
         <button className="icon-button" type="button" onClick={onMinimizeApp} aria-label="Minimize Clyde" title="Minimize Clyde">
           <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
             <path d="M6 12h12" />
           </svg>
         </button>
-        <button className="icon-button" type="button" onClick={() => api?.maximizeAppWindow?.()} aria-label="Maximize Clyde" title="Maximize Clyde">
+        <button className="icon-button" type="button" onClick={() => api?.maximizeAppWindow?.()} aria-label={appWindowMaximized ? "Restore Clyde" : "Maximize Clyde"} title={appWindowMaximized ? "Restore Clyde" : "Maximize Clyde"}>
           <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-            <path d="M7 7h10v10H7z" />
+            {appWindowMaximized ? (
+              <path d="M16.5 8.5v-2h-10v10h2m2-5h7v7h-7z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            ) : (
+              <path d="M7 7h10v10H7z" />
+            )}
           </svg>
         </button>
         <button className="icon-button close-button" type="button" onClick={() => api?.closeApp?.()} aria-label="Close app" title="Close app">
@@ -4007,7 +4010,7 @@ function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionC
         <div className="home-chat-heading">
           <img
             className="home-chat-logo"
-            src={settings.userTier === 'pro' ? proSearchLogoUrl : logoUrl}
+            src={settings.userTier === 'pro' ? homeSearchLogoProUrl : homeSearchLogoFreeUrl}
             alt="Clyde"
           />
         </div>
@@ -4518,7 +4521,7 @@ function AgentChatSurface({
   }
 
   return (
-    <section className={`agent-chat agent-chat-${variant} ${messages.length || pendingAction ? 'agent-chat-has-messages' : 'agent-chat-empty-state'}`}>
+    <section className={`agent-chat agent-chat-${variant} ${messages.length || pendingAction ? 'agent-chat-has-messages' : 'agent-chat-empty-state'} ${proTier ? 'agent-chat-pro' : ''}`}>
       <div className="agent-chat-messages" aria-live="polite">
         {messages.length ? messages.map((message, index) => (
           <article className={`agent-message ${message.role || 'assistant'}`} key={`${message.role}-${index}`}>
@@ -4738,7 +4741,7 @@ function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings,
         aria-label="Open Clyde chat"
         title="Drag or click Clyde"
       >
-        <img src={settings.userTier === 'pro' ? proLogoUrl : freeFloatingLogoUrl} alt="" />
+        <img src={settings.userTier === 'pro' ? proSearchBadgeUrl : freeSearchBadgeUrl} alt="" />
       </button>
       {prefs.panelOpen ? (
         <div className={`floating-clyde-panel panel-${placement.horizontal} panel-${placement.vertical}`}>
@@ -4800,18 +4803,34 @@ function clampFloatingPrefs(prefs = {}) {
   };
 }
 
-function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onOpenNextUpcomingEvent, isProTier = false, collapsed = false, onToggleCollapsed }) {
-  const timelineLabel = mode === 'interview' ? 'Timeline' : 'Memory';
+function WorkspaceNav({ 
+  mode, 
+  onViewChange, 
+  view, 
+  nextUpcomingEvent, 
+  onOpenNextUpcomingEvent, 
+  isProTier = false, 
+  collapsed = false, 
+  onToggleCollapsed,
+  captureProtectionEnabled,
+  onToggleCaptureProtection,
+  notificationsOpen,
+  setNotificationsOpen,
+    unreadAutoApproved = [],
+  onMarkAuditRead,
+  onSettings
+}) {
+  const timelineLabel = mode === 'interview' ? 'Opportunity Tracker' : 'Memory';
   const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
   const nextEventLabel = resolveEventEntityLabel(nextUpcomingEvent);
   const tabs = [
     { id: 'home', eyebrow: 'Ask', label: 'Home', testId: 'homeNav', icon: 'home' },
-    { id: 'live', eyebrow: 'Now', label: 'Assist', icon: 'assist' },
+    { id: 'live', eyebrow: 'Now', label: 'Pre-Call Prep', icon: 'assist' },
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: 'timeline' },
-    ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trends', testId: 'trendsNav', icon: 'trends' }] : []),
-    ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge' }] : []),
-    { id: 'calendar', eyebrow: 'Schedule', label: 'Calendar', testId: 'calendarNav', icon: 'calendar' },
-    ...(mode === 'interview' ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'assist' }] : [])
+    ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trend Analysis', testId: 'trendsNav', icon: 'trends' }] : []),
+    ...(isProTier ? [{ id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge', hasProBadge: true }] : []),
+    { id: 'calendar', eyebrow: 'Schedule', label: 'Scheduler', testId: 'calendarNav', icon: 'calendar' },
+    ...(mode === 'interview' && isProTier ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Live Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true }] : [])
   ];
 
   return (
@@ -4865,18 +4884,67 @@ function WorkspaceNav({ mode, onViewChange, view, nextUpcomingEvent, onOpenNextU
               aria-pressed={view === tab.id}
               onClick={() => onViewChange(tab.id)}
               title={collapsed ? tab.label : undefined}
-            >
-              <span className="view-tab-icon" aria-hidden="true">
-                <WorkspaceNavIcon id={tab.icon} />
-              </span>
-              {collapsed ? null : (
+              >
+                <span className="view-tab-icon" aria-hidden="true">
+                  <WorkspaceNavIcon id={tab.icon} active={view === tab.id} />
+                </span>
+                {collapsed ? null : (
                 <span className="view-tab-copy">
-                  <span>{tab.eyebrow}</span>
-                  <strong>{tab.label}</strong>
+                  <strong style={{ display: 'inline', verticalAlign: 'middle' }}>
+                    {tab.label}
+                    {tab.hasProBadge && <img src={proGoldBadgeUrl} alt="PRO" style={{ height: '14px', width: 'auto', display: 'inline-block', verticalAlign: 'middle', marginLeft: '6px', transform: 'translateY(-1px)' }} />}
+                  </strong>
                 </span>
               )}
             </button>
           ))}
+        </div>
+
+        <div className={`workspace-nav-footer ${collapsed ? 'collapsed' : 'expanded'}`}>
+          <button
+            className={`icon-button capture-protection-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
+            type="button"
+            onClick={onToggleCaptureProtection}
+            aria-label={captureProtectionEnabled ? 'Disable screen capture protection' : 'Enable screen capture protection'}
+            aria-pressed={captureProtectionEnabled}
+            title={captureProtectionEnabled ? 'Screen capture protection enabled' : 'Screen capture protection disabled'}
+          >
+            <span className="ghost-emoji-icon" aria-hidden="true">👻</span>
+          </button>
+          <div className="notifications-wrapper">
+            <button className="icon-button notifications-trigger" type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications" title="Notifications">
+              <NotificationIcon />
+              {unreadAutoApproved.length > 0 && (
+                <span className="notifications-badge">
+                  {unreadAutoApproved.length}
+                </span>
+              )}
+            </button>
+            {notificationsOpen && (
+              <div className="notifications-modal sidebar-notifications">
+                <div className="notifications-modal-head">
+                  <strong>Notifications</strong>
+                  {unreadAutoApproved.length > 0 && (
+                    <button type="button" className="ghost" onClick={() => onMarkAuditRead(unreadAutoApproved.map(a => a.id))}>Dismiss all</button>
+                  )}
+                </div>
+                <div className="notifications-modal-list">
+                  {unreadAutoApproved.length ? unreadAutoApproved.map((entry) => (
+                    <article key={entry.id} className="notifications-modal-item">
+                      <div className="notifications-modal-item-row">
+                         <p>{entry.message || entry.type}</p>
+                         <button type="button" className="ghost notifications-dismiss-button" onClick={() => onMarkAuditRead([entry.id])}>X</button>
+                      </div>
+                      <small>{new Date(entry.createdAt).toLocaleString()}</small>
+                    </article>
+                  )) : <small>No new notifications.</small>}
+                </div>
+              </div>
+            )}
+          </div>
+          <button className="icon-button" type="button" onClick={onSettings} aria-label="Settings" title="Settings">
+            <GearIcon />
+          </button>
         </div>
       </div>
     </nav>
@@ -4891,20 +4959,24 @@ function SidebarToggleIcon({ collapsed }) {
   );
 }
 
-function WorkspaceNavIcon({ id }) {
-  const iconPaths = {
-    home: 'M5 11l7-6 7 6v8h-5v-5h-4v5H5v-8z',
-    assist: 'M12 4l5 3v5c0 3.1-2 5.9-5 8-3-2.1-5-4.9-5-8V7l5-3zm0 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z',
-    timeline: 'M6 6h12v3H6V6zm0 5h7v3H6v-3zm0 5h12v3H6v-3z',
-    trends: 'M5 16l4-5 3 3 5-6 2 2-7 8-3-3-2 3z',
-    knowledge: 'M12 4l7 4v8l-7 4-7-4V8l7-4zm0 3.1L8 9.4v5.2l4 2.3 4-2.3V9.4l-4-2.3z',
-    calendar: 'M7 4v2M17 4v2M5 9h14M6 6h12a1 1 0 011 1v11a1 1 0 01-1 1H6a1 1 0 01-1-1V7a1 1 0 011-1z'
+function WorkspaceNavIcon({ id, active }) {
+  const iconUrls = {
+    home: active ? iconHomeColorUrl : iconHomeUrl,
+    assist: active ? iconAssistColorUrl : iconAssistUrl,
+    timeline: active ? iconTimelineColorUrl : iconTimelineUrl,
+    trends: active ? iconTrendsColorUrl : iconTrendsUrl,
+    knowledge: active ? iconKnowledgeColorUrl : iconKnowledgeUrl,
+    calendar: active ? iconCalendarColorUrl : iconCalendarUrl,
+    'mock-interview': active ? iconMockInterviewColorUrl : iconMockInterviewUrl
   };
-
+  
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-      <path d={iconPaths[id] || iconPaths.assist} />
-    </svg>
+    <img 
+      src={iconUrls[id] || (active ? iconAssistColorUrl : iconAssistUrl)} 
+      alt="" 
+      style={{ width: '32px', height: '32px', display: 'block' }} 
+      aria-hidden="true" 
+    />
   );
 }
 
@@ -5092,10 +5164,9 @@ function WorkspaceNavIcon({ id }) {
       <section className="knowledge-view">
         <div className="knowledge-head">
           <div>
-            <span className="section-kicker">Clyde Pro</span>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <img src={proLogoUrl} alt="" style={{ height: '24px', width: 'auto', display: 'inline-block', filter: 'drop-shadow(0 0 8px rgba(79, 231, 255, 0.4))' }} />
               Knowledge
+              <img src={proBadgeUrl} alt="Pro" style={{ height: '32px', width: 'auto', display: 'inline-block' }} />
             </h2>
           </div>
           <button className="primary-action" type="button" onClick={openPicker}>Add files</button>
@@ -5218,7 +5289,7 @@ function formatKnowledgeDate(value) {
 }
 
 function ModeToggle({ mode, workspaceView, onChange }) {
-  const meetingDisabled = workspaceView === 'trends' && mode === 'interview';
+  const meetingDisabled = (workspaceView === 'trends' || workspaceView === 'mock-interview') && mode === 'interview';
 
   return (
     <div className="mode-toggle" aria-label="Mode selector">
@@ -5235,7 +5306,7 @@ function ModeToggle({ mode, workspaceView, onChange }) {
         data-testid="mode-meeting"
         type="button"
         disabled={meetingDisabled}
-        title={meetingDisabled ? 'Meeting mode is unavailable in Interview trend analysis.' : ''}
+        title={meetingDisabled ? `Meeting mode is unavailable in ${workspaceView === 'trends' ? 'Interview trend analysis' : 'Mock Interview'}.` : ''}
         onClick={() => onChange('meeting')}
       >
         Meeting
