@@ -942,6 +942,7 @@ function getAgentChat() {
         sessionManager,
         calendarStore,
         actionRegistry,
+        interviewManager,
         axiosClient: axios,
         generateChat
     });
@@ -2104,11 +2105,91 @@ function createWindow () {
         return knowledgeManager.uploadToPinecone(id, loadSettings());
     });
 
+    ipcMain.handle('generate-mock-interview-session-token', async (event, payload = {}) => {
+        const { opportunity } = payload;
+        const settings = loadSettings();
+        const apiKey = '7fa96d9d-55b3-11f1-8d28-066a7fa2e369';
+        
+        const resumeText = settings.resumeText || '';
+        const pinnedKnowledge = knowledgeManager ? knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []) : [];
+        let opportunityKnowledge = [];
+        
+        if (knowledgeManager && opportunity?.id) {
+            opportunityKnowledge = knowledgeManager.listEntityKnowledge({ mode: 'interview', entityId: opportunity.id }) || [];
+        }
+
+        const allKnowledge = [...pinnedKnowledge, ...opportunityKnowledge];
+        const uniqueKnowledge = Array.from(new Map(allKnowledge.map(k => [k.id, k])).values());
+
+        let prompt = `Act as a senior hiring manager. Interview the candidate for the role of ${opportunity?.role || 'Software Engineer'} at ${opportunity?.name || 'the target company'}.\n\n`;
+        prompt += `Maintain a direct, professional, and analytical tone. Ask direct, probing questions about their experience, problem-solving, and domain knowledge. Do not make hiring guarantees.\n\n`;
+
+        if (resumeText) {
+            prompt += `Candidate Resume / Background:\n${resumeText}\n\n`;
+        }
+
+        if (uniqueKnowledge.length > 0) {
+            prompt += `Company & Role Information / Context:\n`;
+            for (const k of uniqueKnowledge) {
+                prompt += `--- ${k.filename || 'Document'} ---\n${k.content}\n\n`;
+            }
+        }
+
+        try {
+            const contextName = [
+                'Mock Interview',
+                opportunity?.name || 'General',
+                new Date().toISOString(),
+                Math.random().toString(16).slice(2, 8)
+            ].join(' - ');
+            const contextRes = await axios.post('https://api.liveavatar.com/v1/contexts', {
+                  name: contextName,
+                  opening_text: `Hello there! I'm ready to begin the interview.`,
+                  prompt: [
+                      prompt,
+                    'Start with a short greeting only after the live audio and video stream is ready. Do not begin mid-sentence.'
+                ].join('\n\n').slice(0, 30000)
+            }, {
+                headers: {
+                    'X-API-KEY': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            });
+            const contextId = contextRes.data?.data?.id;
+
+            const sessionRes = await axios.post('https://api.liveavatar.com/v1/sessions/token', {
+                mode: 'FULL',
+                avatar_id: 'dd73ea75-1218-4ef3-92ce-606d5f7fbc0a',
+                is_sandbox: true,
+                avatar_persona: {
+                    context_id: contextId,
+                    language: 'en'
+                }
+            }, {
+                headers: {
+                    'X-API-KEY': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            return sessionRes.data?.data?.session_token;
+        } catch (error) {
+            const status = error?.response?.status || error?.status || '';
+            const message = error?.response?.data?.message || error?.message || 'Unknown error';
+            console.error('LiveAvatar session creation failed:', { status, message });
+            throw new Error('Failed to start LiveAvatar session');
+        }
+    });
+
     ipcMain.handle('generate-mock-interview-assessment', async (event, payload = {}) => {
         if (!mockInterviewManager) {
             throw new Error('Mock interview manager is not ready.');
         }
 
+        console.log('Mock interview assessment requested:', {
+            turns: Array.isArray(payload?.transcript) ? payload.transcript.length : 0,
+            opportunity: payload?.opportunity?.name || 'General'
+        });
         return mockInterviewManager.generateAssessment(payload || {}, loadSettings());
     });
 
@@ -2118,6 +2199,11 @@ function createWindow () {
         }
 
         const saved = await mockInterviewManager.saveMockInterview(payload || {}, loadSettings());
+        console.log('Mock interview saved:', {
+            id: saved.id,
+            turns: Array.isArray(saved.transcript) ? saved.transcript.length : 0,
+            score: saved.assessment?.overallScore || 0
+        });
         notifyDataChanged({
             mode: 'interview',
             entityId: saved.opportunity?.id,
@@ -2497,7 +2583,7 @@ function createWindow () {
       }
 
       try {
-          console.error('Failed to parse cleaned transcript JSON:', responseText);
+          console.error('Cleaned transcript response was rejected:', responseText);
       } catch (_error) {}
 
       return null;
@@ -3079,28 +3165,43 @@ ipcMain.handle('minimize-app-window', async () => {
     return minimizeAppWindow();
 });
 
-ipcMain.handle('maximize-app-window', async () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-        return false;
-    }
+  ipcMain.handle('is-app-window-maximized', async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+          return false;
+      }
+      return mainWindow.isMaximized();
+  });
 
-    if (appWindowMinimized) {
-        restoreAppWindowBounds();
-    }
-    if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-    }
-    if (!mainWindow.isVisible()) {
-        mainWindow.show();
-    }
-    if (typeof mainWindow.setMinimumSize === 'function') {
-        mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
-    }
-    mainWindow.setResizable(true);
-    mainWindow.maximize();
-    mainWindow.focus();
-    return true;
-});
+  ipcMain.handle('maximize-app-window', async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+          return false;
+      }
+
+      if (appWindowMinimized) {
+          restoreAppWindowBounds();
+      }
+      if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+      }
+      if (!mainWindow.isVisible()) {
+          mainWindow.show();
+      }
+      
+      if (mainWindow.isMaximized()) {
+          mainWindow.unmaximize();
+          mainWindow.webContents.send('app-window-maximized-state-change', false);
+          return false;
+      } else {
+          if (typeof mainWindow.setMinimumSize === 'function') {
+              mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
+          }
+          mainWindow.setResizable(true);
+          mainWindow.maximize();
+          mainWindow.focus();
+          mainWindow.webContents.send('app-window-maximized-state-change', true);
+          return true;
+      }
+  });
 
 ipcMain.handle('hide-app', async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
