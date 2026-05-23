@@ -26,6 +26,8 @@ const iconAssistUrl = new URL('../../navbar-icons/Pre-call_Prep.svg', import.met
 const iconAssistColorUrl = new URL('../../navbar-icons/Pre-call_Prep_color.svg', import.meta.url).href;
 const iconTimelineUrl = new URL('../../navbar-icons/Interview_Tracker.svg', import.meta.url).href;
 const iconTimelineColorUrl = new URL('../../navbar-icons/Interview_Tracker_color.svg', import.meta.url).href;
+const iconMeetingNotesUrl = new URL('../../navbar-icons/Meeting_Notes.svg', import.meta.url).href;
+const iconMeetingNotesColorUrl = new URL('../../navbar-icons/Meeting_Notes_color.svg', import.meta.url).href;
 const iconTrendsUrl = new URL('../../navbar-icons/Trend_Analysis.svg', import.meta.url).href;
 const iconTrendsColorUrl = new URL('../../navbar-icons/Trend_Analysis_color.svg', import.meta.url).href;
 const iconKnowledgeUrl = new URL('../../navbar-icons/Knowledge.svg', import.meta.url).href;
@@ -4826,7 +4828,7 @@ function WorkspaceNav({
   const tabs = [
     { id: 'home', eyebrow: 'Ask', label: 'Home', testId: 'homeNav', icon: 'home' },
     { id: 'live', eyebrow: 'Now', label: 'Pre-Call Prep', icon: 'assist' },
-    { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: 'timeline' },
+    { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: mode === 'interview' ? 'timeline' : 'meeting-notes' },
     ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trend Analysis', testId: 'trendsNav', icon: 'trends' }] : []),
     { id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge', hasProBadge: true, requiresPro: true },
     ...(mode === 'interview' ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true, requiresPro: true }] : [])
@@ -4970,6 +4972,7 @@ function WorkspaceNavIcon({ id, active }) {
     home: active ? iconHomeColorUrl : iconHomeUrl,
     assist: active ? iconAssistColorUrl : iconAssistUrl,
     timeline: active ? iconTimelineColorUrl : iconTimelineUrl,
+    'meeting-notes': active ? iconMeetingNotesColorUrl : iconMeetingNotesUrl,
     trends: active ? iconTrendsColorUrl : iconTrendsUrl,
     knowledge: active ? iconKnowledgeColorUrl : iconKnowledgeUrl,
     calendar: active ? iconCalendarColorUrl : iconCalendarUrl,
