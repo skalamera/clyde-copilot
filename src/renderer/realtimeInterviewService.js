@@ -1,92 +1,86 @@
+import { AgentEventsEnum, LiveAvatarSession, SessionEvent } from '@heygen/liveavatar-web-sdk';
+
 export class RealtimeInterviewService {
-    constructor(api) {
-        this.api = api;
-        this.peerConnection = null;
-        this.dataChannel = null;
+    constructor() {
+        this.session = null;
         this.onMessage = null;
         this.onStateChange = null;
+        this.videoRef = null;
+        this.voiceStartTimer = null;
+        this.transcriptionChunks = new Map();
     }
 
-    async connect(instructions = "You are a helpful voice assistant.") {
+    setVideoElement(videoEl) {
+        this.videoRef = videoEl;
+    }
+
+    async connect(options = {}) {
         try {
             this._notifyState('connecting');
 
-            const tokenPayload = await this.api.getRealtimeToken();
-            const token = typeof tokenPayload === 'string' ? tokenPayload : tokenPayload?.value;
-            if (!token) {
-                throw new Error('Realtime client secret is missing.');
+            // 1. Fetch Session Token from backend dynamically using the opportunity info
+            const sessionToken = await window.electronAPI.generateMockInterviewSessionToken({
+                opportunity: options.opportunity || {}
+            });
+
+            if (!sessionToken) {
+                throw new Error('Failed to retrieve session token from backend.');
             }
 
-            this.peerConnection = new RTCPeerConnection();
-            
-            this.peerConnection.ontrack = (event) => {
-                const el = document.createElement('audio');
-                el.srcObject = event.streams[0];
-                el.autoplay = true;
-                el.controls = false;
-                document.body.appendChild(el);
-            };
+            // 2. Initialize the SDK session
+            this.session = new LiveAvatarSession(sessionToken);
+            this.transcriptionChunks.clear();
 
-            this.dataChannel = this.peerConnection.createDataChannel('oai-events');
-            this.dataChannel.addEventListener('message', (event) => {
-                try {
-                    const realtimeEvent = JSON.parse(event.data);
-                    if (this.onMessage) {
-                        this.onMessage(realtimeEvent);
-                    }
-                } catch (err) {
-                    console.error('Failed to parse realtime event:', err);
+            // 3. Attach Event Listeners
+            this.session.on(SessionEvent.SESSION_STREAM_READY, () => {
+                if (this.videoRef) {
+                    this.session.attach(this.videoRef);
+                    this.videoRef.play?.().catch?.(() => {});
                 }
-            });
-            this.dataChannel.addEventListener('open', () => {
-                this.sendEvent({
-                    type: 'session.update',
-                    session: {
-                        type: 'realtime',
-                        instructions: instructions,
-                        output_modalities: ['audio'],
-                        audio: {
-                            input: {
-                                turn_detection: { type: 'semantic_vad' },
-                                transcription: { model: 'gpt-realtime-whisper' }
-                            },
-                            output: {
-                                voice: 'marin'
-                            }
-                        }
-                    }
-                });
                 this._notifyState('connected');
+                this.voiceStartTimer = window.setTimeout(() => {
+                    this.session?.voiceChat?.start?.();
+                }, 800);
             });
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach((track) => {
-                this.peerConnection.addTrack(track, stream);
+            this.session.on(SessionEvent.SESSION_DISCONNECTED, () => {
+                this._notifyState('disconnected');
             });
 
-            const offer = await this.peerConnection.createOffer();
-            await this.peerConnection.setLocalDescription(offer);
-
-            const response = await fetch('https://api.openai.com/v1/realtime/calls', {
-                method: 'POST',
-                body: offer.sdp,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/sdp'
-                }
+            this.session.on(AgentEventsEnum.USER_TRANSCRIPTION, (event) => {
+                this._forwardTranscription('you', event, { final: true });
             });
 
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`OpenAI SDP Exchange failed: ${text}`);
-            }
+            this.session.on(AgentEventsEnum.USER_TRANSCRIPTION_CHUNK, (event) => {
+                this._forwardTranscription('you', event, { final: false });
+            });
 
-            const answer = {
-                type: 'answer',
-                sdp: await response.text()
-            };
-            
-            await this.peerConnection.setRemoteDescription(answer);
+            this.session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION, (event) => {
+                this._forwardTranscription('interviewer', event, { final: true });
+            });
+
+            this.session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION_CHUNK, (event) => {
+                this._forwardTranscription('interviewer', event, { final: false });
+            });
+
+            this.session.on(AgentEventsEnum.USER_SPEAK_STARTED, () => {
+                if (this.onMessage) this.onMessage({ type: 'input_audio_buffer.speech_started' });
+            });
+
+            this.session.on(AgentEventsEnum.USER_SPEAK_ENDED, () => {
+                if (this.onMessage) this.onMessage({ type: 'input_audio_buffer.speech_stopped' });
+            });
+
+            this.session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
+                if (this.onMessage) this.onMessage({ type: 'response.audio.delta' });
+            });
+
+            this.session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, () => {
+                if (this.onMessage) this.onMessage({ type: 'response.audio.done' });
+            });
+
+            // 4. Start the session
+            await this.session.start();
 
         } catch (error) {
             console.error('Realtime connection failed:', error);
@@ -97,24 +91,20 @@ export class RealtimeInterviewService {
     }
 
     sendEvent(eventObj) {
-        if (this.dataChannel && this.dataChannel.readyState === 'open') {
-            this.dataChannel.send(JSON.stringify(eventObj));
+        // Only implemented if we need to send manual text/interrupts
+        if (this.session && eventObj.type === 'avatar.interrupt') {
+            this.session.interrupt();
         }
     }
 
     disconnect() {
-        if (this.peerConnection) {
-            this.peerConnection.getSenders().forEach((sender) => {
-                if (sender.track) {
-                    sender.track.stop();
-                }
-            });
-            this.peerConnection.close();
-            this.peerConnection = null;
+        if (this.voiceStartTimer) {
+            window.clearTimeout(this.voiceStartTimer);
+            this.voiceStartTimer = null;
         }
-        if (this.dataChannel) {
-            this.dataChannel.close();
-            this.dataChannel = null;
+        if (this.session) {
+            this.session.stop();
+            this.session = null;
         }
         this._notifyState('disconnected');
     }
@@ -123,5 +113,39 @@ export class RealtimeInterviewService {
         if (this.onStateChange) {
             this.onStateChange(state);
         }
+    }
+
+    _forwardTranscription(role, event, { final }) {
+        const itemId = event?.source_event_id || event?.event_id || `${role}-${Date.now()}`;
+        const text = final ? event?.text : this._appendTranscriptionChunk(itemId, event?.text);
+
+        if (!text || !this.onMessage) {
+            return;
+        }
+
+        if (final) {
+            this.transcriptionChunks.delete(itemId);
+        }
+
+        if (role === 'you') {
+            this.onMessage({
+                type: 'conversation.item.input_audio_transcription.completed',
+                transcript: text,
+                item_id: itemId
+            });
+            return;
+        }
+
+        this.onMessage({
+            type: 'response.output_text.delta',
+            delta: text,
+            response_id: itemId
+        });
+    }
+
+    _appendTranscriptionChunk(itemId, chunk = '') {
+        const next = `${this.transcriptionChunks.get(itemId) || ''}${chunk}`;
+        this.transcriptionChunks.set(itemId, next);
+        return next;
     }
 }
