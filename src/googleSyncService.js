@@ -365,19 +365,17 @@ function normalizeText(value) {
 }
 
 function resolveSyncLlmConfig(settings = {}) {
-  const provider = clean(settings.llmProvider || 'local');
+  const provider = clean(settings.llmProvider);
   const llmApiKey = clean(settings.llmApiKey || settings.openAiApiKey);
-  const openAiEnvKey = clean(process.env.OPENAI_API_KEY);
-  const geminiEnvKey = clean(process.env.GEMINI_API_KEY);
 
-  if (provider === 'openai' && (llmApiKey || openAiEnvKey)) {
-    return { provider: 'openai', apiKey: llmApiKey || openAiEnvKey, model: clean(settings.llmModel) || 'gpt-4o-mini' };
+  if (provider === 'openai' && llmApiKey) {
+    return { provider: 'openai', apiKey: llmApiKey, model: clean(settings.llmModel) || 'gpt-4o-mini' };
   }
   if (provider === 'anthropic' && llmApiKey) {
     return { provider: 'anthropic', apiKey: llmApiKey, model: clean(settings.llmModel) || 'claude-3-5-haiku-20241022' };
   }
-  if (provider === 'gemini' && (llmApiKey || geminiEnvKey)) {
-    return { provider: 'gemini', apiKey: llmApiKey || geminiEnvKey, model: clean(settings.llmModel) || 'gemini-2.5-flash' };
+  if (provider === 'gemini' && llmApiKey) {
+    return { provider: 'gemini', apiKey: llmApiKey, model: clean(settings.llmModel) || 'gemini-2.5-flash' };
   }
   if (provider === 'local') {
     return {
@@ -386,12 +384,6 @@ function resolveSyncLlmConfig(settings = {}) {
       model: clean(settings.llmModel),
       localUrl: clean(settings.localLlmUrl)
     };
-  }
-  if (geminiEnvKey) {
-    return { provider: 'gemini', apiKey: geminiEnvKey, model: 'gemini-2.5-flash' };
-  }
-  if (openAiEnvKey) {
-    return { provider: 'openai', apiKey: openAiEnvKey, model: 'gpt-4o-mini' };
   }
   return null;
 }

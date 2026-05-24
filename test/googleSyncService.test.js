@@ -109,6 +109,38 @@ test('google sync scans the latest 15 Gmail messages and 25 calendar events by d
   assert.equal(calendarMaxResults, 25);
 });
 
+test('google sync does not use env LLM keys for Gmail parsing', async () => {
+  const originalGeminiKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'invalid-env-key';
+  let calls = 0;
+  const service = createGoogleSyncService({
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
+    sessionManager: createSessionManager(),
+    googleClient: {},
+    axiosClient: {},
+    generateChat: async () => {
+      calls += 1;
+      return '{}';
+    }
+  });
+
+  test.after(() => {
+    if (originalGeminiKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = originalGeminiKey;
+    }
+  });
+
+  await service.proposalsFromGmailMessage({
+    id: 'msg-env',
+    subject: 'ACME update',
+    snippet: 'We would like to move forward.'
+  }, { llmProvider: 'gemini', llmModel: 'gemini-3.1-flash-lite' });
+
+  assert.equal(calls, 0);
+});
+
 test('google sync generates calendar proposals from Google Calendar events', async () => {
   const service = createGoogleSyncService({
     syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },

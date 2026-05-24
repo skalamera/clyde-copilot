@@ -4,9 +4,12 @@ const { chromium } = require('playwright');
 
 async function generateIcon() {
   const repoRoot = path.join(__dirname, '..');
-  const sourcePath = path.join(repoRoot, 'clyde_ghost.svg');
+  const sourcePath = path.join(repoRoot, 'clydefree.svg');
   const outputDir = path.join(repoRoot, 'build');
   const outputPath = path.join(outputDir, 'icon.png');
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error('Missing clydefree.svg for icon generation');
+  }
   const svg = fs.readFileSync(sourcePath, 'utf8');
   const svgBase64 = Buffer.from(svg).toString('base64');
 

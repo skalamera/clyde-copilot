@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setPinnedKnowledge: (ids) => ipcRenderer.invoke('set-pinned-knowledge', ids),
     getPinnedKnowledge: () => ipcRenderer.invoke('get-pinned-knowledge'),
     openKnowledgeFileDialog: () => ipcRenderer.invoke('open-knowledge-file-dialog'),
+    openResumeFileDialog: () => ipcRenderer.invoke('open-resume-file-dialog'),
     getCallPreflightContext: (context) => ipcRenderer.invoke('get-call-preflight-context', context),
     ingestActiveContextFiles: (payload) => ipcRenderer.invoke('ingest-active-context-files', payload),
     openEntityFileDialog: (context) => ipcRenderer.invoke('open-entity-file-dialog', context),

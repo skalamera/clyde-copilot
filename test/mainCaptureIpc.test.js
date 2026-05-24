@@ -173,7 +173,8 @@ test('main process mints GA Realtime client secrets', () => {
 
   assert.match(block, /https:\/\/api\.openai\.com\/v1\/realtime\/client_secrets/);
   assert.match(block, /model: realtimeModel/);
-  assert.match(block, /settings\.proRealtimeModel \|\| 'gpt-realtime-2'/);
+  assert.match(block, /const realtimeModel = settings\.proRealtimeModel \|\| ''/);
+  assert.match(block, /Realtime model is missing/);
   assert.match(block, /output_modalities: \['audio'\]/);
   assert.match(block, /turn_detection: \{ type: 'semantic_vad' \}/);
   assert.match(block, /voice: 'marin'/);

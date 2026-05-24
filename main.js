@@ -47,6 +47,7 @@ const {
     formatOutcomeCalibrationExamples,
     summarizeOutcomeCalibrationExamples
 } = require('./src/outcomeLearning');
+const demoData = require('./src/demoData');
 
 let mainWindow;
 let normalBounds = null;
@@ -132,13 +133,14 @@ function loadSettings() {
     const store = new Store();
     
     let settings = {
-        llmProvider: store.get('llmProvider', 'local'),
+        llmProvider: store.get('llmProvider', ''),
         llmModel: store.get('llmModel', ''),
+        openAiApiKey: store.get('openAiApiKey', store.get('transcriptionApiKey', '') || store.get('llmApiKey', '')),
         llmApiKey: store.get('llmApiKey', ''),
-        localLlmUrl: store.get('localLlmUrl', 'http://localhost:1234/v1/chat/completions'),
-        transcriptionProvider: store.get('transcriptionProvider', 'local'),
+        localLlmUrl: store.get('localLlmUrl', ''),
+        transcriptionProvider: store.get('transcriptionProvider', ''),
         transcriptionApiKey: store.get('transcriptionApiKey', ''),
-        localTranscriptionUrl: store.get('localTranscriptionUrl', 'http://localhost:8000/v1/audio/transcriptions'),
+        localTranscriptionUrl: store.get('localTranscriptionUrl', ''),
         audioEngine: store.get('audioEngine', process.platform === 'win32' ? 'rust' : 'legacy'),
         microphoneDeviceId: store.get('microphoneDeviceId', ''),
         systemAudioDeviceId: store.get('systemAudioDeviceId', ''),
@@ -150,18 +152,19 @@ function loadSettings() {
         pineconeApiKey: store.get('pineconeApiKey', ''),
         pineconeHost: store.get('pineconeHost', ''),
         ragEnabled: store.get('ragEnabled', false),
-        userTier: process.env.CLYDE_USER_TIER || store.get('userTier', 'free'),
+        userTier: 'pro',
         proAgentEnabled: store.get('proAgentEnabled', false),
-        proRealtimeModel: store.get('proRealtimeModel', 'gpt-realtime-2'),
-        embeddingProvider: store.get('embeddingProvider', 'gemini'),
-        embeddingModel: store.get('embeddingModel', 'gemini-embedding-2'),
+        proRealtimeModel: store.get('proRealtimeModel', ''),
+        embeddingProvider: store.get('embeddingProvider', ''),
+        embeddingModel: store.get('embeddingModel', ''),
         embeddingApiKey: store.get('embeddingApiKey', ''),
-        pineconeNamespace: store.get('pineconeNamespace', 'clyde-pro-knowledge'),
+        pineconeNamespace: store.get('pineconeNamespace', ''),
         pinnedKnowledgeIds: store.get('pinnedKnowledgeIds', []),
         googleSyncEnabled: store.get('googleSyncEnabled', false),
         googleAccountEmail: store.get('googleAccountEmail', ''),
         googleSyncAutoApprove: store.get('googleSyncAutoApprove', false),
         googleSyncPollMinutes: store.get('googleSyncPollMinutes', 15),
+        demoMode: store.get('demoMode', false),
         appMode: store.get('appMode', 'interview'),
         meetingTitle: store.get('meetingTitle', ''),
         meetingAttendees: store.get('meetingAttendees', []),
@@ -171,26 +174,25 @@ function loadSettings() {
         activeCaptureBounds: store.get('activeCaptureBounds', null)
     };
 
-    // Fallbacks from env if settings aren't populated
-    if (!settings.localLlmUrl) settings.localLlmUrl = process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions';
-    if (!settings.localTranscriptionUrl) settings.localTranscriptionUrl = process.env.LM_STUDIO_API_URL || 'http://localhost:8000/v1/audio/transcriptions';
-    if (!settings.llmModel && settings.llmProvider === 'local') settings.llmModel = process.env.LM_STUDIO_CHAT_MODEL || '';
-    if (!settings.geminiApiKey) settings.geminiApiKey = process.env.GEMINI_API_KEY || '';
-    if (!settings.pineconeApiKey) settings.pineconeApiKey = process.env.PINECONE_API_KEY || '';
-    if (!settings.pineconeHost) settings.pineconeHost = process.env.PINECONE_HOST || '';
-    
     // Inject back into process.env so existing modules (like pineconeClient.js) can read them
     if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
     if (settings.pineconeApiKey) process.env.PINECONE_API_KEY = settings.pineconeApiKey;
     if (settings.pineconeHost) process.env.PINECONE_HOST = settings.pineconeHost;
 
-    return settings;
+    return demoData.isDemoMode(settings) ? demoData.demoSettings(settings) : settings;
 }
 
 function saveSettings(newSettings) {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
-    const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = newSettings || {};
+    const openAiApiKey = String(newSettings?.openAiApiKey || '').trim();
+    const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = {
+        ...(newSettings || {}),
+        userTier: 'pro',
+        openAiApiKey,
+        transcriptionApiKey: openAiApiKey,
+        llmApiKey: newSettings?.llmProvider === 'openai' ? openAiApiKey : (newSettings?.llmApiKey || '')
+    };
     
     store.delete('googleOAuthClientId');
     store.set(settingsToStore);
@@ -962,13 +964,13 @@ function buildCallPreflightContext(settings = loadSettings()) {
         entityName: mode === 'meeting' ? context.meetingTitle : context.company,
         health: JSON.parse(JSON.stringify(healthState)),
         models: {
-            transcriptionProvider: settings.transcriptionProvider || 'local',
+            transcriptionProvider: settings.transcriptionProvider || 'Not selected',
             transcriptionModel: isOpenAiTranscriptionProvider(settings.transcriptionProvider)
                 ? (settings.transcriptionProvider === 'openai-realtime-whisper' ? 'gpt-realtime-whisper' : 'OpenAI Cloud Transcription')
-                : settings.localTranscriptionUrl || 'Local transcription',
-            assistantProvider: settings.llmProvider || 'local',
-            assistantModel: settings.llmProvider === 'local' ? (settings.llmModel || 'Local model not selected') : (settings.llmModel || settings.llmProvider || 'Cloud LLM'),
-            proRealtimeModel: settings.proRealtimeModel || 'gpt-realtime-2',
+                : settings.localTranscriptionUrl || 'Not selected',
+            assistantProvider: settings.llmProvider || 'Not selected',
+            assistantModel: settings.llmProvider === 'local' ? (settings.llmModel || 'Local model not selected') : (settings.llmModel || settings.llmProvider || 'Not selected'),
+            proRealtimeModel: settings.proRealtimeModel || 'Not selected',
             proAgentEnabled: Boolean(settings.userTier === 'pro' && settings.proAgentEnabled),
             ragEnabled: Boolean(settings.ragEnabled),
             pineconeConfigured: Boolean(settings.pineconeApiKey || process.env.PINECONE_API_KEY) && Boolean(settings.pineconeHost || process.env.PINECONE_HOST)
@@ -1990,17 +1992,19 @@ function createWindow () {
   });
 
   ipcMain.handle('get-tier-status', () => {
-      const settings = loadSettings();
-      return settings.userTier === 'pro' ? 'pro' : 'free';
+      return 'pro';
   });
 
   ipcMain.handle('get-realtime-token', async () => {
       const settings = loadSettings();
-      const apiKey = settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY || '';
-      const realtimeModel = settings.proRealtimeModel || 'gpt-realtime-2';
+      const apiKey = settings.openAiApiKey || settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || '';
+      const realtimeModel = settings.proRealtimeModel || '';
 
       if (!apiKey) {
           throw new Error('OpenAI API key is missing. Please configure it in settings to use realtime voice agents.');
+      }
+      if (!realtimeModel) {
+          throw new Error('Realtime model is missing. Please configure it in settings to use realtime voice agents.');
       }
 
       const axios = require('axios');
@@ -2060,6 +2064,9 @@ function createWindow () {
   });
 
   ipcMain.handle('list-agent-sources', async (event, filters = {}) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listAgentSources(filters || {});
+      }
       return getAgentChat().listSources(filters || {});
   });
 
@@ -2124,6 +2131,9 @@ function createWindow () {
   });
 
   ipcMain.handle('get-google-sync-status', () => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getGoogleSyncStatus();
+      }
       return getGoogleSyncStatus();
   });
 
@@ -2136,6 +2146,9 @@ function createWindow () {
   });
 
   ipcMain.handle('list-sync-proposals', (event, filters = {}) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listSyncProposals(filters || {});
+      }
       return syncStore ? syncStore.listProposals(filters || {}) : [];
   });
 
@@ -2148,6 +2161,9 @@ function createWindow () {
   });
 
   ipcMain.handle('list-sync-audit-log', (event, limit = 100) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listSyncAudit(limit);
+      }
       return syncStore ? syncStore.listAudit(limit) : [];
   });
 
@@ -2161,6 +2177,9 @@ function createWindow () {
   });
 
   ipcMain.handle('list-calendar-events', () => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listCalendarEvents();
+      }
       return calendarStore ? calendarStore.listEvents() : [];
   });
 
@@ -2192,6 +2211,9 @@ function createWindow () {
   });
 
   ipcMain.handle('list-knowledge', (event, filters = {}) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listKnowledge(filters || {});
+      }
       return knowledgeManager ? knowledgeManager.listKnowledge(filters || {}) : [];
   });
 
@@ -2319,6 +2341,9 @@ function createWindow () {
     });
 
     ipcMain.handle('list-mock-interviews', () => {
+        if (demoData.isDemoMode(loadSettings())) {
+            return demoData.listMockInterviews();
+        }
         return mockInterviewManager ? mockInterviewManager.listMockInterviews() : [];
     });
 
@@ -2422,6 +2447,36 @@ function createWindow () {
           ingested.push(await knowledgeManager.ingestFile(filePath, settings));
       }
       return ingested;
+  });
+
+  ipcMain.handle('open-resume-file-dialog', async () => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+          title: 'Import resume or background',
+          properties: ['openFile'],
+          filters: [
+              { name: 'Resume files', extensions: ['txt', 'md', 'pdf'] }
+          ]
+      });
+
+      if (result.canceled || !result.filePaths?.length) {
+          return null;
+      }
+
+      const filePath = result.filePaths[0];
+      const extension = path.extname(filePath).toLowerCase();
+      let text = '';
+      if (extension === '.pdf') {
+          const parsePdf = require('pdf-parse');
+          const parsed = await parsePdf(fs.readFileSync(filePath));
+          text = parsed.text || '';
+      } else {
+          text = fs.readFileSync(filePath, 'utf8');
+      }
+
+      return {
+          filename: path.basename(filePath),
+          text: String(text || '').trim()
+      };
   });
 
   ipcMain.handle('open-entity-file-dialog', async (event, context = {}) => {
@@ -2579,6 +2634,9 @@ function createWindow () {
   });
 
   ipcMain.handle('get-sessions', (event, filters) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getSessions(filters || {});
+      }
       return sessionManager.getSessions(filters || {});
   });
 
@@ -2599,6 +2657,9 @@ function createWindow () {
 
   ipcMain.handle('get-session-entities', (event, mode) => {
       const normalizedMode = mode || 'interview';
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getSessionEntities(normalizedMode);
+      }
       if (normalizedMode === 'interview') {
           refreshInterviewEntityConfidences();
       }
@@ -2606,6 +2667,9 @@ function createWindow () {
   });
 
   ipcMain.handle('get-outcome-calibration-summary', (event, entity = {}) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getOutcomeCalibrationSummary(entity || {});
+      }
       return buildOutcomeCalibrationSummary(entity);
   });
 
@@ -2969,6 +3033,9 @@ function createWindow () {
   });
 
   ipcMain.handle('get-trend-analysis', (event, companyId) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getTrendAnalysis(companyId);
+      }
       return loadTrendAnalysis(app.getPath('userData'), companyId);
   });
 
@@ -3030,6 +3097,9 @@ function createWindow () {
 
   ipcMain.handle('generate-trend-analysis', async (event, companyId, options = {}) => {
       const settings = loadSettings();
+      if (demoData.isDemoMode(settings)) {
+          return demoData.generateTrendAnalysis(companyId, options || {});
+      }
       const allSessions = sessionManager.getSessions({ mode: 'interview', entityId: companyId });
       if (!allSessions || allSessions.length < 2) {
           return null;
@@ -3267,7 +3337,10 @@ function getAppIconPath() {
       ]
     : [
         path.join(__dirname, 'build', 'icon.png'),
-        path.join(__dirname, 'clyde_ghost.svg')
+        path.join(__dirname, 'clyde-plus-ghost-pro.svg'),
+        path.join(__dirname, 'clydepro.svg'),
+        path.join(__dirname, 'clyde-plus-ghost-free.svg'),
+        path.join(__dirname, 'clydefree.svg')
       ];
 
   return candidates.find((candidate) => fs.existsSync(candidate));

@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"LiveAvatar Documentation": {
+			"url": "https://docs.liveavatar.com/mcp",
+			"type": "http"
+		}
+	},
+	"inputs": []
+}

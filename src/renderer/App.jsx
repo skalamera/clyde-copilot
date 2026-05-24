@@ -13,10 +13,10 @@ const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
 const proGoldBadgeUrl = new URL('../../clyde_pro-badge.svg', import.meta.url).href;
 const proTitleBarLogoUrl = new URL('../../clyde-pro-logo-probadge.svg', import.meta.url).href;
 const proSidebarLogoUrl = new URL('../../clydepro.svg', import.meta.url).href;
-const proSearchLogoUrl = new URL('../../clyde_black_goldglow.svg', import.meta.url).href;
+const proSearchLogoUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', import.meta.url).href;
 const freeSearchBadgeUrl = new URL('../../clyde-free-coin.svg', import.meta.url).href;
 const proSearchBadgeUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', import.meta.url).href;
-const ghostUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', import.meta.url).href; // Use pro coin for ghost? Wait, ghostUrl is used for floating chat
+const ghostUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', import.meta.url).href;
 const homeSearchLogoFreeUrl = new URL('../../clyde-plus-ghost-free.svg', import.meta.url).href;
 const homeSearchLogoProUrl = new URL('../../clyde_text_with_pro_ghost.svg', import.meta.url).href;
 
@@ -74,13 +74,14 @@ const DEFAULT_HEALTH = {
 
 const EMPTY_SETTINGS = {
   appMode: 'interview',
-  llmProvider: 'local',
+  llmProvider: '',
   llmModel: '',
+  openAiApiKey: '',
   llmApiKey: '',
-  localLlmUrl: 'http://localhost:1234/v1/chat/completions',
-  transcriptionProvider: 'local',
+  localLlmUrl: '',
+  transcriptionProvider: '',
   transcriptionApiKey: '',
-  localTranscriptionUrl: 'http://localhost:8000/v1/audio/transcriptions',
+  localTranscriptionUrl: '',
   audioEngine: 'rust',
   microphoneDeviceId: '',
   systemAudioDeviceId: '',
@@ -93,18 +94,19 @@ const EMPTY_SETTINGS = {
   ragEnabled: false,
   pineconeApiKey: '',
   pineconeHost: '',
-  userTier: 'free',
+  userTier: 'pro',
   proAgentEnabled: false,
-  proRealtimeModel: 'gpt-realtime-2',
-  embeddingProvider: 'gemini',
-  embeddingModel: 'gemini-embedding-2',
+  proRealtimeModel: '',
+  embeddingProvider: '',
+  embeddingModel: '',
   embeddingApiKey: '',
-  pineconeNamespace: 'clyde-pro-knowledge',
+  pineconeNamespace: '',
   pinnedKnowledgeIds: [],
   googleSyncEnabled: false,
   googleAccountEmail: '',
   googleSyncAutoApprove: false,
   googleSyncPollMinutes: 15,
+  demoMode: false,
   captureProtectionEnabled: true,
   uiOpacity: 100
 };
@@ -114,6 +116,7 @@ const COMMANDS = [
 ];
 
 const MAX_ASSISTANT_CARDS = 12;
+const SHOW_DEMO_MODE_SETTING = false;
 
 function clampUiOpacity(value) {
   const parsed = Number(value);
@@ -2402,6 +2405,7 @@ function App() {
   const [workspaceView, setWorkspaceView] = useState('home');
   const [workspaceNavCollapsed, setWorkspaceNavCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [userGuideOpen, setUserGuideOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(true);
   const [entities, setEntities] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -2881,7 +2885,8 @@ function App() {
         ...nextSettings,
         appMode: mode,
         uiOpacity: clampUiOpacity(nextSettings.uiOpacity ?? settings.uiOpacity),
-        meetingAttendees: parseAttendees(nextSettings.meetingAttendeesText ?? attendeeLines(nextSettings.meetingAttendees || settings.meetingAttendees))
+        meetingAttendees: parseAttendees(nextSettings.meetingAttendeesText ?? attendeeLines(nextSettings.meetingAttendees || settings.meetingAttendees)),
+        userTier: 'pro'
       };
 
       delete normalized.meetingAttendeesText;
@@ -3406,6 +3411,7 @@ function App() {
         workspaceView={workspaceView}
         onModeChange={chooseMode}
         onSettings={() => setSettingsOpen(true)}
+        onOpenUserGuide={() => setUserGuideOpen(true)}
         settings={settings}
         appWindowMaximized={appWindowMaximized}
         onToggleCaptureProtection={toggleCaptureProtection}
@@ -3655,6 +3661,8 @@ function App() {
             setSyncAudit={setSyncAudit}
           />
         ) : null}
+
+        {userGuideOpen ? <UserGuideModal onClose={() => setUserGuideOpen(false)} /> : null}
 
         {preflightRequest ? (
           <CallPreflightModal
@@ -3956,8 +3964,8 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
               <span>{models.proAgentEnabled ? 'Pro realtime enabled' : 'Standard assistant'}</span>
             </div>
             <div className="preflight-model-list">
-              <PreflightModel label="Transcription" value={`${models.transcriptionProvider || 'local'} · ${models.transcriptionModel || 'Configured model'}`} />
-              <PreflightModel label="Assistant" value={`${models.assistantProvider || 'local'} · ${models.assistantModel || 'Configured model'}`} />
+              <PreflightModel label="Transcription" value={`${models.transcriptionProvider || 'Not selected'} · ${models.transcriptionModel || 'Not selected'}`} />
+              <PreflightModel label="Assistant" value={`${models.assistantProvider || 'Not selected'} · ${models.assistantModel || 'Not selected'}`} />
               <PreflightModel label="Pro realtime" value={models.proAgentEnabled ? models.proRealtimeModel : 'Disabled'} />
               <PreflightModel label="RAG / Memory" value={models.ragEnabled ? (models.pineconeConfigured ? 'Enabled and configured' : 'Enabled, needs Pinecone') : 'Async memory disabled'} />
             </div>
@@ -4061,7 +4069,200 @@ function formatBytes(bytes = 0) {
   return `${value} B`;
 }
 
-function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, onModeChange, onSettings, settings, onToggleCaptureProtection,
+function UserGuideModal({ onClose }) {
+  return (
+    <div className="user-guide-backdrop" role="presentation" onClick={onClose}>
+      <section className="user-guide-modal" role="dialog" aria-modal="true" aria-labelledby="user-guide-title" onClick={(event) => event.stopPropagation()}>
+        <header className="user-guide-head">
+          <div>
+            <span>❔ Clyde User Guide</span>
+            <h2 id="user-guide-title">Everything you need to run Clyde with confidence</h2>
+            <p>Set up providers, run private local AI, capture live calls, use the Pro Agent, and understand every workspace.</p>
+          </div>
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+        </header>
+
+        <nav className="user-guide-toc" aria-label="User guide table of contents">
+          <a href="#guide-start">🚀 Start</a><a href="#guide-requirements">✅ Requirements</a><a href="#guide-providers">🔑 Providers</a><a href="#guide-local">🏠 Local AI</a><a href="#guide-modes">🎛️ Modes</a><a href="#guide-live">🎙️ Live Calls</a><a href="#guide-agent">🤖 Agent</a><a href="#guide-opportunities">📌 Opportunities</a><a href="#guide-meetings">📝 Meetings</a><a href="#guide-calendar">📅 Calendar</a><a href="#guide-knowledge">🧠 Knowledge</a><a href="#guide-mock">🎭 Mock Interviews</a><a href="#guide-trends">📈 Trends</a><a href="#guide-privacy">🛡️ Privacy</a><a href="#guide-troubleshooting">🧰 Troubleshooting</a>
+        </nav>
+
+        <div className="user-guide-body">
+          <GuideSection id="guide-start" icon="🚀" title="Quick Start">
+            <div className="guide-callout success"><strong>Best first run:</strong> choose Interview or Meeting mode, select an active context, configure providers in Settings, validate services, then click <b>Start</b>.</div>
+            <div className="guide-steps">
+              <GuideStep number="1" title="Choose mode" body="Interview mode tracks opportunities, job descriptions, phases, outcomes, confidence, scorecards, trends, and mock interviews. Meeting mode focuses on notes, attendees, decisions, and action items." />
+              <GuideStep number="2" title="Select active context" body="Pick the active interview or meeting in the title bar. Clyde saves transcripts, notes, scorecards, and agent actions to that context." />
+              <GuideStep number="3" title="Configure AI" body="Open Settings and choose cloud providers, local providers, or a mix. Clyde can use one provider for transcription and another for chat, screenshots, RAG, or grading." />
+              <GuideStep number="4" title="Start capture" body="Click Start. Clyde checks context, captures microphone/system audio, builds a live transcript, and makes realtime help available." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-requirements" icon="✅" title="Requirements and Readiness">
+            <div className="guide-card-grid">
+              <GuideCard title="Audio access" body="Clyde needs microphone permission. System audio uses the configured capture engine and selected devices." />
+              <GuideCard title="AI services" body="Configure at least one assistant provider and one transcription path. Use cloud APIs, local servers, or both." />
+              <GuideCard title="Active context" body="Set the current opportunity or meeting before recording so Clyde files notes and actions correctly." />
+              <GuideCard title="Google integrations" body="Gmail and Calendar features require connecting Google. Clyde creates proposals unless autonomous mode is enabled." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-providers" icon="🔑" title="Cloud Provider Setup">
+            <p>Open <b>Settings</b>. Provider credentials are handled by the Electron main process. Use <b>Validate services</b> after changes.</p>
+            <div className="guide-feature-list">
+              <GuideFeature label="LLM provider" body="Choose the model Clyde uses for chat, answer cards, notes, and reasoning. Add API key, model name, and endpoint when required." />
+              <GuideFeature label="Realtime transcription" body="Choose a transcription provider for live turns. This can be different from the assistant model." />
+              <GuideFeature label="Vision / screenshots" body="Use a model that supports images if you want Clyde to analyze screenshots during calls." />
+              <GuideFeature label="Embeddings / RAG" body="Pro users can configure embeddings and Pinecone for semantic search across files, sessions, notes, and mock interviews." />
+            </div>
+            <div className="guide-callout"><strong>Mix and match:</strong> use frontier realtime transcription, a separate assistant model, and local/private models for sensitive work.</div>
+          </GuideSection>
+
+          <GuideSection id="guide-local" icon="🏠" title="Fully Local / Private Setup">
+            <p>For a private path, configure local transcription and a local chat model so audio, transcript text, prompts, and notes do not need to leave your device.</p>
+            <div className="guide-steps">
+              <GuideStep number="A" title="Run a local LLM" body="Start LM Studio or another OpenAI-compatible local server. Load the model and copy the local endpoint." />
+              <GuideStep number="B" title="Connect Clyde" body="In Settings, select the local/OpenAI-compatible provider, paste the endpoint, and enter the exact model name." />
+              <GuideStep number="C" title="Add local transcription" body="Configure a local Whisper-compatible endpoint or supported local transcription provider." />
+              <GuideStep number="D" title="Validate" body="Click Validate services. If it fails, confirm the local server is running, the model is loaded, and endpoint paths are correct." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-modes" icon="🎛️" title="Interview Mode vs Meeting Mode">
+            <div className="guide-card-grid two">
+              <GuideCard title="Interview Mode" body="Use for recruiter screens, technical rounds, hiring manager calls, final loops, and follow-ups. Clyde tracks role, phase, JD, transcript ratings, confidence, outcomes, trends, and mock interviews." />
+              <GuideCard title="Meeting Mode" body="Use for product reviews, retros, customer calls, investor updates, 1:1s, planning, and recurring meetings. Clyde focuses on notes, decisions, highlights, blockers, and action items." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-live" icon="🎙️" title="Running Live Calls">
+            <div className="guide-feature-list">
+              <GuideFeature label="Preflight" body="Start opens a preflight check so you can verify context, providers, and capture settings before going live." />
+              <GuideFeature label="Live transcript" body="Clyde captures microphone/system audio, separates turns, and creates a near realtime transcript." />
+              <GuideFeature label="Ask Clyde" body="Request answer suggestions, recap, risks, follow-up questions, or custom help while the call is active." />
+              <GuideFeature label="Screenshot analysis" body="Use screenshots for prompts, slides, dashboards, coding questions, or shared screens that Clyde should interpret." />
+              <GuideFeature label="Stop and save" body="When the call ends, Clyde can save transcripts, generate notes, extract action items, and grade interviews." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-agent" icon="🤖" title="Clyde Assistant vs Clyde Pro Agent">
+            <p>Clyde has two levels of chat and agent behavior. Free users get <b>Clyde Assistant</b> for focused active-context help. Pro users unlock the full <b>Clyde Pro Agent</b> with deeper memory, RAG, Google sync, autonomous updates, and advanced interview intelligence.</p>
+            <div className="guide-callout success"><strong>Simple distinction:</strong> Free = Clyde Assistant. Pro = Clyde Pro Agent.</div>
+            <div className="guide-card-grid">
+              <GuideCard title="Free: Clyde Assistant" body="Floating chat, active-context questions, local knowledge/basic context, questions about current opportunities or meetings, simple in-app actions when supported, and private/local operation options." />
+              <GuideCard title="Pro: Clyde Pro Agent" body="Full agentic memory and follow-through: RAG, broader cross-opportunity memory, Google scanning, sync proposals, autonomous updates, mock interview scorecards, calibrated trends, and advanced source selection." />
+              <GuideCard title="Shared chat surface" body="Both tiers use the floating chat. What changes is how much context Clyde can retrieve, how much it can reason across, and which actions it can prepare or complete." />
+              <GuideCard title="Upgrade path" body="Start with Clyde Assistant for focused live and local help. Use Clyde Pro Agent when you want long-term memory, connected inbox/calendar signals, and deeper interview intelligence." />
+            </div>
+            <div className="guide-feature-list" style={{ marginTop: '12px' }}>
+              <GuideFeature label="Free users: Clyde Assistant" body="Use floating chat for active-context questions, local/basic context, current opportunities or meetings, simple supported actions, and private/local operation workflows." />
+              <GuideFeature label="Pro users: Clyde Pro Agent" body="Use the full agent for RAG across uploaded knowledge and saved sessions, broader cross-opportunity or cross-meeting memory, Google Gmail and Calendar scanning, sync proposals, autonomous updates, mock interview scorecards, deeper assessments, outcome-calibrated trends, confidence improvements, advanced source selection, and agentic follow-through." />
+              <GuideFeature label="What Pro Agent can observe" body="Active opportunity or meeting, live transcript, saved sessions, job descriptions, resumes, uploaded knowledge, pinned files, RAG matches, upcoming calendar events, Gmail/Calendar sync signals, and prior interview outcomes." />
+              <GuideFeature label="What Pro Agent can reason about" body="Which prior meeting matters for the current person or company, what interview phase you are in, what answer style has performed well before, which action should happen next, and whether an email/calendar signal changes opportunity status." />
+              <GuideFeature label="What Pro Agent can do" body="Draft live answer cards, search memory, cite sources, create or update calendar events, mark opportunities advanced/rejected/offered, create meetings, import prep emails, summarize trends, and suggest follow-up tasks." />
+              <GuideFeature label="How confirmation works" body="When an action needs approval, Clyde creates an action card with the proposed change and asks you to confirm. If details are missing, Clyde asks for them before submitting." />
+              <GuideFeature label="When to use active context" body="Use Active context during live calls or prep when you want Clyde focused on the current opportunity or meeting. This is available as the safest, most focused chat mode." />
+              <GuideFeature label="When to use all sources or RAG" body="Use broader source selection or RAG in Pro when researching patterns across interviews, asking about old meetings, reviewing career trends, or searching for something you cannot remember." />
+            </div>
+            <div className="guide-card-grid two" style={{ marginTop: '12px' }}>
+              <GuideCard title="Good Free prompts" body="What should I prepare for this active interview? Summarize the current meeting context. What notes do I have for this opportunity? Add a simple reminder if supported." />
+              <GuideCard title="Good Pro prompts" body="What should I review before my Orion final loop? Add my Google interview tomorrow at 3pm to the calendar. What action items did Design own last Product Weekly? Compare my Nova and Orion technical rounds." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-opportunities" icon="📌" title="Opportunity Tracker">
+            <div className="guide-feature-list">
+              <GuideFeature label="Create opportunities" body="Add company, role, phase, job description, and optional transcript. This becomes active interview context." />
+              <GuideFeature label="Save interviews" body="Recorded or manual transcripts become sessions with ratings, notes, grading, and examples." />
+              <GuideFeature label="Set outcomes" body="Mark opportunities active, advanced, rejected, or offered. Outcomes calibrate future confidence scoring." />
+              <GuideFeature label="Use as context" body="The active opportunity powers live suggestions, mock interviews, prep, and floating chat answers." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-meetings" icon="📝" title="Meeting Notes and Action Items">
+            <div className="guide-card-grid">
+              <GuideCard title="Create meeting contexts" body="Create recurring contexts like Product Weekly, Investor Update, Customer Call, or Team Retro." />
+              <GuideCard title="Generate notes" body="After capture stops, Clyde cleans the transcript, writes notes, highlights decisions, identifies blockers, and groups action items by attendee." />
+              <GuideCard title="Search later" body="Ask Clyde across previous notes and transcripts instead of hunting through old documents." />
+              <GuideCard title="Follow through" body="Request reminders, next-step summaries, or calendar updates from the floating chat." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-calendar" icon="📅" title="Calendar, Gmail, and Google Sync">
+            <div className="guide-feature-list">
+              <GuideFeature label="Calendar workspace" body="View upcoming interviews, meetings, follow-ups, and reminders associated with opportunities or meetings." />
+              <GuideFeature label="Gmail scans" body="Clyde scans for status updates, interview invites, offers, rejections, and next-round signals." />
+              <GuideFeature label="Sync proposals" body="Approve or dismiss suggested actions such as Add final loop, Import prep email, Mark rejected, or Add follow-up." />
+              <GuideFeature label="Autonomous updates" body="When enabled, Clyde can keep opportunity statuses and calendar items current inside the app." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-knowledge" icon="🧠" title="Knowledge, RAG, and Active Context">
+            <div className="guide-card-grid">
+              <GuideCard title="Upload files" body="Add resumes, brag docs, company research, prep docs, project writeups, and meeting materials." />
+              <GuideCard title="Scope files" body="Attach files to a specific opportunity or meeting when they should only apply there." />
+              <GuideCard title="Pin context" body="Pin high-priority files so Clyde brings them into active context quickly." />
+              <GuideCard title="Semantic RAG" body="Pro users can index knowledge into Pinecone so Clyde can retrieve and cite relevant sources." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-mock" icon="🎭" title="Realtime Mock Interviews">
+            <div className="guide-feature-list">
+              <GuideFeature label="Start practice" body="Open Mock Interview with an active opportunity selected. The avatar asks role-specific questions and follows up on your answers." />
+              <GuideFeature label="Review scorecards" body="Clyde saves the transcript and generates a 0-100 scorecard with categories, strengths, risks, action plan, and answer reviews." />
+              <GuideFeature label="Improve over time" body="Saved mock interviews can become knowledge so Clyde remembers your practice history and improvement plan." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-trends" icon="📈" title="Trends, Scorecards, and Confidence">
+            <div className="guide-card-grid">
+              <GuideCard title="Transcript ratings" body="Each interview can receive a star-style rating and written evaluation." />
+              <GuideCard title="0-100 scorecards" body="Clyde grades performance with categories, examples, strengths, and improvements." />
+              <GuideCard title="Confidence" body="Confidence uses saved session ratings and prior outcomes. The current opportunity is excluded from its own calibration set." />
+              <GuideCard title="Phase analysis" body="See how performance changes across recruiter, technical, product, leadership, and final-loop phases." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-privacy" icon="🛡️" title="Privacy, Undetectable Mode, and Capture Protection">
+            <div className="guide-callout warning"><strong>Private when you choose it:</strong> use local transcription and local chat when you want processing to stay on-device.</div>
+            <div className="guide-feature-list">
+              <GuideFeature label="No meeting bot" body="Clyde runs as a desktop app and does not join the meeting participant list." />
+              <GuideFeature label="Capture Protection" body="Clyde can use content protection and overlay behavior to keep active UI out of standard captures where supported." />
+              <GuideFeature label="Source control" body="Choose which files, transcripts, memories, screenshots, and integrations Clyde can read." />
+              <GuideFeature label="Pause anytime" body="Pause or stop capture whenever content should not be processed." />
+            </div>
+          </GuideSection>
+
+          <GuideSection id="guide-troubleshooting" icon="🧰" title="Troubleshooting">
+            <div className="guide-card-grid">
+              <GuideCard title="No transcript" body="Check microphone permission, selected devices, recorder settings, transcription endpoint, and whether capture is paused." />
+              <GuideCard title="AI answers fail" body="Validate services, confirm API keys/model names, verify local servers, and check whether the model supports the requested modality." />
+              <GuideCard title="Google sync misses items" body="Confirm Google is connected, run Scan now, inspect proposals, and check whether messages include enough company or meeting context." />
+              <GuideCard title="RAG has no results" body="Upload/index knowledge, verify Pinecone settings, choose the right source mode, and confirm files are scoped to the correct entity." />
+            </div>
+          </GuideSection>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function GuideSection({ children, icon, id, title }) {
+  return <section className="guide-section" id={id}><h3><span>{icon}</span>{title}</h3>{children}</section>;
+}
+
+function GuideStep({ body, number, title }) {
+  return <article className="guide-step"><span>{number}</span><div><strong>{title}</strong><p>{body}</p></div></article>;
+}
+
+function GuideCard({ body, title }) {
+  return <article className="guide-card"><strong>{title}</strong><p>{body}</p></article>;
+}
+
+function GuideFeature({ body, label }) {
+  return <article className="guide-feature"><span>{label}</span><p>{body}</p></article>;
+}
+
+function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, onModeChange, onSettings, onOpenUserGuide, settings, onToggleCaptureProtection,
     onMinimizeApp, onChangeActiveInterview, onChangeActiveMeeting, onAddNewOpportunity, onAddNewMeeting, syncAudit, onMarkAuditRead, appWindowMaximized }) {
   const isInterview = mode === 'interview';
   const api = window.electronAPI;
@@ -4144,6 +4345,9 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
       </div>
 
       <div className="title-actions title-icons">
+        <button className="icon-button user-guide-button" type="button" onClick={onOpenUserGuide} aria-label="Open user guide" title="User guide">
+          ❔
+        </button>
         <button className="icon-button" type="button" onClick={onMinimizeApp} aria-label="Minimize Clyde" title="Minimize Clyde">
           <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
             <path d="M6 12h12" />
@@ -4932,9 +5136,11 @@ function AgentChatSurface({
           </div>
         </div>
         <div className="agent-input-row">
-          <span className={`agent-input-badge ${proTier ? 'pro' : 'free'}`} aria-hidden="true">
-            <img src={searchBadgeUrl} alt="" />
-          </span>
+          {variant === 'floating' ? null : (
+            <span className={`agent-input-badge ${proTier ? 'pro' : 'free'}`} aria-hidden="true">
+              <img src={searchBadgeUrl} alt="" />
+            </span>
+          )}
           <input
             data-testid="homePromptInput"
             value={prompt}
@@ -5306,10 +5512,27 @@ function WorkspaceNavIcon({ id, active }) {
     const [query, setQuery] = useState('');
     const [type, setType] = useState('');
       const [status, setStatus] = useState('');
-      const [uploadingId, setUploadingId] = useState(null);
+    const [uploadingId, setUploadingId] = useState(null);
     const [dragActive, setDragActive] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
-    const pinnedKnowledgeIds = Array.isArray(settings.pinnedKnowledgeIds) ? settings.pinnedKnowledgeIds : [];
+    const settingsPinnedKnowledgeIds = Array.isArray(settings.pinnedKnowledgeIds) ? settings.pinnedKnowledgeIds : [];
+    const [localPinnedKnowledgeIds, setLocalPinnedKnowledgeIds] = useState(settingsPinnedKnowledgeIds.slice(0, 3));
+    const pinnedKnowledgeIds = localPinnedKnowledgeIds;
+    const pinnedItems = pinnedKnowledgeIds
+      .map((id) => items.find((item) => item.id === id))
+      .filter(Boolean);
+
+    useEffect(() => {
+      setLocalPinnedKnowledgeIds(settingsPinnedKnowledgeIds.slice(0, 3));
+    }, [settingsPinnedKnowledgeIds.join('\n')]);
+
+    async function savePinnedKnowledgeIds(nextIds) {
+      const cleanIds = [...new Set((Array.isArray(nextIds) ? nextIds : []).filter(Boolean))].slice(0, 3);
+      setLocalPinnedKnowledgeIds(cleanIds);
+      await api?.setPinnedKnowledge?.(cleanIds);
+      onPinnedChange?.(cleanIds);
+      return cleanIds;
+    }
 
     function toggleSelectAll() {
       if (selectedIds.length === items.length && items.length > 0) {
@@ -5368,8 +5591,7 @@ function WorkspaceNavIcon({ id, active }) {
       }
       const nextPinned = pinnedKnowledgeIds.filter((itemId) => !selectedIds.includes(itemId));
       if (nextPinned.length !== pinnedKnowledgeIds.length) {
-        await api?.setPinnedKnowledge?.(nextPinned);
-        onPinnedChange?.(nextPinned);
+        await savePinnedKnowledgeIds(nextPinned);
       }
       setStatus(`Deleted ${selectedIds.length} items.`);
       setSelectedIds([]);
@@ -5383,8 +5605,7 @@ function WorkspaceNavIcon({ id, active }) {
           nextPinnedArray.push(id);
         }
       }
-      await api?.setPinnedKnowledge?.(nextPinnedArray);
-      onPinnedChange?.(nextPinnedArray);
+      await savePinnedKnowledgeIds(nextPinnedArray);
       setSelectedIds([]);
       setStatus(nextPinnedArray.length > 3 ? 'Pinned context updated. (Max 3 allowed)' : 'Pinned context updated.');
     }
@@ -5451,9 +5672,8 @@ function WorkspaceNavIcon({ id, active }) {
       return;
     }
 
-    await api?.setPinnedKnowledge?.(nextIds);
-    onPinnedChange?.(nextIds);
-    setStatus(nextIds.length ? 'Pinned context updated.' : 'Pinned context cleared.');
+    const savedIds = await savePinnedKnowledgeIds(nextIds);
+    setStatus(savedIds.length ? 'Pinned context updated.' : 'Pinned context cleared.');
   }
 
     async function uploadItemToPinecone(id) {
@@ -5474,8 +5694,7 @@ function WorkspaceNavIcon({ id, active }) {
     await api?.deleteKnowledgeItem?.(id);
     const nextPinned = pinnedKnowledgeIds.filter((itemId) => itemId !== id);
     if (nextPinned.length !== pinnedKnowledgeIds.length) {
-      await api?.setPinnedKnowledge?.(nextPinned);
-      onPinnedChange?.(nextPinned);
+      await savePinnedKnowledgeIds(nextPinned);
     }
     await loadKnowledge(query, type);
   }
@@ -5526,8 +5745,26 @@ function WorkspaceNavIcon({ id, active }) {
       </form>
 
       <div className="knowledge-pinned">
-        <strong>Pinned context</strong>
-        <span>{pinnedKnowledgeIds.length}/3 active</span>
+        <div className="knowledge-pinned-head">
+          <strong>Pinned context</strong>
+          <span>{pinnedKnowledgeIds.length}/3 active</span>
+        </div>
+        {pinnedItems.length ? (
+          <div className="knowledge-pinned-list">
+            {pinnedItems.map((item) => (
+              <article className="knowledge-pinned-item" key={item.id}>
+                <div>
+                  <strong>{item.filename}</strong>
+                  <span>{item.type} • {formatKnowledgeDate(item.updated_at || item.created_at)}</span>
+                  <p>{previewKnowledgeText(item.content)}</p>
+                </div>
+                <button type="button" onClick={() => togglePin(item.id)}>Unpin</button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <small>No pinned files yet. Pin up to 3 files for fast context.</small>
+        )}
       </div>
 
           {status ? <div className={`knowledge-status ${status.includes('successfully') ? 'success' : status.includes('Uploading') ? 'uploading' : ''}`}>{status}</div> : null}
@@ -5638,12 +5875,8 @@ function ModeToggle({ mode, workspaceView, onChange }) {
 }
 
 function StatusStrip({ health, isStreaming, mode, provider, settings = {}, status }) {
-  const chatProvider = provider === 'local' ? 'Local' : provider || 'Local';
-  const chatModel = settings.llmModel || (provider === 'local' ? 'local model' : 'cloud model');
-  const transcriptionProvider = settings.transcriptionProvider || 'local';
-  const transcriptionModel = settings.transcriptionModel || settings.localTranscriptionUrl || 'default';
-  const embeddingProvider = settings.embeddingProvider || 'Pinecone embeddings';
-  const embeddingModel = settings.embeddingModel || settings.pineconeEmbeddingModel || 'configured model';
+  const embeddingProvider = settings.embeddingProvider || 'Not selected';
+  const embeddingModel = settings.embeddingModel || settings.pineconeEmbeddingModel || 'Not selected';
   const ragConfigured = Boolean((settings.pineconeApiKey || settings.pineconeHost) && settings.userTier === 'pro');
   const resumeLength = String(settings.resumeText || '').trim().length;
   return (
@@ -5655,19 +5888,7 @@ function StatusStrip({ health, isStreaming, mode, provider, settings = {}, statu
             </div>
             
           </div>
-      <div className="status-pills">
-        <span>{provider === 'local' ? 'Local LLM' : `${provider} cloud`}</span>
-        <span>{mode === 'interview' ? 'Candidate context' : 'Long term memory'}</span>
-      </div>
       <div className="assist-provider-grid" aria-label="Assistant provider status">
-        <div>
-          <strong>Chat LLM</strong>
-          <small>{chatProvider} · {chatModel}</small>
-        </div>
-        <div>
-          <strong>Transcription</strong>
-          <small>{transcriptionProvider} · {transcriptionModel}</small>
-        </div>
         <div>
           <strong>Embeddings</strong>
           <small>{embeddingProvider} · {embeddingModel}</small>
@@ -7116,8 +7337,8 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
             {selected && (
               <div className="timeline-title-actions">
                 <button type="button" className="primary-action" onClick={() => window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: selected }))}>
-                + Add Event
-              </button>
+                  {mode === 'interview' ? '+ Schedule Interview' : '+ Schedule Meeting'}
+                </button>
               {mode === 'interview' && (
                 <button type="button" onClick={() => onEditEntity(selected)}>
                   Edit details
@@ -7305,9 +7526,20 @@ function SettingsDrawer(props) {
   );
 }
 
+function ProSettingsBadge() {
+  return <img className="pro-settings-badge" src={proGoldBadgeUrl} alt="Pro" />;
+}
+
+function settingsStatusClassName(message = '') {
+  return /failed|error|invalid|missing/i.test(message)
+    ? 'settings-save-status error'
+    : 'settings-save-status success';
+}
+
 function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, setSyncAudit }) {
+  const statusClassNameBase = 'settings-save-status';
   const [draft, setDraft] = useState({ ...settings });
-  const [activeTab, setActiveTab] = useState('context');
+  const [activeTab, setActiveTab] = useState('general');
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
   const [audioDeviceStatus, setAudioDeviceStatus] = useState('');
   const [googleStatus, setGoogleStatus] = useState(null);
@@ -7411,7 +7643,7 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
   }
 
   function renderLlmModelOptions() {
-    const provider = draft.llmProvider || 'local';
+    const provider = draft.llmProvider || '';
     let options = [];
     if (provider === 'openai') {
       options = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-preview', 'o1-mini', 'o3-mini'];
@@ -7457,17 +7689,32 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
     }
   }
 
+  async function importResumeFile() {
+    setSaveStatus('Opening resume file picker...');
+    try {
+      const file = await api?.openResumeFileDialog?.();
+      if (!file?.text) {
+        setSaveStatus(file ? 'Selected file did not contain readable text.' : '');
+        return;
+      }
+      update('resumeText', file.text);
+      setSaveStatus(`Imported ${file.filename || 'resume file'}.`);
+    } catch (error) {
+      setSaveStatus(`Resume import failed: ${error.message}`);
+    }
+  }
+
   return (
     <form className={`settings-form ${compact ? 'compact' : ''}`} onSubmit={handleSubmit}>
       <div className="tabs" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+        <button type="button" className={activeTab === 'general' ? 'active' : ''} onClick={() => setActiveTab('general')}>General</button>
         <button type="button" className={activeTab === 'context' ? 'active' : ''} onClick={() => setActiveTab('context')}>Context</button>
-        <button type="button" className={activeTab === 'llm' ? 'active' : ''} onClick={() => setActiveTab('llm')}>LLM</button>
-        <button type="button" className={activeTab === 'pro' ? 'active' : ''} onClick={() => setActiveTab('pro')}>Pro</button>
         <button type="button" className={activeTab === 'sync' ? 'active' : ''} onClick={() => setActiveTab('sync')}>Sync</button>
+        <button type="button" className={activeTab === 'llm' ? 'active' : ''} onClick={() => setActiveTab('llm')}>LLM</button>
         <button type="button" className={activeTab === 'transcription' ? 'active' : ''} onClick={() => setActiveTab('transcription')}>Speech</button>
       </div>
 
-      {activeTab === 'context' && (
+      {activeTab === 'general' && (
         <>
           <label className="wide-field" style={{ marginTop: '15px' }}>
             App opacity: {clampUiOpacity(draft.uiOpacity)}%
@@ -7481,15 +7728,21 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
             />
             <small style={{ color: 'var(--muted)' }}>Left is more translucent. Right is fully opaque.</small>
           </label>
-          <label className="wide-field" style={{ marginTop: '15px' }}>
-            {mode === 'interview' ? 'Resume / background' : 'Long term memory'}
-            <textarea
-              style={{ minHeight: '120px' }}
-              value={mode === 'interview' ? (draft.resumeText || '') : (draft.meetingMemory || '')}
-              onChange={(event) => update(mode === 'interview' ? 'resumeText' : 'meetingMemory', event.target.value)}
-              placeholder={mode === 'interview' ? 'Paste resume facts, metrics, and projects.' : 'Persistent context Clyde should use across all meetings.'}
-            />
-          </label>
+          {SHOW_DEMO_MODE_SETTING ? (
+            <>
+              <label className="toggle-row wide-field" style={{ marginTop: '15px' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.demoMode)}
+                  onChange={(event) => update('demoMode', event.target.checked)}
+                />
+                Demo mode with sample data
+              </label>
+              <small className="wide-field" style={{ color: 'var(--muted)' }}>
+                Uses built-in opportunities, meetings, calendar events, knowledge, sync activity, trends, and mock interviews without changing your saved data.
+              </small>
+            </>
+          ) : null}
           <div className="wide-field floating-agent-settings">
             <span>Floating Clyde chatbot</span>
             <div>
@@ -7515,17 +7768,58 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
               </button>
             </div>
           </div>
-          <div style={{ marginTop: '15px', padding: '10px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--line)' }}>
-            <label className="toggle-row" style={{ marginBottom: draft.ragEnabled ? '10px' : '0' }}>
+        </>
+      )}
+
+      {activeTab === 'context' && (
+        <>
+          <label className="wide-field" style={{ marginTop: '15px' }}>
+            {mode === 'interview' ? 'Resume / background' : 'Long term memory'}
+            {mode === 'interview' ? (
+              <div className="resume-import-row">
+                <button type="button" className="ghost" onClick={importResumeFile}>Import file</button>
+                <small>.txt, .md, and .pdf supported. Imported text replaces the box below.</small>
+              </div>
+            ) : null}
+            <textarea
+              style={{ minHeight: '120px' }}
+              value={mode === 'interview' ? (draft.resumeText || '') : (draft.meetingMemory || '')}
+              onChange={(event) => update(mode === 'interview' ? 'resumeText' : 'meetingMemory', event.target.value)}
+              placeholder={mode === 'interview' ? 'Paste resume facts, metrics, and projects.' : 'Persistent context Clyde should use across all meetings.'}
+            />
+          </label>
+          <div className="wide-field pro-setting-group">
+            <label className="toggle-row pro-setting-label">
               <input
                 type="checkbox"
                 checked={Boolean(draft.ragEnabled)}
                 onChange={(event) => update('ragEnabled', event.target.checked)}
               />
-              Enable Advanced RAG (Pinecone)
+              <span>Enable RAG with Pinecone</span>
+              <ProSettingsBadge />
             </label>
             {draft.ragEnabled && (
               <div className="form-grid">
+                <label>
+                  Embedding provider
+                  <select value={draft.embeddingProvider || ''} onChange={(event) => {
+                    const provider = event.target.value;
+                    update('embeddingProvider', provider);
+                    update('embeddingModel', '');
+                  }}>
+                    <option value="">Select an embedding provider</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="openai">OpenAI</option>
+                  </select>
+                </label>
+                <label>
+                  Embedding model
+                  <input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" />
+                </label>
+                <label>
+                  Embedding API key
+                  <input autoComplete="new-password" type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} placeholder="Uses Gemini or OpenAI key when empty" />
+                </label>
                 <label>
                   Pinecone API Key
                   <input autoComplete="new-password" type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} placeholder="Stored locally" />
@@ -7533,6 +7827,10 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
                 <label>
                   Pinecone Host URL
                   <input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="e.g. https://index.pinecone.io" />
+                </label>
+                <label>
+                  Pinecone namespace
+                  <input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} placeholder="clyde-pro-knowledge" />
                 </label>
               </div>
             )}
@@ -7542,16 +7840,17 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
 
       {activeTab === 'llm' && (
         <div className="form-grid">
+          <div className="wide-field settings-section-label">
+            <strong>Standard AI provider</strong>
+            <small>Used for answer cards, prep, summaries, grading, trend analysis, and sync reasoning.</small>
+          </div>
           <label>
-            LLM provider
-            <select value={draft.llmProvider || 'local'} onChange={(event) => {
+            Provider
+            <select value={draft.llmProvider || ''} onChange={(event) => {
               update('llmProvider', event.target.value);
-              // auto-default model
-              if (event.target.value === 'openai') update('llmModel', 'gpt-4o');
-              if (event.target.value === 'anthropic') update('llmModel', 'claude-3-7-sonnet-20250219');
-              if (event.target.value === 'gemini') update('llmModel', 'gemini-3.1-flash-lite');
-              if (event.target.value === 'local') update('llmModel', '');
+              update('llmModel', '');
             }}>
+              <option value="">Select an LLM provider</option>
               <option value="local">Local LM Studio</option>
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
@@ -7563,7 +7862,13 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
             <input list="llmModelList" value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" />
             <datalist id="llmModelList">{renderLlmModelOptions()}</datalist>
           </label>
-          {draft.llmProvider !== 'local' && (
+          {draft.llmProvider === 'openai' && (
+            <label>
+              OpenAI API key
+              <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
+            </label>
+          )}
+          {draft.llmProvider && !['local', 'openai'].includes(draft.llmProvider) && (
             <label>
               API key
               <input autoComplete="new-password" type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} placeholder="Stored locally" />
@@ -7575,53 +7880,47 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
               <input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" />
             </label>
           )}
-        </div>
-      )}
-
-      {activeTab === 'pro' && (
-        <div className="form-grid">
-          <label>
-            User tier
-            <select value={draft.userTier || 'free'} onChange={(event) => update('userTier', event.target.value)}>
-              <option value="free">Free</option>
-              <option value="pro">Pro</option>
-            </select>
-          </label>
-          <label className="toggle-row">
+          <div className="wide-field settings-section-label">
+            <strong>Realtime voice agent</strong>
+            <small>Pro feature. Requires an OpenAI realtime model, such as gpt-realtime-2.</small>
+          </div>
+          <label className="toggle-row pro-setting-label wide-field">
             <input
               type="checkbox"
               checked={Boolean(draft.proAgentEnabled)}
-              onChange={(event) => update('proAgentEnabled', event.target.checked)}
+              onChange={(event) => {
+                update('proAgentEnabled', event.target.checked);
+                if (event.target.checked && !draft.proRealtimeModel) {
+                  update('proRealtimeModel', 'gpt-realtime-2');
+                }
+              }}
             />
-            Enable Clyde Pro agent
+            <span>Enable Clyde Pro agent</span>
+            <ProSettingsBadge />
           </label>
-          <label>
-            Realtime model
-            <input value={draft.proRealtimeModel || ''} onChange={(event) => update('proRealtimeModel', event.target.value)} placeholder="gpt-realtime-2" />
-          </label>
-          <label>
-            Embedding provider
-            <select value={draft.embeddingProvider || 'gemini'} onChange={(event) => {
-              const provider = event.target.value;
-              update('embeddingProvider', provider);
-              update('embeddingModel', provider === 'openai' ? 'text-embedding-3-small' : 'gemini-embedding-2');
-            }}>
-              <option value="gemini">Gemini</option>
-              <option value="openai">OpenAI</option>
-            </select>
-          </label>
-          <label>
-            Embedding model
-            <input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" />
-          </label>
-          <label>
-            Embedding API key
-            <input autoComplete="new-password" type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} placeholder="Uses Gemini or OpenAI key when empty" />
-          </label>
-          <label>
-            Pinecone namespace
-            <input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} placeholder="clyde-pro-knowledge" />
-          </label>
+          {draft.proAgentEnabled && (
+            <>
+              <label>
+                Realtime agent model
+                <input value={draft.proRealtimeModel || ''} onChange={(event) => update('proRealtimeModel', event.target.value)} placeholder="gpt-realtime-2" />
+                <small style={{ color: 'var(--muted)' }}>Must be an OpenAI realtime model.</small>
+              </label>
+              <label>
+                Realtime OpenAI API key
+                <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
+              </label>
+              <label className="toggle-row wide-field">
+                <input
+                  type="checkbox"
+                  checked={draft.transcriptionProvider === 'openai-realtime-whisper'}
+                  onChange={(event) => {
+                    update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : '');
+                  }}
+                />
+                <span>Use OpenAI Realtime Whisper for lowest-latency live transcription with the same API key</span>
+              </label>
+            </>
+          )}
         </div>
       )}
 
@@ -7666,7 +7965,8 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
           )}
           <label>
             Transcription provider
-            <select value={draft.transcriptionProvider || 'local'} onChange={(event) => update('transcriptionProvider', event.target.value)}>
+            <select value={draft.transcriptionProvider || ''} onChange={(event) => update('transcriptionProvider', event.target.value)}>
+              <option value="">Select a transcription provider</option>
               <option value="local">Local Whisper</option>
               <option value="openai">OpenAI Whisper</option>
               <option value="openai-realtime-whisper">OpenAI Realtime Whisper</option>
@@ -7677,12 +7977,12 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
               Transcription URL
               <input value={draft.localTranscriptionUrl || ''} onChange={(event) => update('localTranscriptionUrl', event.target.value)} placeholder="http://localhost:8000/v1/audio/transcriptions" />
             </label>
-          ) : (
+          ) : draft.transcriptionProvider ? (
             <label>
-              OpenAI API Key
-              <input autoComplete="new-password" type="password" value={draft.transcriptionApiKey || ''} onChange={(event) => update('transcriptionApiKey', event.target.value)} placeholder="Stored locally" />
+              OpenAI API key
+              <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
             </label>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -7695,7 +7995,8 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
             </label>
             <label className="toggle-row">
               <input type="checkbox" checked={Boolean(draft.googleSyncAutoApprove)} onChange={(event) => update('googleSyncAutoApprove', event.target.checked)} />
-              Auto-approve generated sync actions
+              <span>Auto-approve generated sync actions</span>
+              <ProSettingsBadge />
             </label>
             <label>
               Poll interval (minutes)
@@ -7730,7 +8031,7 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
         <button type="submit" data-testid="saveBtn" className="primary-action" disabled={saving}>
           {saving ? 'Saving...' : 'Save setup'}
         </button>
-        {saveStatus ? <small className="settings-save-status" role="status">{saveStatus}</small> : null}
+        {saveStatus ? <small className={settingsStatusClassName(saveStatus)} role="status">{saveStatus}</small> : null}
       </div>
     </form>
   );

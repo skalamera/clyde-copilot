@@ -9,7 +9,7 @@
       "destination": "/index.html"
     },
     {
-      "source": "/((?!assets|downloads|clyde_ghost.svg|favicon.svg|og.svg|robots.txt|sitemap.xml).*)",
+      "source": "/((?!api|assets|downloads|clyde_ghost.svg|clydefree.svg|clydepro.svg|favicon.svg|og.svg|robots.txt|sitemap.xml).*)",
       "destination": "/index.html"
     }
   ],

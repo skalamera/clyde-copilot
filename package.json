@@ -1,6 +1,6 @@
 {
   "name": "clyde",
-  "version": "1.0.0",
+  "version": "1.0.0-beta.1",
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
@@ -59,6 +59,7 @@
     "directories": {
       "output": "dist"
     },
+    "artifactName": "${productName} Setup v${version}.${ext}",
     "asar": true,
     "win": {
       "target": "nsis",

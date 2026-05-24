@@ -1,178 +1,360 @@
-# Clyde 👻
+# Clyde
 
-Clyde is a privacy-first, real-time AI assistant for meetings and interviews. Built with Electron and React, Clyde sits alongside your video calls to provide live transcription, contextual suggestions, and post-call analytics. It is designed to work seamlessly with local AI models (via LM Studio and Whisper) to keep your sensitive conversation data entirely on your machine, with options to connect to Cloud APIs if preferred.
+Clyde is a privacy-first desktop AI assistant for live interviews, meetings, and pre-call preparation. It is built with Electron, React, a native Rust audio sidecar, local persistence, optional local AI services, and optional cloud integrations for OpenAI, Pinecone, Gemini embeddings, Google, and LiveAvatar.
 
----
+Clyde can sit beside a video call as a compact overlay, listen to microphone and system audio, transcribe the conversation, detect interviewer questions, generate answer cards, surface short memory reminders, and save the resulting transcript into an interview opportunity or meeting record.
 
-## 🌟 Core Features
+## Features
 
-### 🎙️ Real-Time Audio Capture & Transcription
-*   **Multi-channel Capture**: Records both your microphone ("You") and system audio ("Others") via a robust, custom Rust-based audio engine (`clyde-audio-engine`), alongside legacy fallback support via `native-audio-node`.
-*   **Live Transcription**: Streams audio chunks to a local Whisper server or OpenAI's Cloud API to generate a continuous transcript.
-*   **Visual Audio Meters**: Integrated directly into the sidebar to provide live audio levels (RMS) and speaking indicators for local and remote participants without obscuring your view.
+### Live Capture
 
-### 🤖 Live AI Assistant (Active Capture)
-*   **Pro Realtime Agent**: Connects to OpenAI's real-time WebSockets API (e.g., `gpt-realtime-2`) for ultra-low latency, agentic interactions (searching memory, retrieving pinned documents) directly mid-meeting.
-*   **Interactive Agent Chat**: A dedicated chat agent that can list calendar events, ingest files, interact with your vector database, update opportunity/meeting statuses, delete sessions, and perform CRUD actions on your meeting/interview data seamlessly through conversation.
-*   **Action Review Forms**: When Clyde needs more details to finish an action, it now renders a fillable form with the right field types instead of returning a plain error.
-*   **Sidebar & Top Control Bar**: A streamlined top control bar and sidebar layout that sits nicely alongside your video calls, featuring adjustable UI opacity settings.
-*   **Calendar Integration**: View, save, import, and delete calendar events, and quickly launch active capture for upcoming meetings via the integrated start button or agent actions.
-*   **Agentic Gmail/Google Calendar Sync**: Clyde can scan connected Gmail and Google Calendar accounts, generate proposed actions inside the app, let you review or auto-approve them, and keep a local audit log in Settings.
-*   **Contextual Nudges**: Click the "Nudge" button to get immediate AI suggestions on what to say next based on the live transcript.
-*   **Screenshot Awareness**: Capture your current screen context alongside your prompt to get help with code, presentations, or technical questions.
-*   **Custom Prompts**: Query the AI manually at any time during the meeting.
-*   **Capture Protection**: Privacy toggle that prevents Clyde's overlay from showing up in your own screen shares.
+* Capture microphone and system audio as separate sources.
+* Use the Rust `clyde-audio-engine` sidecar for low-latency audio capture, with legacy fallback paths for supported local audio capture tooling.
+* Monitor live audio levels with RMS meters for `You` and `System Audio`.
+* Pause, resume, reset, and stop active capture sessions.
+* Use a compact floating active-capture overlay with draggable controls.
+* Toggle capture protection so Clyde is hidden from normal screen-sharing capture.
+* Adjust active overlay opacity and compact display behavior.
+* Run a preflight modal before capture with connection checks, active models, audio test, active context preview, pinned files, and upload support.
 
-### 💼 Interview & Meeting Modes
-*   **Interview Mode**: Track opportunities by Company and Role. Paste in Job Descriptions to give Clyde deep context for tailoring interview answers.
-*   **Meeting Mode**: Optimized for internal team syncs, generating recaps, action items, and follow-ups.
+### Transcription
 
-### 📈 Pre-Call Prep & Post-Call Analytics
-*   **Automated Grading**: Clyde automatically grades your interview performance (0-5 stars) evaluating clarity, technical accuracy, and conciseness.
-*   **Trend Analysis**: Plots your transcript ratings over time using interactive charts (`Recharts`). Computes confidence scores (0-100%) and overall momentum (Up, Down, Sideways), utilizing session signature generation to accurately map topics across multiple sessions.
-*   **Outcome-Labeled Opportunity Learning**: Clyde uses explicitly labeled past interview outcomes (e.g., advanced, offer, rejected) to automatically calibrate its advice, leaning on successful past answers to guide you better in future rounds.
-*   **Pre-Call Prep**: Analyzes past interviews for the same company to generate cumulative summaries, probable focus areas, interviewer question patterns, and questions you should ask.
+* Transcribe with local Whisper-compatible endpoints.
+* Transcribe with OpenAI Cloud Whisper.
+* Stream partial and final transcripts through OpenAI Realtime Whisper.
+* Drop quiet audio chunks before transcription using RMS thresholds.
+* Filter unclear-audio sentinel responses and common silence hallucinations.
+* Keep microphone and system speaker labels separate in the live transcript.
 
-### 🧠 Long-Term Memory & RAG
-*   **Vector Database Integration**: Connects to Pinecone (via Gemini embeddings) to index and retrieve context from your Resume, past meetings, and long-term memory.
-*   **Pinned Knowledge**: Explicitly pin core documents (like your resume or core company specs) so they are persistently loaded into context for the Pro Realtime Agent or standard chat.
-*   **Opportunity and Meeting Files**: Attach pinned files directly to a specific opportunity or meeting from the Timeline or Meeting Memory view. Those files stay local and can also feed context when that record is active.
-*   **Source Toggling**: Selectively include/exclude your Resume, Memory, RAG, or Web Search for specific queries mid-call.
+### Live AI Assistant
 
----
+* Generate live answer cards for detected interview questions.
+* Generate `Say next`, recap, action, follow-up, risk, insight, note, and screen-description cards depending on mode and command.
+* Use Clyde Pro realtime WebSocket agent with `gpt-realtime-2` for faster draft/final answer generation.
+* Warm the Pro realtime session when capture starts.
+* Stream draft answer cards before final answers are ready.
+* Keep answer generation fast by running memory/RAG retrieval separately from the first draft.
+* Surface short Pro memory reminder cards after the answer card.
+* Ask Clyde manually during capture with optional source selection.
+* Capture a screenshot and ask questions about the current screen.
+* Choose sources for custom prompts: resume/background, long-term memory, RAG, and web where configured.
+* Dismiss individual assistant or memory cards.
 
-## 🏗️ Architecture
+### Interview Mode
 
-Clyde follows a standard Electron multi-process architecture, heavily relying on IPC (Inter-Process Communication) to bridge the secure backend and the reactive frontend.
+* Track opportunities by company, role, outcome, and interview history.
+* Store job descriptions per opportunity.
+* Add manual transcripts.
+* Save live sessions back to existing or new opportunities.
+* Edit interview transcripts, metadata, examples, summaries, and notes.
+* Automatically grade saved interview sessions with transcript-based evaluation.
+* Normalize transcript ratings and show star ratings on the timeline.
+* Track opportunity outcomes such as active, advanced, rejected, and offer.
+* Use outcome calibration from past advanced/offer/rejected opportunities to improve advice.
+* Group rejected and offer opportunities separately from active opportunities.
+* Prevent rejected opportunities from becoming the active interview context.
+
+### Meeting Mode
+
+* Track recurring meetings and meeting notes.
+* Save live meeting transcripts to existing or new meeting records.
+* Store long-term meeting memory.
+* Generate meeting summaries and attendee action items.
+* Edit saved meeting transcripts, notes, and action items.
+* Use meeting memory as a selectable source for live prompts.
+
+### Pre-Call Prep
+
+* Generate pre-call prep for the active opportunity or meeting.
+* Summarize prior sessions for the selected record.
+* Show likely focus areas and prior interviewer question patterns.
+* Suggest questions to ask in the upcoming call.
+* Include active context such as resume/background, job description, meeting memory, pinned knowledge, and entity files.
+
+### Timeline And Analytics
+
+* Browse saved interview and meeting sessions in a resizable timeline layout.
+* View session transcripts, ratings, evaluation notes, examples, and action items.
+* Edit or delete saved sessions and entities.
+* Generate trend analysis for opportunities with enough session history.
+* Chart transcript ratings over time with Recharts.
+* Cache trend analysis by session signature so stale analysis is not reused.
+* Show overall trend, recurring themes, strengths, risks, and recommendations.
+
+### Calendar
+
+* Create, edit, delete, and view local calendar events.
+* Associate events with opportunities or meetings.
+* Show upcoming events in the workspace sidebar.
+* Start live capture directly from an upcoming event.
+* Import and sync Google Calendar events when Google sync is connected.
+* Mark past calendar events with muted styling.
+
+### Knowledge And RAG
+
+* Add `.txt`, `.md`, and `.pdf` research files.
+* Store local knowledge in SQLite via `better-sqlite3`.
+* Search local knowledge from the Knowledge page.
+* Upload knowledge chunks to Pinecone.
+* Use Gemini embeddings for Pinecone indexing/search where configured.
+* Pin up to three global knowledge items for active context.
+* Attach files directly to an opportunity or meeting.
+* Include pinned knowledge and entity-scoped files in active context.
+* Archive saved sessions into the Pro knowledge base.
+* Refresh system knowledge for opportunities and calendar events.
+* Filter Pinecone searches by active entity context.
+
+### Agent Chat
+
+* Chat with an agent that can reason over Clyde data and perform local actions.
+* List available sources and search active context, all sessions, knowledge, calendar, and timeline data.
+* Create or update calendar events.
+* Create, update, or delete opportunities and meetings.
+* Confirm pending actions before mutation.
+* Render required-field forms when the agent needs more information.
+* Keep a floating chat window with saved position/preferences.
+
+### Google Sync
+
+* Connect Google through a desktop OAuth flow.
+* Read Gmail and Google Calendar using read-only scopes.
+* Scan Gmail for opportunity status updates, rejections, interviews, and related action proposals.
+* Scan Google Calendar for event proposals.
+* Review, approve, dismiss, or auto-approve sync proposals.
+* Keep an audit log of sync actions.
+* Run periodic sync scans and a startup scan when connected.
+
+### Mock Interviews And LiveAvatar
+
+* Run Pro mock interview flows for an active opportunity.
+* Save local mock interview records grouped by opportunity.
+* Grade mock interviews through OpenAI structured output.
+* Save mock interview assessments into knowledge and optionally upload them to Pinecone.
+* Delete mock interviews and matching Pinecone-backed knowledge items.
+* Create unique LiveAvatar context names for mock interviews when LiveAvatar is configured.
+
+### Settings And App Utilities
+
+* Switch between Interview and Meeting modes.
+* Configure transcription provider, transcription model, and local/cloud transcription URLs.
+* Configure local LLM, OpenAI-compatible LLM settings, and Pro realtime settings.
+* Configure audio engine and selected input/output devices.
+* Configure Pinecone namespace, host, API key, and RAG behavior.
+* Configure Google sync polling and auto-approval.
+* Configure app window controls, sidebar behavior, and capture overlay behavior.
+* Built-in app window minimize, maximize, restore, close, and hide actions.
+* Optional startup DevTools through `CLYDE_OPEN_DEVTOOLS=1`.
+* Auto-update support through `electron-updater`.
+
+## Architecture
+
+Clyde uses Electron's main process for privileged system access and a React renderer for the UI. Communication happens through the secure preload bridge in `src/preload.js`.
 
 ```mermaid
-+-----------------------------------------------------------------------+
-|                           Electron Main Process                       |
-|                                                                       |
-|  +----------------+   +-----------------+   +----------------------+  |
-|  | Audio Capture  |   | LLM Orchestration|  | Transcription Client |  |
-|  | (native-audio) |   | (axios, prompts)|   | (Whisper / OpenAI)   |  |
-|  +-------+--------+   +--------+--------+   +----------+-----------+  |
-|          |                     |                       |              |
-+----------|---------------------|-----------------------|--------------+
-           |                     |                       |
-           v                     v                       v
-      Audio Chunks         Cards / Advice          Text Streams
-           |                     |                       |
-+----------|---------------------|-----------------------|--------------+
-|          |            Electron Renderer Process        |              |
-|                                                                       |
-|  +----------------+   +-----------------+   +----------------------+  |
-|  | Active Sidebar |   |  Timeline View  |   | Trend & Prep Panels  |  |
-|  | (Control Bar)  |   | (Transcript UI) |   | (Recharts, Stats)    |  |
-|  +----------------+   +-----------------+   +----------------------+  |
-|                                                                       |
-|                       React + Vite + CSS Modules                      |
-+-----------------------------------------------------------------------+
+flowchart LR
+  Audio[Mic + System Audio] --> Main[Electron Main]
+  Main --> Transcription[Transcription Client]
+  Main --> Assistant[Meeting Assistant / Pro Agent]
+  Main --> Stores[Sessions, Calendar, Knowledge]
+  Stores --> Pinecone[Pinecone / Local SQLite]
+  Assistant --> Renderer[React Renderer]
+  Transcription --> Renderer
+  Renderer --> Main
 ```
 
-### Main Process (`main.js` & `src/`)
-*   **`audioEngineSidecar.js` & `audioCapture.js`**: Hooks into OS-level audio devices using either the custom Rust engine or legacy `native-audio-node`.
-*   **`agentChat.js` & `agentActionRegistry.js`**: Powers the conversational agent that has tools to modify Clyde's local database and calendar.
-*   **`googleClient.js`, `googleSyncService.js`, and `syncStore.js`**: Handle local Google OAuth, Gmail/Calendar scanning, proposed action storage, and the audit log for approved or dismissed sync actions.
-*   **`autoUpdater.js`**: Built-in automatic updates for the application via `electron-updater`.
-*   **`llmClient.js` & `meetingAssistant.js`**: Constructs dynamic prompts utilizing the transcript digest, job descriptions, and user inputs. Calls LM Studio (Local LLM) or Cloud APIs.
-*   **`transcriptionClient.js`**: Handles audio chunk buffering, RMS calculation (to drop silent chunks), and requests to the Whisper API.
-*   **`sessionManager.js`, `interviewManager.js`, and `knowledgeManager.js`**: Handle local SQLite/JSON persistence of sessions, entities, transcripts, and pinned/entity-scoped files using `electron-store`.
-*   **`trendAnalysis.js`**: Background worker logic that triggers LLM calls to compute grades and insights after a session ends.
+### Main Process
 
-### Renderer Process (`src/renderer/`)
-*   **`App.jsx`**: The core React application containing the routing logic between the Timeline, Calendar, Trends, and the Live Capture views.
-*   **`App.css`**: Custom styling, heavily utilizing CSS grid, flexbox, and backdrop-filters to create a modern, dark-mode, glassmorphic UI.
-*   **IPC via `preload.js`**: Exposes a safe `window.electronAPI` bridge to allow React to trigger captures, save settings, manage Google sync, attach entity files, and receive real-time text/audio level updates.
+* `main.js`: app lifecycle, BrowserWindow setup, IPC handlers, capture orchestration, settings, health checks, and startup services.
+* `src/audioEngineSidecar.js`: Rust sidecar process management for audio capture and audio level events.
+* `src/audioCapture.js`: legacy capture fallback support and PCM processing hooks.
+* `src/transcriptionClient.js`: local/OpenAI transcription, realtime transcription, WAV wrapping, RMS checks, and transcript filtering.
+* `src/meetingAssistant.js`: transcript digestion, automatic question detection, card generation, Pro realtime orchestration, and memory search timing.
+* `src/proRealtimeAgent.js`: OpenAI realtime WebSocket agent, draft cards, tool calls, memory search, and pinned/entity document access.
+* `src/assistantPrompts.js` and `src/proAgentPrompts.js`: prompt assembly for local/cloud assistant paths.
+* `src/sessionManager.js`: unified interview and meeting session persistence.
+* `src/interviewManager.js`: legacy interview entity/session handling and grading support.
+* `src/knowledgeManager.js`: local knowledge storage, file ingestion, session archiving, entity files, pinning, and Pinecone metadata.
+* `src/pineconeClient.js`: vector upsert/search and metadata sanitization.
+* `src/calendarStore.js`: local calendar events.
+* `src/googleClient.js`, `src/googleSyncService.js`, and `src/syncStore.js`: Google OAuth, Gmail/Calendar proposal scanning, and sync audit state.
+* `src/agentChat.js` and `src/agentActionRegistry.js`: conversational action agent and local mutation tools.
+* `src/mockInterviewManager.js`: mock interview persistence, grading, and knowledge integration.
+* `src/trendAnalysis.js` and `src/trendAnalysisStore.js`: trend generation, normalization, caching, and cleanup.
+* `src/autoUpdater.js`: update integration for packaged builds.
 
----
+### Renderer Process
 
-## 🚀 Getting Started
+* `src/renderer/App.jsx`: main React app, views, modals, active capture UI, timeline, calendar, settings, knowledge, trend analysis, and mock interview surfaces.
+* `src/renderer/App.css`: dark glass UI, active overlay layout, responsive views, modals, and workspace styling.
+* `src/renderer/RealtimeInterview.jsx`: realtime interview UI support.
+* `src/renderer/realtimeInterviewService.js`: realtime interview service client behavior.
+* `src/renderer/trendAnalysisClient.js`: trend analysis helpers shared by renderer tests/UI.
+* `src/preload.js`: safe IPC bridge exposed as `window.electronAPI`.
 
-### Prerequisites
-*   Node.js (v18+ recommended)
-*   Python & FFmpeg (for local Whisper)
-*   [LM Studio](https://lmstudio.ai/) (for local LLM capabilities)
+## Data And Privacy
 
-### Installation
+* Clyde is local-first. Sessions, transcripts, settings, calendar records, and knowledge metadata live in the app's local user data directory.
+* Local Whisper-compatible transcription and local LM Studio chat can be used without sending conversation data to cloud APIs.
+* Cloud features are optional and require explicit configuration: OpenAI, Pinecone, Gemini embeddings, Google OAuth, and LiveAvatar.
+* Capture protection uses Electron content protection and always-on-top behavior to reduce the chance of Clyde appearing in normal screen shares.
+* Google integration uses read-only Gmail and Calendar scopes for proposal generation.
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd clyde
-   ```
+## Requirements
 
-2. **Install Dependencies:**
-   ```bash
-   npm install
-   ```
+* Windows is the primary supported platform for the bundled Rust audio sidecar and current packaging target.
+* Node.js 18+ is recommended.
+* Rust/Cargo is required when building the native audio engine from source.
+* Python and FFmpeg are required for the provided local Whisper server scripts.
+* LM Studio is optional for local LLM chat/completion.
+* OpenAI API access is required for OpenAI Cloud Whisper, Realtime Whisper, Pro realtime answers, and some mock interview flows.
+* Pinecone and Gemini API credentials are required for Pro vector indexing/search.
+* Google Cloud OAuth credentials are required for Google sync.
 
-3. **Configure Local AI (Optional but recommended):**
-   * Start **LM Studio** and load a model (e.g., Llama-3 or Mistral). Start the Local Inference Server on port `1234`.
-   * Configure Clyde's settings via the UI to point to `http://localhost:1234/v1/chat/completions`.
+## Setup
 
-4. **Configure Google Sync (Optional):**
-   * Create one desktop OAuth client in the Google Cloud project that owns Clyde's Gmail/Calendar integration.
-   * Enable the Gmail API and Google Calendar API for that project.
-   * Add the OAuth consent screen scopes `https://www.googleapis.com/auth/gmail.readonly` and `https://www.googleapis.com/auth/calendar.readonly`.
-   * Set `CLYDE_GOOGLE_OAUTH_CLIENT_ID` in `.env` or the app environment. `GOOGLE_OAUTH_CLIENT_ID` is also accepted.
-   * If Google generated a desktop client secret, set `CLYDE_GOOGLE_OAUTH_CLIENT_SECRET` as well. `GOOGLE_OAUTH_CLIENT_SECRET` is also accepted.
-   * Users connect their own Gmail and Calendar accounts from Settings > Sync by clicking `Connect Google`.
+### Install
 
-5. **Start the Whisper Server:**
-   ```bash
-   # Starts the local Python FastAPI Whisper server
-   npm run whisper
-   
-   # Or, if you don't have a CUDA GPU:
-   npm run whisper:cpu
-   ```
+```bash
+npm install
+```
 
-6. **Run the App (Development):**
-   ```bash
-   npm start
-   ```
+### Run In Development
 
----
+```bash
+npm start
+```
 
-## 🛠️ Scripts & Tooling
+`npm start` builds the renderer and launches Electron through `scripts/start-electron.js`.
 
-*   `npm start`: Builds the Vite renderer and starts the Electron app.
-*   `npm run renderer:build`: Compiles the React frontend into `src/renderer-dist`.
-*   `npm run renderer:dev`: Starts the Vite dev server for frontend-only development.
-*   `npm test`: Runs the Node.js native test runner against the test suite (`test/`).
-*   `npm run audio:check`: Diagnostic script to list available OS audio sources.
-*   `npm run pack` / `npm run dist`: Packages the application into an executable using `electron-builder`.
+### Build Renderer Only
 
----
+```bash
+npm run renderer:build
+```
 
-## 🧪 Testing
+### Start Local Whisper Server
 
-Clyde uses Node's native test runner (`node:test` and `node:assert`). Tests cover both the Main process IPC logic and Renderer Smoke tests (verifying UI components, classes, and logic).
+```bash
+npm run whisper
+```
+
+CPU mode:
+
+```bash
+npm run whisper:cpu
+```
+
+Then configure Clyde's local transcription URL, typically:
+
+```text
+http://localhost:8000/v1/audio/transcriptions
+```
+
+### Configure Local LLM
+
+Start LM Studio's local server and configure Clyde with an OpenAI-compatible chat completions URL, typically:
+
+```text
+http://localhost:1234/v1/chat/completions
+```
+
+### Configure OpenAI
+
+Add an OpenAI API key in Settings for OpenAI transcription, realtime transcription, Pro realtime answers, and mock interview grading features that use OpenAI.
+
+### Configure Pinecone / RAG
+
+In Settings, configure:
+
+* Pinecone API key
+* Pinecone host
+* Pinecone namespace, defaulting to `clyde-pro-knowledge`
+* Gemini API key or embedding provider settings where required by the embedding path
+
+### Configure Google Sync
+
+Create a desktop OAuth client in Google Cloud and enable Gmail API and Google Calendar API.
+
+Required scopes:
+
+* `https://www.googleapis.com/auth/gmail.readonly`
+* `https://www.googleapis.com/auth/calendar.readonly`
+
+Environment variables:
+
+* `CLYDE_GOOGLE_OAUTH_CLIENT_ID` or `GOOGLE_OAUTH_CLIENT_ID`
+* `CLYDE_GOOGLE_OAUTH_CLIENT_SECRET` or `GOOGLE_OAUTH_CLIENT_SECRET`, if your desktop client has a secret
+
+Then connect from Settings > Sync.
+
+### Open DevTools Explicitly
+
+DevTools are off by default. To open them at startup:
+
+```bash
+CLYDE_OPEN_DEVTOOLS=1 npm start
+```
+
+On PowerShell:
+
+```powershell
+$env:CLYDE_OPEN_DEVTOOLS="1"; npm start
+```
+
+## Scripts
+
+* `npm start`: build the renderer and launch Electron.
+* `npm run renderer:build`: build the Vite renderer into `src/renderer-dist`.
+* `npm run renderer:dev`: run the Vite dev server on `127.0.0.1`.
+* `npm run audio-engine:build`: build the Rust audio sidecar.
+* `npm run audio-engine:test`: run Cargo tests for the Rust audio engine.
+* `npm run whisper`: start the local Whisper server script.
+* `npm run whisper:cpu`: start the local Whisper server script in CPU mode.
+* `npm run audio:check`: list/diagnose available OS audio sources.
+* `npm test`: rebuild `better-sqlite3` and run Node's native test runner.
+* `npm run pack`: package an unpacked app directory with `electron-builder`.
+* `npm run dist`: build a distributable installer with `electron-builder`.
+
+## Testing
+
+Clyde uses Node's built-in test runner.
 
 ```bash
 npm test
 ```
 
-For renderer UI changes, run the focused smoke test plus the production renderer build:
+If `better-sqlite3` is already built for your current Node ABI and you want to bypass the npm `pretest` hook:
 
 ```bash
-npm test -- test/rendererSmoke.test.js
+node --test
+```
+
+Useful focused test commands:
+
+```bash
+node --test test/rendererSmoke.test.js
+node --test test/meetingAssistant.test.js test/proRealtimeAgent.test.js
+node --test test/transcriptionClient.test.js
+node --test test/mainCaptureIpc.test.js
+```
+
+For renderer-facing changes, also run:
+
+```bash
 npm run renderer:build
 ```
 
-If the Codex Browser retry against the Vite renderer server returns `ERR_BLOCKED_BY_CLIENT`, stop the Vite server after the retry and use those 2 commands as the reliable verification path.
+## Packaging
 
----
+```bash
+npm run pack
+npm run dist
+```
 
-## 🔒 Privacy & Security
+Packaging builds the icon, native audio engine, and renderer before invoking `electron-builder`. The Windows build includes the generated icon, scripts, VoiceMeeter settings, and `clyde-audio-engine.exe` as extra resources.
 
-Clyde is architected to keep your data local by default:
-*   **No Cloud Lock-in**: Audio and transcripts are processed entirely on your machine if using the Local Whisper and LM Studio integrations.
-*   **Capture Protection**: The active overlay uses `mainWindow.setAlwaysOnTop(true, 'screen-saver')` and `mainWindow.setContentProtection(true)` to hide the HUD from standard screen sharing applications.
-*   **Local Storage**: All transcripts, meeting notes, and job descriptions are stored locally in your OS's `userData` folder.
+## Notes
 
----
-
-*Clyde - Your invisible edge in every meeting.*
+* Clyde stores user data locally through Electron's app data paths and local SQLite/JSON stores.
+* Cloud integrations are opt-in and only used when configured.
+* Some tests require `better-sqlite3` to match the active Node ABI. If tests fail with a native module ABI error, run `npm rebuild better-sqlite3` or reinstall dependencies with the target Node version.

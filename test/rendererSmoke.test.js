@@ -32,7 +32,7 @@ test('React renderer defines the required live controls and mode surfaces', () =
     '+ Add New Meeting',
     'onChangeActiveMeeting',
     'AI reply',
-    "userTier: 'free'",
+    "userTier: 'pro'",
     'proAgentEnabled: false',
     'pinnedKnowledgeIds: []',
     'googleSyncEnabled: false',
@@ -72,7 +72,7 @@ test('home chat uses compact sticky composer and tier image heading', () => {
   assert.match(agentSource, /home-chat-logo/);
   assert.match(appSource, /logoUrl = new URL\('.*clyde-free-logo-textonly\.svg'/);
   assert.match(appSource, /proTitleBarLogoUrl = new URL\('.*clyde-pro-logo-probadge\.svg'/);
-  assert.match(appSource, /proSearchLogoUrl = new URL\('\.\.\/\.\.\/clyde_black_goldglow\.svg'/);
+  assert.match(appSource, /proSearchLogoUrl = new URL\('\.\.\/\.\.\/clyde_pro_coin_dirty_black_gold\.svg'/);
   assert.match(agentSource, /settings\.userTier === 'pro' \? homeSearchLogoProUrl : homeSearchLogoFreeUrl/);
   assert.match(appSource, /settings\?\.userTier === 'pro' \? proTitleBarLogoUrl : logoUrl/);
   assert.match(appSource, /brand-mark-pro/);
@@ -122,8 +122,9 @@ test('title bar is fixed and assist status shows RAG provider and resume indicat
 
   assert.match(cssSource, /\.title-bar\s*\{[\s\S]*position: fixed/);
   assert.match(cssSource, /\.workspace\s*\{[\s\S]*padding-top: calc\(var\(--titlebar-height\)/);
-  assert.match(statusSource, /Chat LLM/);
-  assert.match(statusSource, /Transcription/);
+  assert.doesNotMatch(statusSource, /Chat LLM/);
+  assert.doesNotMatch(statusSource, /<strong>Transcription/);
+  assert.doesNotMatch(statusSource, /status-pills/);
   assert.match(statusSource, /Embeddings/);
   assert.match(statusSource, /RAG/);
   assert.match(statusSource, /Resume/);
@@ -145,8 +146,27 @@ test('settings expose OpenAI realtime Whisper transcription provider', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
 
   assert.match(appSource, /<option value="openai-realtime-whisper">OpenAI Realtime Whisper<\/option>/);
+  assert.match(appSource, /<option value="">Select a transcription provider<\/option>/);
   assert.match(appSource, /draft\.transcriptionProvider === 'local' \?/);
-  assert.match(appSource, /OpenAI API Key/);
+  assert.match(appSource, /OpenAI API key/);
+});
+
+test('first-run model and endpoint settings are blank', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(appSource, /llmProvider: ''/);
+  assert.match(appSource, /openAiApiKey: ''/);
+  assert.match(appSource, /localLlmUrl: ''/);
+  assert.match(appSource, /transcriptionProvider: ''/);
+  assert.match(appSource, /localTranscriptionUrl: ''/);
+  assert.match(appSource, /proRealtimeModel: ''/);
+  assert.match(appSource, /embeddingProvider: ''/);
+  assert.match(appSource, /embeddingModel: ''/);
+  assert.match(appSource, /pineconeNamespace: ''/);
+  assert.doesNotMatch(mainSource, /store\.get\('llmProvider', 'local'\)/);
+  assert.doesNotMatch(mainSource, /store\.get\('localLlmUrl', 'http/);
+  assert.doesNotMatch(mainSource, /process\.env\.OPENAI_API_KEY/);
 });
 
 test('settings expose Rust audio engine and device controls', () => {
