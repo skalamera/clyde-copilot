@@ -94,7 +94,10 @@ const EMPTY_SETTINGS = {
   ragEnabled: false,
   pineconeApiKey: '',
   pineconeHost: '',
-  userTier: 'pro',
+  userTier: 'free',
+  subscriptionStatus: 'free',
+  subscriptionPlan: 'clyde_assistant',
+  entitlementFeatures: [],
   proAgentEnabled: false,
   proRealtimeModel: '',
   embeddingProvider: '',
@@ -117,6 +120,39 @@ const COMMANDS = [
 
 const MAX_ASSISTANT_CARDS = 12;
 const SHOW_DEMO_MODE_SETTING = false;
+const PRO_FEATURES = new Set([
+  'pro_realtime_agent',
+  'knowledge_rag',
+  'pinecone_sync',
+  'trend_analysis',
+  'mock_interviews',
+  'google_sync',
+  'agent_actions'
+]);
+
+function normalizeEntitledSettings(settings = {}) {
+  const userTier = settings.userTier === 'pro' ? 'pro' : 'free';
+  const features = Array.isArray(settings.entitlementFeatures) ? settings.entitlementFeatures : [];
+  const pro = userTier === 'pro' && (settings.subscriptionStatus || 'active') === 'active';
+  return {
+    ...settings,
+    userTier,
+    subscriptionStatus: settings.subscriptionStatus || (pro ? 'active' : 'free'),
+    entitlementFeatures: pro ? features : features.filter((feature) => !PRO_FEATURES.has(feature)),
+    proAgentEnabled: pro ? Boolean(settings.proAgentEnabled) : false,
+    ragEnabled: pro ? Boolean(settings.ragEnabled) : false
+  };
+}
+
+function canUseFeature(settings = {}, feature) {
+  if (!feature) {
+    return true;
+  }
+  if (settings.userTier === 'pro' && (settings.subscriptionStatus || 'active') === 'active') {
+    return true;
+  }
+  return Array.isArray(settings.entitlementFeatures) && settings.entitlementFeatures.includes(feature);
+}
 
 function clampUiOpacity(value) {
   const parsed = Number(value);
@@ -2736,7 +2772,13 @@ function App() {
           return;
         }
 
-        const nextSettings = { ...EMPTY_SETTINGS, ...(loaded || {}) };
+        const tierStatus = await api?.getTierStatus?.().catch(() => null);
+        const nextSettings = normalizeEntitledSettings({
+          ...EMPTY_SETTINGS,
+          ...(loaded || {}),
+          ...(tierStatus || {}),
+          entitlementFeatures: tierStatus?.features || loaded?.entitlementFeatures || []
+        });
         setSettings(nextSettings);
         setMode(nextSettings.appMode === 'meeting' ? 'meeting' : 'interview');
         setSetupOpen(!nextSettings.currentCompany && !nextSettings.meetingTitle);
@@ -2820,6 +2862,18 @@ function App() {
     reloadSessions(mode).catch((error) => setStatus(`Timeline failed: ${error.message}`));
   }, [mode, reloadSessions]);
 
+  useEffect(() => {
+    const blockedView = (
+      (workspaceView === 'trends' && !canUseFeature(settings, 'trend_analysis'))
+      || (workspaceView === 'knowledge' && !canUseFeature(settings, 'knowledge_rag'))
+      || (workspaceView === 'mock-interview' && !canUseFeature(settings, 'mock_interviews'))
+    );
+    if (blockedView) {
+      setWorkspaceView('home');
+      setStatus('That feature requires Clyde Pro.');
+    }
+  }, [settings, workspaceView]);
+
   const saveCalendarEvent = async (event) => {
     await api?.saveCalendarEvent?.(event);
     await loadCalendarEvents();
@@ -2885,21 +2939,26 @@ function App() {
         ...nextSettings,
         appMode: mode,
         uiOpacity: clampUiOpacity(nextSettings.uiOpacity ?? settings.uiOpacity),
-        meetingAttendees: parseAttendees(nextSettings.meetingAttendeesText ?? attendeeLines(nextSettings.meetingAttendees || settings.meetingAttendees)),
-        userTier: 'pro'
+        meetingAttendees: parseAttendees(nextSettings.meetingAttendeesText ?? attendeeLines(nextSettings.meetingAttendees || settings.meetingAttendees))
       };
+      const entitled = normalizeEntitledSettings(normalized);
 
-      delete normalized.meetingAttendeesText;
-      await api?.saveSettings?.(normalized);
+      delete entitled.meetingAttendeesText;
+      await api?.saveSettings?.(entitled);
       await api?.setActiveSessionContext?.({
         mode,
-        company: normalized.currentCompany,
-        role: normalized.currentRole,
-        meetingTitle: normalized.meetingTitle,
-        attendees: normalized.meetingAttendees,
-        memory: normalized.meetingMemory
+        company: entitled.currentCompany,
+        role: entitled.currentRole,
+        meetingTitle: entitled.meetingTitle,
+        attendees: entitled.meetingAttendees,
+        memory: entitled.meetingMemory
       });
-      setSettings(normalized);
+      const savedTierStatus = await api?.getTierStatus?.().catch(() => null);
+      setSettings(normalizeEntitledSettings({
+        ...entitled,
+        ...(savedTierStatus || {}),
+        entitlementFeatures: savedTierStatus?.features || entitled.entitlementFeatures || []
+      }));
       setSettingsOpen(false);
       setSetupOpen(false);
       setStatus('Settings saved.');
@@ -3479,7 +3538,7 @@ function App() {
                 nextUpcomingEvent={nextUpcomingEvent}
                 onOpenNextUpcomingEvent={openNextUpcomingEvent}
                 view={workspaceView}
-                isProTier={settings.userTier === 'pro'}
+                isProTier={canUseFeature(settings, 'pro_realtime_agent')}
                 collapsed={workspaceNavCollapsed}
                 onToggleCollapsed={() => setWorkspaceNavCollapsed((current) => !current)}
                 captureProtectionEnabled={settings.captureProtectionEnabled !== false}
@@ -3549,7 +3608,7 @@ function App() {
             sessions={sessions}
             calendarEvents={calendarEvents}
           />
-        ) : workspaceView === 'trends' ? (
+        ) : workspaceView === 'trends' && canUseFeature(settings, 'trend_analysis') ? (
           <TrendsView
             entities={entities}
             mode={mode}
@@ -3577,7 +3636,7 @@ function App() {
             }}
             mode={mode}
           />
-        ) : workspaceView === 'knowledge' ? (
+        ) : workspaceView === 'knowledge' && canUseFeature(settings, 'knowledge_rag') ? (
           <KnowledgeView
             settings={settings}
             onPinnedChange={(ids) => setSettings((current) => ({
@@ -3585,7 +3644,7 @@ function App() {
               pinnedKnowledgeIds: ids
             }))}
           />
-        ) : workspaceView === 'mock-interview' ? (
+        ) : workspaceView === 'mock-interview' && canUseFeature(settings, 'mock_interviews') ? (
           <RealtimeInterview api={api} targetEntity={activeInterview} settings={settings} />
         ) : (
           <section className="assist-split-layout">
@@ -5346,7 +5405,7 @@ function WorkspaceNav({
     { id: 'home', eyebrow: 'Ask', label: 'Home', testId: 'homeNav', icon: 'home' },
     { id: 'live', eyebrow: 'Now', label: 'Pre-Call Prep', icon: 'assist' },
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: mode === 'interview' ? 'timeline' : 'meeting-notes' },
-    ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Analysis', label: 'Trend Analysis', testId: 'trendsNav', icon: 'trends' }] : []),
+    ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Pro', label: 'Trend Analysis', testId: 'trendsNav', icon: 'trends', hasProBadge: true, requiresPro: true }] : []),
     { id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge', hasProBadge: true, requiresPro: true },
     ...(mode === 'interview' ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true, requiresPro: true }] : [])
   ];
@@ -7530,6 +7589,30 @@ function ProSettingsBadge() {
   return <img className="pro-settings-badge" src={proGoldBadgeUrl} alt="Pro" />;
 }
 
+function UpgradeToProButton({ className = '' }) {
+  return (
+    <button
+      className={`upgrade-pro-button ${className}`.trim()}
+      type="button"
+      onClick={() => window.electronAPI?.openUpgradePage?.()}
+    >
+      Upgrade to Pro
+    </button>
+  );
+}
+
+function RefreshEntitlementsButton({ onRefresh, className = '' }) {
+  return (
+    <button
+      className={`refresh-entitlements-button ${className}`.trim()}
+      type="button"
+      onClick={onRefresh}
+    >
+      Refresh subscription
+    </button>
+  );
+}
+
 function settingsStatusClassName(message = '') {
   return /failed|error|invalid|missing/i.test(message)
     ? 'settings-save-status error'
@@ -7546,9 +7629,25 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
   const [saveStatus, setSaveStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const mountedRef = useRef(true);
+  const proEntitled = canUseFeature(settings, 'pro_realtime_agent');
+
+  async function refreshEntitlements() {
+    setSaveStatus('Refreshing subscription...');
+    try {
+      const entitlements = await api?.refreshEntitlements?.();
+      setDraft((current) => normalizeEntitledSettings({
+        ...current,
+        ...(entitlements || {}),
+        entitlementFeatures: entitlements?.features || current.entitlementFeatures || []
+      }));
+      setSaveStatus('Subscription refreshed.');
+    } catch (error) {
+      setSaveStatus(`Subscription refresh failed: ${error.message}`);
+    }
+  }
 
   useEffect(() => {
-    setDraft({ ...settings });
+    setDraft(normalizeEntitledSettings({ ...settings }));
     setSaveStatus('');
   }, [settings]);
 
@@ -7789,16 +7888,32 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
             />
           </label>
           <div className="wide-field pro-setting-group">
+            {!proEntitled ? (
+              <div className="upgrade-pro-callout">
+                <strong>Clyde Pro Agent</strong>
+                <span>Upgrade from the website to use RAG, broader memory, Google sync, mock interviews, trend analysis, and agent actions.</span>
+                <div className="upgrade-pro-actions">
+                  <UpgradeToProButton />
+                  <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
+                </div>
+              </div>
+            ) : null}
             <label className="toggle-row pro-setting-label">
               <input
                 type="checkbox"
-                checked={Boolean(draft.ragEnabled)}
-                onChange={(event) => update('ragEnabled', event.target.checked)}
+                checked={proEntitled && Boolean(draft.ragEnabled)}
+                disabled={!proEntitled}
+                onChange={(event) => {
+                  if (!proEntitled) {
+                    return;
+                  }
+                  update('ragEnabled', event.target.checked);
+                }}
               />
-              <span>Enable RAG with Pinecone</span>
+              <span>{proEntitled ? 'Enable RAG with Pinecone' : 'RAG with Pinecone requires Pro'}</span>
               <ProSettingsBadge />
             </label>
-            {draft.ragEnabled && (
+            {proEntitled && draft.ragEnabled && (
               <div className="form-grid">
                 <label>
                   Embedding provider
@@ -7884,21 +7999,35 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
             <strong>Realtime voice agent</strong>
             <small>Pro feature. Requires an OpenAI realtime model, such as gpt-realtime-2.</small>
           </div>
+          {!proEntitled ? (
+            <div className="wide-field upgrade-pro-callout">
+              <strong>Realtime voice agent requires Clyde Pro</strong>
+              <span>Open the website to upgrade, then refresh your subscription in Clyde.</span>
+              <div className="upgrade-pro-actions">
+                <UpgradeToProButton />
+                <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
+              </div>
+            </div>
+          ) : null}
           <label className="toggle-row pro-setting-label wide-field">
             <input
               type="checkbox"
-              checked={Boolean(draft.proAgentEnabled)}
+              checked={proEntitled && Boolean(draft.proAgentEnabled)}
+              disabled={!proEntitled}
               onChange={(event) => {
+                if (!proEntitled) {
+                  return;
+                }
                 update('proAgentEnabled', event.target.checked);
                 if (event.target.checked && !draft.proRealtimeModel) {
                   update('proRealtimeModel', 'gpt-realtime-2');
                 }
               }}
             />
-            <span>Enable Clyde Pro agent</span>
+            <span>{proEntitled ? 'Enable Clyde Pro agent' : 'Clyde Pro agent requires Pro'}</span>
             <ProSettingsBadge />
           </label>
-          {draft.proAgentEnabled && (
+          {proEntitled && draft.proAgentEnabled && (
             <>
               <label>
                 Realtime agent model

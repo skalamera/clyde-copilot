@@ -292,7 +292,7 @@ const syncAudit = [
 ];
 
 function isDemoMode(settings = {}) {
-  return Boolean(settings.demoMode || process.env.CLYDE_DEMO_MODE === '1');
+  return process.env.CLYDE_DEMO_MODE === '1';
 }
 
 function demoSettings(settings = {}) {

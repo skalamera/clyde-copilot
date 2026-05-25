@@ -139,6 +139,26 @@ img {
   z-index: 50;
 }
 
+.header-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.header-checkout-status {
+  background: rgba(3, 6, 9, 0.9);
+  border: 1px solid rgba(154, 202, 255, 0.18);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  max-width: 280px;
+  padding: 8px 10px;
+  position: absolute;
+  right: 10px;
+  top: calc(100% + 8px);
+}
+
 .brand-link {
   align-items: center;
   border-radius: 999px;
@@ -217,6 +237,12 @@ img {
 
 .header-cta {
   min-height: 42px;
+}
+
+.header-pro-cta {
+  background: linear-gradient(135deg, rgba(118, 83, 21, 0.94), rgba(34, 94, 54, 0.88));
+  border-color: rgba(214, 184, 95, 0.54);
+  color: var(--text);
 }
 
 .secondary-link {
@@ -1498,6 +1524,81 @@ img {
   max-width: 680px;
 }
 
+.policy-hero {
+  min-height: 68vh;
+}
+
+.policy-effective {
+  color: var(--lime);
+  font-weight: 850;
+}
+
+.policy-summary-card,
+.policy-section {
+  backdrop-filter: blur(22px);
+  background: rgba(7, 16, 24, 0.62);
+  border: 1px solid rgba(154, 202, 255, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.24);
+}
+
+.policy-summary-card {
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+}
+
+.policy-summary-card h2,
+.policy-intro h2 {
+  font-size: clamp(1.9rem, 3.4vw, 3.4rem);
+  line-height: 1;
+  margin: 0;
+}
+
+.policy-summary-card p,
+.policy-intro p,
+.policy-section p {
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0;
+}
+
+.policy-summary-card .secondary-link {
+  margin-top: 8px;
+  width: fit-content;
+}
+
+.policy-body {
+  display: grid;
+  gap: 28px;
+}
+
+.policy-intro {
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 860px;
+  text-align: center;
+}
+
+.policy-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.policy-section {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.policy-section h3 {
+  font-size: 1.18rem;
+  line-height: 1.2;
+  margin: 0;
+}
+
 .architecture-visual {
   display: grid;
   gap: 16px;
@@ -1988,7 +2089,7 @@ img {
     order: 3;
   }
 
-  .header-cta {
+  .header-actions {
     justify-self: end;
   }
 
@@ -2023,6 +2124,7 @@ img {
   .feature-stage,
   .mock-band,
   .privacy-band,
+  .policy-grid,
   .subpage-hero,
   .technical-band,
   .learning-detail {
@@ -2120,6 +2222,10 @@ img {
     font-size: 0.86rem;
     min-height: 38px;
     padding: 0 12px;
+  }
+
+  .header-actions {
+    gap: 6px;
   }
 
   .site-header nav a,
@@ -2243,6 +2349,10 @@ img {
 
   .subpage-hero {
     padding: 162px 18px 60px;
+  }
+
+  .policy-summary-card .secondary-link {
+    width: 100%;
   }
 
   .footer-links {

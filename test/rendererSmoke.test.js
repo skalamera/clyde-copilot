@@ -32,7 +32,7 @@ test('React renderer defines the required live controls and mode surfaces', () =
     '+ Add New Meeting',
     'onChangeActiveMeeting',
     'AI reply',
-    "userTier: 'pro'",
+    "userTier: 'free'",
     'proAgentEnabled: false',
     'pinnedKnowledgeIds: []',
     'googleSyncEnabled: false',
@@ -40,7 +40,10 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'SyncReviewPanel',
     'EntityFilesPanel',
     'openEntityFileDialog',
-    'requiredFields'
+    'requiredFields',
+    'UpgradeToProButton',
+    'openUpgradePage',
+    'Refresh subscription'
   ]) {
     assert.match(appSource, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
@@ -296,7 +299,7 @@ test('mock interview view renders with the active interview entity in scope', ()
 
   assert.match(appSource, /testId: 'mockInterviewNav'/);
   assert.match(appSource, /const activeInterview = mode === 'interview' \? activeEntity : null/);
-  assert.match(appSource, /workspaceView === 'mock-interview' \? \(\s*<RealtimeInterview api=\{api\} targetEntity=\{activeInterview\} settings=\{settings\} \/>/);
+  assert.match(appSource, /workspaceView === 'mock-interview' && canUseFeature\(settings, 'mock_interviews'\) \? \(\s*<RealtimeInterview api=\{api\} targetEntity=\{activeInterview\} settings=\{settings\} \/>/);
   assert.match(serviceSource, /@heygen\/liveavatar-web-sdk/);
   assert.match(componentSource, /response\.output_text\.delta/);
   assert.doesNotMatch(componentSource, /MockAvatarService/);

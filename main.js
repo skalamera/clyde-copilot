@@ -42,6 +42,12 @@ const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
 const { buildTrendAnalysisSessionSignature, directAddressFeedback, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
 const { calculateEntityConfidence } = require('./src/confidenceScoring');
+const { fetchEntitlements } = require('./src/billingClient');
+const {
+    applyEntitlementsToSettings,
+    entitlementsFromSettings,
+    requireFeature
+} = require('./src/entitlements');
 const {
     buildOutcomeCalibrationExamples,
     formatOutcomeCalibrationExamples,
@@ -93,6 +99,7 @@ const ACTIVE_CAPTURE_MINIMIZED_SIZE = 112;
 const ACTIVE_CAPTURE_MINIMIZED_MARGIN = 10;
 const APP_WINDOW_MINIMIZED_SIZE = 96;
 const APP_WINDOW_MINIMIZED_MARGIN = 12;
+const CLYDE_UPGRADE_URL = process.env.CLYDE_UPGRADE_URL || 'https://clydeai.live/#pricing';
 
 const healthState = {
     audio: { state: 'unknown', label: 'Audio', detail: 'Not checked yet.' },
@@ -152,7 +159,14 @@ function loadSettings() {
         pineconeApiKey: store.get('pineconeApiKey', ''),
         pineconeHost: store.get('pineconeHost', ''),
         ragEnabled: store.get('ragEnabled', false),
-        userTier: 'pro',
+        userId: store.get('userId', ''),
+        userTier: store.get('userTier', 'free'),
+        subscriptionStatus: store.get('subscriptionStatus', 'free'),
+        subscriptionPlan: store.get('subscriptionPlan', ''),
+        entitlementFeatures: store.get('entitlementFeatures', []),
+        entitlementsExpiresAt: store.get('entitlementsExpiresAt', null),
+        entitlementsCheckedAt: store.get('entitlementsCheckedAt', null),
+        entitlementsUrl: store.get('entitlementsUrl', process.env.CLYDE_ENTITLEMENTS_URL || ''),
         proAgentEnabled: store.get('proAgentEnabled', false),
         proRealtimeModel: store.get('proRealtimeModel', ''),
         embeddingProvider: store.get('embeddingProvider', ''),
@@ -164,7 +178,7 @@ function loadSettings() {
         googleAccountEmail: store.get('googleAccountEmail', ''),
         googleSyncAutoApprove: store.get('googleSyncAutoApprove', false),
         googleSyncPollMinutes: store.get('googleSyncPollMinutes', 15),
-        demoMode: store.get('demoMode', false),
+        demoMode: process.env.CLYDE_DEMO_MODE === '1',
         appMode: store.get('appMode', 'interview'),
         meetingTitle: store.get('meetingTitle', ''),
         meetingAttendees: store.get('meetingAttendees', []),
@@ -179,6 +193,8 @@ function loadSettings() {
     if (settings.pineconeApiKey) process.env.PINECONE_API_KEY = settings.pineconeApiKey;
     if (settings.pineconeHost) process.env.PINECONE_HOST = settings.pineconeHost;
 
+    settings = applyEntitlementsToSettings(settings);
+
     return demoData.isDemoMode(settings) ? demoData.demoSettings(settings) : settings;
 }
 
@@ -186,15 +202,22 @@ function saveSettings(newSettings) {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     const openAiApiKey = String(newSettings?.openAiApiKey || '').trim();
-    const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = {
+    const currentEntitlements = entitlementsFromSettings(loadSettings());
+    const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = applyEntitlementsToSettings({
         ...(newSettings || {}),
-        userTier: 'pro',
+        userTier: currentEntitlements.tier,
+        subscriptionStatus: currentEntitlements.status,
+        subscriptionPlan: currentEntitlements.plan,
+        entitlementFeatures: currentEntitlements.features,
+        entitlementsExpiresAt: currentEntitlements.expiresAt,
+        entitlementsCheckedAt: currentEntitlements.checkedAt,
         openAiApiKey,
         transcriptionApiKey: openAiApiKey,
         llmApiKey: newSettings?.llmProvider === 'openai' ? openAiApiKey : (newSettings?.llmApiKey || '')
-    };
+    }, currentEntitlements);
     
     store.delete('googleOAuthClientId');
+    store.delete('demoMode');
     store.set(settingsToStore);
     applyCaptureProtection(settingsToStore);
     
@@ -338,13 +361,25 @@ function recordHasTranscript(record) {
 
 function getTierStatus() {
     const settings = loadSettings();
-    const tier = settings.userTier === 'pro' ? 'pro' : 'free';
     return {
-        tier,
-        userTier: tier,
-        pro: tier === 'pro',
+        ...entitlementsFromSettings(settings),
         proAgentEnabled: Boolean(settings.proAgentEnabled)
     };
+}
+
+function assertFeature(feature) {
+    requireFeature(entitlementsFromSettings(loadSettings()), feature);
+}
+
+async function refreshEntitlements() {
+    const settings = loadSettings();
+    const entitlements = await fetchEntitlements({
+        userId: settings.userId,
+        endpoint: settings.entitlementsUrl
+    });
+    const nextSettings = applyEntitlementsToSettings(settings, entitlements);
+    saveSettings(nextSettings);
+    return entitlementsFromSettings(nextSettings);
 }
 
 function getPinnedKnowledgeIds(settings = loadSettings()) {
@@ -1992,10 +2027,20 @@ function createWindow () {
   });
 
   ipcMain.handle('get-tier-status', () => {
-      return 'pro';
+      return getTierStatus();
+  });
+
+  ipcMain.handle('refresh-entitlements', async () => {
+      return refreshEntitlements();
+  });
+
+  ipcMain.handle('open-upgrade-page', async () => {
+      await shell.openExternal(CLYDE_UPGRADE_URL);
+      return true;
   });
 
   ipcMain.handle('get-realtime-token', async () => {
+      assertFeature('pro_realtime_agent');
       const settings = loadSettings();
       const apiKey = settings.openAiApiKey || settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || '';
       const realtimeModel = settings.proRealtimeModel || '';
@@ -2060,6 +2105,7 @@ function createWindow () {
   });
 
   ipcMain.handle('confirm-agent-action', async (event, payload = {}) => {
+      assertFeature('agent_actions');
       return getAgentChat().confirmAction(payload || {});
   });
 
@@ -2091,6 +2137,7 @@ function createWindow () {
   });
 
   ipcMain.handle('connect-google-sync', async () => {
+      assertFeature('google_sync');
       if (!googleClient) {
           throw new Error('Google sync is not ready.');
       }
@@ -2138,6 +2185,7 @@ function createWindow () {
   });
 
   ipcMain.handle('scan-google-sync', async () => {
+      assertFeature('google_sync');
       await runGoogleSyncScan({ manual: true });
       return {
           status: getGoogleSyncStatus(),
@@ -2153,6 +2201,7 @@ function createWindow () {
   });
 
   ipcMain.handle('approve-sync-proposal', async (event, payload = {}) => {
+      assertFeature('google_sync');
       return approveSyncProposal(payload || {});
   });
 
@@ -2226,6 +2275,7 @@ function createWindow () {
   });
 
   ipcMain.handle('upload-knowledge-to-pinecone', async (event, id) => {
+        assertFeature('pinecone_sync');
         if (!knowledgeManager) {
             throw new Error('Knowledge base is not ready.');
         }
@@ -2234,9 +2284,13 @@ function createWindow () {
     });
 
     ipcMain.handle('generate-mock-interview-session-token', async (event, payload = {}) => {
+        assertFeature('liveavatar_mock_interviews');
         const { opportunity } = payload;
         const settings = loadSettings();
-        const apiKey = '7fa96d9d-55b3-11f1-8d28-066a7fa2e369';
+        const apiKey = String(process.env.CLYDE_LIVEAVATAR_API_KEY || process.env.LIVEAVATAR_API_KEY || '').trim();
+        if (!apiKey) {
+            throw new Error('LiveAvatar API key is not configured on this build.');
+        }
         
         const resumeText = settings.resumeText || '';
         const pinnedKnowledge = knowledgeManager ? knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []) : [];
@@ -2310,6 +2364,7 @@ function createWindow () {
     });
 
     ipcMain.handle('generate-mock-interview-assessment', async (event, payload = {}) => {
+        assertFeature('mock_interviews');
         if (!mockInterviewManager) {
             throw new Error('Mock interview manager is not ready.');
         }
@@ -2322,6 +2377,7 @@ function createWindow () {
     });
 
     ipcMain.handle('save-mock-interview', async (event, payload = {}) => {
+        assertFeature('mock_interviews');
         if (!mockInterviewManager) {
             throw new Error('Mock interview manager is not ready.');
         }
@@ -2341,6 +2397,7 @@ function createWindow () {
     });
 
     ipcMain.handle('list-mock-interviews', () => {
+        assertFeature('mock_interviews');
         if (demoData.isDemoMode(loadSettings())) {
             return demoData.listMockInterviews();
         }
@@ -2348,6 +2405,7 @@ function createWindow () {
     });
 
     ipcMain.handle('delete-mock-interview', async (event, id) => {
+        assertFeature('mock_interviews');
         if (!mockInterviewManager) {
             return false;
         }
@@ -3033,6 +3091,7 @@ function createWindow () {
   });
 
   ipcMain.handle('get-trend-analysis', (event, companyId) => {
+      assertFeature('trend_analysis');
       if (demoData.isDemoMode(loadSettings())) {
           return demoData.getTrendAnalysis(companyId);
       }
@@ -3097,6 +3156,7 @@ function createWindow () {
 
   ipcMain.handle('generate-trend-analysis', async (event, companyId, options = {}) => {
       const settings = loadSettings();
+      requireFeature(entitlementsFromSettings(settings), 'trend_analysis');
       if (demoData.isDemoMode(settings)) {
           return demoData.generateTrendAnalysis(companyId, options || {});
       }

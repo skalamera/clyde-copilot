@@ -79,6 +79,7 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /listAudioDevices:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-audio-devices'\)/);
   assert.match(source, /setAudioDevices:\s*\(devices\)\s*=>\s*ipcRenderer\.invoke\('set-audio-devices', devices\)/);
   assert.match(source, /getTierStatus:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-tier-status'\)/);
+  assert.match(source, /openUpgradePage:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-upgrade-page'\)/);
   assert.match(source, /listKnowledge:\s*\(filters\)\s*=>\s*ipcRenderer\.invoke\('list-knowledge', filters\)/);
   assert.match(source, /ingestKnowledgeFile:\s*\(filePath\)\s*=>\s*ipcRenderer\.invoke\('ingest-knowledge-file', filePath\)/);
   assert.match(source, /deleteMockInterview:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\('delete-mock-interview', id\)/);

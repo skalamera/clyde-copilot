@@ -192,6 +192,10 @@ function App() {
 
   const currentPage = path === '/how-it-works'
     ? <HowItWorksPage onDownload={handleDownload} />
+    : path === '/privacy-policy'
+      ? <PrivacyPolicyPage />
+      : path === '/terms-of-service'
+        ? <TermsOfServicePage />
     : <LandingPage onDownload={handleDownload} navigate={navigate} />;
 
   return (
@@ -206,6 +210,18 @@ function App() {
 }
 
 function Header({ navigate, onDownload, path }) {
+  const [checkoutStatus, setCheckoutStatus] = useState('');
+
+  async function startCheckout() {
+    setCheckoutStatus('Opening checkout...');
+    try {
+      const url = await createCheckoutUrl();
+      window.location.href = url;
+    } catch (error) {
+      setCheckoutStatus(error.message);
+    }
+  }
+
   return (
     <header className="site-header">
       <button className="brand-link" type="button" onClick={() => navigate('/')}>
@@ -214,10 +230,14 @@ function Header({ navigate, onDownload, path }) {
       <nav aria-label="Primary navigation">
         <button type="button" onClick={() => navigate('/')} className={path === '/' ? 'active' : ''}>Home</button>
         <button type="button" onClick={() => navigate('/how-it-works')} className={path === '/how-it-works' ? 'active' : ''}>How it works</button>
-        <a href="#privacy">Privacy</a>
+        <button type="button" onClick={() => navigate('/privacy-policy')} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</button>
         <a href="#faq">FAQ</a>
       </nav>
-      <a className="header-cta" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
+      <div className="header-actions">
+        <button className="header-cta header-pro-cta" type="button" onClick={startCheckout}>Upgrade to Pro</button>
+        <a className="header-cta" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
+      </div>
+      {checkoutStatus ? <span className="header-checkout-status">{checkoutStatus}</span> : null}
     </header>
   );
 }
@@ -485,6 +505,216 @@ function HowItWorksPage({ onDownload }) {
   );
 }
 
+const policySections = [
+  {
+    title: 'Information Clyde collects',
+    body: [
+      'Account and billing information: email address, account identifiers, subscription tier, entitlement status, customer ID, and support messages. Payments are processed by Stripe. Clyde does not store full card numbers.',
+      'Desktop app information: settings, selected audio devices, current company and role, opportunities, meetings, transcripts, notes, scorecards, knowledge files, pinned sources, app actions, and local logs.',
+      'Optional connected data: Google account details, Gmail and Google Calendar content needed for user-requested sync, OAuth tokens, provider API keys, uploaded files, audio, screenshots, transcript text, and AI request content when you enable those features.',
+      'Website and service information: IP address, browser type, checkout events, download events, server logs, and basic analytics if analytics are enabled.'
+    ]
+  },
+  {
+    title: 'How Clyde uses information',
+    body: [
+      'Clyde uses information to run the desktop assistant, create transcripts and notes, answer questions, search saved context, generate scorecards, sync user-approved Google updates, process subscriptions, enforce Free and Pro tier access, prevent abuse, fix bugs, and respond to support requests.',
+      'Clyde does not sell personal information and does not use Google user data for advertising.'
+    ]
+  },
+  {
+    title: 'When information is disclosed',
+    body: [
+      'Clyde discloses information to service providers only when needed to operate the product. These providers can include hosting, database, authentication, billing, AI, transcription, vector search, email, support, and analytics providers.',
+      'If you connect Google, Clyde uses Google data only for the user-facing features you choose, such as reading interview-related signals, proposing updates, and updating Clyde records. Clyde may disclose information when required by law, to protect Clyde or users, during a business transfer, or when you direct Clyde to send or export something.'
+    ]
+  },
+  {
+    title: 'Method of disclosure',
+    body: [
+      'Clyde sends information through encrypted HTTPS/TLS API requests, OAuth-authorized Google API requests, Stripe Checkout and Customer Portal redirects, app-to-server entitlement checks, and user-initiated exports or uploads.',
+      'Desktop data is stored locally by default. Data leaves your device when you enable a cloud provider, connect an account, use billing, use sync, request support that includes diagnostic content, or submit website forms.'
+    ]
+  },
+  {
+    title: 'Security practices',
+    body: [
+      'Clyde uses HTTPS for network requests, OAuth for Google access, limited Google scopes, server-side environment secrets, Stripe-hosted payment collection, and access controls for production systems.',
+      'Provider keys supplied in the desktop app are stored locally on your device unless a feature explicitly needs a server-side request. Clyde limits internal access to operational needs and removes obsolete demo settings from production use.'
+    ]
+  },
+  {
+    title: 'Retention and deletion',
+    body: [
+      'Local desktop data remains on your device until you delete it in the app, clear the app data folder, or uninstall Clyde. Account, billing, and security records are retained as needed for subscriptions, tax, fraud prevention, legal obligations, and support history.',
+      'You can disconnect Google access, cancel Pro, delete local records, and request account deletion by contacting Clyde.'
+    ]
+  },
+  {
+    title: 'Google API Limited Use',
+    body: [
+      'Clyde uses Google user data only to provide and improve user-facing sync and assistant features inside Clyde. Clyde does not sell Google user data, use it for ads, or use it to train generalized AI models.',
+      'Clyde follows the Google API Services User Data Policy, including the Limited Use requirements.'
+    ]
+  },
+  {
+    title: 'Children, changes, and contact',
+    body: [
+      'Clyde is intended for users who are at least 13 years old. Clyde may update this policy when the product, legal requirements, or service providers change.',
+      'Questions, deletion requests, and privacy requests can be sent to support@clydeai.live.'
+    ]
+  }
+];
+
+function PrivacyPolicyPage() {
+  return (
+    <main className="privacy-policy-page">
+      <section className="subpage-hero policy-hero">
+        <div className="subpage-copy" data-reveal>
+          <span className="eyebrow">Legal</span>
+          <h1>Privacy policy</h1>
+          <p>
+            This policy explains what Clyde collects, how Clyde uses it, when it is disclosed, how disclosure happens,
+            and the security practices used to protect it.
+          </p>
+          <p className="policy-effective">Last updated: May 25, 2026</p>
+        </div>
+        <aside className="policy-summary-card" data-reveal>
+          <h2>Short version</h2>
+          <p>Clyde stores app data locally by default and sends data to cloud services only for the features you enable.</p>
+          <p>Pro billing runs through Stripe. Google data is used only for Clyde sync and assistant features.</p>
+          <a className="secondary-link" href="mailto:support@clydeai.live">Contact privacy support</a>
+        </aside>
+      </section>
+
+      <section className="section-band policy-body" data-reveal>
+        <div className="policy-intro">
+          <h2>Clyde privacy terms</h2>
+          <p>
+            Clyde is a desktop assistant for interviews, meetings, preparation, and follow-up. The desktop app can run with local data,
+            local models, cloud AI providers, Google sync, website billing, and Pro entitlement checks depending on your settings.
+          </p>
+        </div>
+        <div className="policy-grid">
+          {policySections.map((section) => (
+            <article className="policy-section" key={section.title}>
+              <h3>{section.title}</h3>
+              {section.body.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+const termsSections = [
+  {
+    title: 'Using Clyde',
+    body: [
+      'Clyde is a desktop assistant for interviews, meetings, preparation, notes, and follow-up. You are responsible for using Clyde lawfully, following workplace, school, meeting, platform, and recording rules that apply to you.',
+      'You must provide accurate account and billing information and keep your account credentials secure.'
+    ]
+  },
+  {
+    title: 'Free and Pro tiers',
+    body: [
+      'Clyde Assistant is the Free tier. It includes the free features shown in the app and on the website.',
+      'Clyde Pro Agent is the Pro tier. Pro access requires an active subscription or active beta entitlement and includes the Pro features shown in the app and on the website. Clyde may change tier limits, prices, and included features for future billing periods.'
+    ]
+  },
+  {
+    title: 'Subscriptions and billing',
+    body: [
+      'Paid subscriptions are processed by Stripe. By starting a paid plan, you authorize recurring charges until you cancel. Taxes may apply.',
+      'You can cancel through the billing portal or the method Clyde provides. Cancellation stops future renewal charges and does not automatically refund prior charges unless required by law or stated in a separate written policy.'
+    ]
+  },
+  {
+    title: 'Acceptable use',
+    body: [
+      'You may not use Clyde to break the law, violate third-party rights, bypass security controls, send spam, impersonate others, scrape services without permission, or generate harmful, fraudulent, or abusive content.',
+      'You may not reverse engineer Clyde, interfere with Clyde services, overload infrastructure, or use Clyde to build a competing product from non-public product behavior.'
+    ]
+  },
+  {
+    title: 'Your content and connected services',
+    body: [
+      'You keep ownership of the files, transcripts, notes, account data, and other content you add to Clyde. You grant Clyde the permission needed to process that content to provide the product features you choose.',
+      'When you connect Google, AI providers, transcription providers, or other services, their terms and privacy policies also apply.'
+    ]
+  },
+  {
+    title: 'AI output',
+    body: [
+      'Clyde can generate suggestions, answers, summaries, ratings, and analysis. You are responsible for reviewing output before relying on it or sending it to someone else.',
+      'AI output may be incomplete, inaccurate, or inappropriate for a specific situation. Clyde does not provide legal, financial, medical, hiring, or professional advice.'
+    ]
+  },
+  {
+    title: 'Availability and changes',
+    body: [
+      'Clyde may release updates, change features, pause services, or stop supporting old versions. Some features depend on operating systems, meeting apps, model providers, Google APIs, Stripe, and network availability.',
+      'Beta features may change more often and may have bugs, usage limits, or temporary outages.'
+    ]
+  },
+  {
+    title: 'Disclaimers and liability',
+    body: [
+      'Clyde is provided as available, subject to the warranties required by law. Clyde is not responsible for lost interviews, lost jobs, lost revenue, lost data, meeting rule violations, provider outages, or indirect damages to the fullest extent allowed by law.',
+      'If Clyde is found liable for a claim, Clyde liability is limited to the amount you paid for Clyde in the 3 months before the event giving rise to the claim, unless the law requires a different limit.'
+    ]
+  },
+  {
+    title: 'Termination and contact',
+    body: [
+      'Clyde may suspend or terminate access if you violate these terms, create risk for Clyde or others, fail to pay, or use the product in a way that may cause legal or security problems.',
+      'Questions about these terms can be sent to support@clydeai.live.'
+    ]
+  }
+];
+
+function TermsOfServicePage() {
+  return (
+    <main className="terms-page">
+      <section className="subpage-hero policy-hero">
+        <div className="subpage-copy" data-reveal>
+          <span className="eyebrow">Legal</span>
+          <h1>Terms of service</h1>
+          <p>
+            These terms govern access to Clyde Assistant, Clyde Pro Agent, the Clyde website, billing flows,
+            desktop app features, connected services, and beta releases.
+          </p>
+          <p className="policy-effective">Last updated: May 25, 2026</p>
+        </div>
+        <aside className="policy-summary-card" data-reveal>
+          <h2>Product terms</h2>
+          <p>Use Clyde lawfully, review AI output before relying on it, and follow the rules for meetings and services you connect.</p>
+          <p>Pro billing runs through Stripe and renews until canceled.</p>
+          <a className="secondary-link" href="mailto:support@clydeai.live">Contact support</a>
+        </aside>
+      </section>
+
+      <section className="section-band policy-body" data-reveal>
+        <div className="policy-intro">
+          <h2>Clyde terms</h2>
+          <p>
+            These terms are written for the current Clyde beta and production-readiness work. Replace or review them with counsel before broad public launch.
+          </p>
+        </div>
+        <div className="policy-grid">
+          {termsSections.map((section) => (
+            <article className="policy-section" key={section.title}>
+              <h3>{section.title}</h3>
+              {section.body.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function FullOverlayShowcase() {
   return (
     <section className="section-band full-overlay-band" data-reveal>
@@ -591,6 +821,18 @@ function WorkflowCard({ body, number, title }) {
 }
 
 function TierSection() {
+  const [checkoutStatus, setCheckoutStatus] = useState('');
+
+  async function startCheckout() {
+    setCheckoutStatus('Opening checkout...');
+    try {
+      const url = await createCheckoutUrl();
+      window.location.href = url;
+    } catch (error) {
+      setCheckoutStatus(error.message);
+    }
+  }
+
   return (
     <section className="section-band tier-band" data-reveal>
       <div className="section-heading compact">
@@ -605,12 +847,49 @@ function TierSection() {
               <span>{tier.name} tier</span>
               <img className="tier-logo" src={tier.logo} alt={`Clyde ${tier.name}`} />
               <p>{tier.body}</p>
+              {tier.name === 'Pro' ? (
+                <button className="primary-link tier-action" type="button" onClick={startCheckout}>
+                  Upgrade to Pro
+                </button>
+              ) : (
+                <a className="secondary-link tier-action" href={downloadHref} download>
+                  Download Free
+                </a>
+              )}
             </div>
           </article>
         ))}
       </div>
+      {checkoutStatus ? <p className="checkout-status">{checkoutStatus}</p> : null}
     </section>
   );
+}
+
+function getOrCreateCheckoutUserId() {
+  const key = 'clyde_checkout_user_id';
+  const existing = window.localStorage.getItem(key);
+  if (existing) {
+    return existing;
+  }
+
+  const next = `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  window.localStorage.setItem(key, next);
+  return next;
+}
+
+async function createCheckoutUrl() {
+  const response = await fetch('/api/create-checkout-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: getOrCreateCheckoutUserId()
+    })
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload.url) {
+    throw new Error(payload.error || 'Checkout session could not be created.');
+  }
+  return payload.url;
 }
 
 function MockInterviewSection() {
@@ -959,7 +1238,8 @@ function Footer({ navigate, onDownload }) {
       </div>
       <div className="footer-links">
         <button type="button" onClick={() => navigate('/how-it-works')}>How it works</button>
-        <a href="#privacy">Privacy</a>
+        <button type="button" onClick={() => navigate('/privacy-policy')}>Privacy</button>
+        <button type="button" onClick={() => navigate('/terms-of-service')}>Terms</button>
         <a href="#faq">FAQ</a>
         <a href={downloadHref} onClick={onDownload} download>Download Windows</a>
       </div>

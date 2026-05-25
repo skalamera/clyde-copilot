@@ -2419,6 +2419,61 @@ textarea:focus {
   width: auto;
 }
 
+.upgrade-pro-callout {
+  background: rgba(166, 255, 106, 0.07);
+  border: 1px solid rgba(214, 184, 95, 0.24);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.upgrade-pro-callout strong {
+  color: var(--text);
+}
+
+.upgrade-pro-callout span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.upgrade-pro-button {
+  background: linear-gradient(135deg, rgba(120, 82, 18, 0.88), rgba(58, 110, 54, 0.74));
+  border: 1px solid rgba(214, 184, 95, 0.42);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 36px;
+  padding: 0 12px;
+  width: fit-content;
+}
+
+.upgrade-pro-button:hover {
+  border-color: rgba(214, 184, 95, 0.72);
+}
+
+.upgrade-pro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.refresh-entitlements-button {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 750;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.refresh-entitlements-button:hover {
+  border-color: rgba(79, 231, 255, 0.45);
+}
+
 .settings-section-label {
   border-bottom: 1px solid var(--line);
   display: grid;

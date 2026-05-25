@@ -155,6 +155,8 @@ test('main process exposes knowledge base and tier IPC handlers', () => {
 
   assert.match(source, /createKnowledgeManager/);
   assert.match(source, /ipcMain\.handle\('get-tier-status'/);
+  assert.match(source, /ipcMain\.handle\('open-upgrade-page'/);
+  assert.match(source, /shell\.openExternal\(CLYDE_UPGRADE_URL\)/);
   assert.match(source, /ipcMain\.handle\('list-knowledge'/);
   assert.match(source, /ipcMain\.handle\('ingest-knowledge-file'/);
   assert.match(source, /ipcMain\.handle\('delete-knowledge-item'/);

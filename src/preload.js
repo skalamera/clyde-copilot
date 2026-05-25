@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
     loadSettings: () => ipcRenderer.invoke('load-settings'),
     getTierStatus: () => ipcRenderer.invoke('get-tier-status'),
+    refreshEntitlements: () => ipcRenderer.invoke('refresh-entitlements'),
+    openUpgradePage: () => ipcRenderer.invoke('open-upgrade-page'),
     getRealtimeToken: () => ipcRenderer.invoke('get-realtime-token'),
     startAgentChat: (payload) => ipcRenderer.invoke('start-agent-chat', payload),
     sendAgentChatMessage: (payload) => ipcRenderer.invoke('send-agent-chat-message', payload),
