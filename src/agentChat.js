@@ -11,6 +11,7 @@ const MAX_HISTORY_MESSAGES = 8;
   function createAgentChat(options = {}) {
     const settings = options.settings || {};
     const knowledgeManager = options.knowledgeManager;
+    const questionBankManager = options.questionBankManager;
     const sessionManager = options.sessionManager;
     const calendarStore = options.calendarStore;
     const actionRegistry = options.actionRegistry;
@@ -105,7 +106,7 @@ const MAX_HISTORY_MESSAGES = 8;
     const sessions = sessionFilters.flatMap((filter) => sessionManager.getSessions(filter));
     const normalizedQuery = query.toLowerCase();
 
-    return uniqueSources(sessions.map((session) => ({
+    const sessionSources = sessions.map((session) => ({
           id: sessionSourceId(session),
           label: sessionSourceLabel(session),
           type: 'session',
@@ -114,7 +115,21 @@ const MAX_HISTORY_MESSAGES = 8;
             entityId: session.entity?.id,
             sessionId: session.id
           }
-        })))
+        }));
+    const questionSources = questionBankSources({
+      ...filters,
+      tier,
+      mode: filters.mode || 'interview',
+      activeEntityId: filters.activeEntityId || filters.entityId || '',
+      allQuestionBank: tier === 'pro'
+    }).map((source) => ({
+      id: source.id,
+      label: source.label,
+      type: source.type,
+      metadata: {}
+    }));
+
+    return uniqueSources([...sessionSources, ...questionSources])
       .filter((source) => (
         !normalizedQuery
         || source.label.toLowerCase().includes(normalizedQuery)
@@ -131,8 +146,10 @@ const MAX_HISTORY_MESSAGES = 8;
 
       if (tier !== 'pro') {
         return [
+          ...draftSessionContextSources(payload),
           ...activeSessionSources(payload),
           ...activeEntityKnowledgeSources(payload),
+          ...questionBankSources(payload),
           ...resumeSource(payload.settings)
         ].filter((source) => source.text);
       }
@@ -145,13 +162,17 @@ const MAX_HISTORY_MESSAGES = 8;
           }
         }
       } else if (payload.sourceMode === 'all') {
+        sources.push(...draftSessionContextSources(payload));
         sources.push(...allSessionSources());
+        sources.push(...questionBankSources({ ...payload, allQuestionBank: true }));
         sources.push(...pinnedKnowledgeSources(payload.settings));
         sources.push(...systemKnowledgeSources());
         sources.push(...resumeSource(payload.settings));
       } else {
+        sources.push(...draftSessionContextSources(payload));
         sources.push(...activeSessionSources(payload));
         sources.push(...activeEntityKnowledgeSources(payload));
+        sources.push(...questionBankSources(payload));
         sources.push(...pinnedKnowledgeSources(payload.settings));
         sources.push(...systemKnowledgeSources());
         sources.push(...resumeSource(payload.settings));
@@ -186,6 +207,54 @@ const MAX_HISTORY_MESSAGES = 8;
     }
     const mode = payload.mode === 'meeting' ? 'meeting' : 'interview';
     return sessionManager.getSessions({ mode, entityId: payload.activeEntityId || '' }).map(sourceFromSession);
+  }
+
+  function draftSessionContextSources(payload = {}) {
+    const draft = payload.draftSessionContext && typeof payload.draftSessionContext === 'object'
+      ? payload.draftSessionContext
+      : null;
+    if (!draft) {
+      return [];
+    }
+    const transcript = Array.isArray(draft.transcript)
+      ? draft.transcript.map((turn) => `${turn.speaker || 'Unknown'}: ${turn.text || ''}`).join('\n')
+      : '';
+    const notes = formatDraftNotes(draft.previewNotes);
+    return [
+      transcript ? {
+        id: 'draft-session-transcript',
+        label: 'Current unsaved meeting transcript',
+        type: 'draft-session',
+        text: transcript
+      } : null,
+      notes ? {
+        id: 'draft-session-notes',
+        label: 'Current draft meeting notes',
+        type: 'draft-session',
+        text: notes
+      } : null
+    ].filter(Boolean);
+  }
+
+  function questionBankSources(payload = {}) {
+    if (!questionBankManager?.listContextEntries) {
+      return [];
+    }
+    const tier = payload.tier || payload.settings?.userTier || settings.userTier || 'free';
+    const entries = payload.allQuestionBank && tier === 'pro'
+      ? questionBankManager.listEntries({ mode: payload.mode || 'interview', limit: 80 })
+      : questionBankManager.listContextEntries({
+        mode: payload.mode || 'interview',
+        entityId: payload.activeEntityId || payload.entityId || '',
+        tier,
+        limit: tier === 'pro' ? 40 : 20
+      });
+    return entries.map((entry) => ({
+      id: `question-bank:${entry.id}`,
+      label: `Question Bank / ${entry.entityName || 'Global'} / ${entry.question}`,
+      type: 'question-bank',
+      text: `Question: ${entry.question}\nSample answer: ${entry.sampleAnswer}`
+    }));
   }
 
     function activeEntityKnowledgeSources(payload = {}) {
@@ -568,6 +637,19 @@ function sourceFromSession(session = {}) {
     ].filter(Boolean).join('\n\n'),
     type: 'session'
   };
+}
+
+function formatDraftNotes(notes = {}) {
+  const sections = notes?.notes && typeof notes.notes === 'object' ? notes.notes : notes;
+  if (!sections || typeof sections !== 'object') {
+    return '';
+  }
+  return Object.entries(sections)
+    .flatMap(([key, value]) => {
+      const items = Array.isArray(value) ? value : (value ? [value] : []);
+      return items.map((item) => `${key}: ${String(item || '').trim()}`).filter(Boolean);
+    })
+    .join('\n');
 }
 
 function sessionSourceLabel(session = {}) {

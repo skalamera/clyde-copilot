@@ -83,6 +83,74 @@ test('calendar actions are routed through calendar store', async () => {
   assert.equal(calls[2].delete, 'evt-1');
 });
 
+test('interview meeting request action saves an interview calendar event', async () => {
+  const saves = [];
+  const registry = createAgentActionRegistry({
+    calendarStore: {
+      saveEvent: (event) => {
+        saves.push(event);
+        return { ...event, id: 'evt-apollo' };
+      }
+    },
+    sessionManager: {
+      getSessionEntities: () => [{ id: 'apollo', name: 'Apollo' }]
+    }
+  });
+
+  const result = await registry.confirmAction({
+    actionType: 'addInterviewMeetingRequest',
+    payload: {
+      title: 'Apollo interview with Kenny Keesee',
+      date: '2026-05-27T15:00:00-04:00',
+      mode: 'interview',
+      entityName: 'Apollo',
+      durationMinutes: 45
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(saves[0].mode, 'interview');
+  assert.equal(saves[0].associationMode, 'opportunity');
+  assert.equal(saves[0].entityId, 'apollo');
+  assert.equal(saves[0].durationMinutes, 45);
+});
+
+test('calendar action form entity name replaces a stale entity id', async () => {
+  const saves = [];
+  const registry = createAgentActionRegistry({
+    calendarStore: {
+      saveEvent: (event) => {
+        saves.push(event);
+        return { ...event, id: 'evt-company-2' };
+      }
+    },
+    sessionManager: {
+      getSessionEntities: () => [
+        { id: 'company-1', name: 'Company 1' },
+        { id: 'company-2', name: 'Company 2' }
+      ]
+    },
+    now: () => new Date('2026-05-26T09:00:00-04:00')
+  });
+
+  const result = await registry.confirmAction({
+    actionType: 'saveCalendarEvent',
+    payload: {
+      title: 'Interview',
+      date: 'tomorrow at 2:00 PM',
+      mode: 'interview',
+      entityId: 'company-1',
+      entityName: 'Company 2',
+      originalUserMessage: 'I have an interview tomorrow at 2:00 PM.'
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(saves[0].entityId, 'company-2');
+  assert.equal(saves[0].entityName, 'Company 2');
+  assert.equal(saves[0].date, '2026-05-27T14:00:00.000');
+});
+
 test('opportunity action uses entityName and normalizes advanced status', async () => {
   const calls = [];
   const registry = createAgentActionRegistry({

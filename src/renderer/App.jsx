@@ -19,6 +19,10 @@ const proSearchBadgeUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', i
 const ghostUrl = new URL('../../clyde_pro_coin_dirty_black_gold.svg', import.meta.url).href;
 const homeSearchLogoFreeUrl = new URL('../../clyde-plus-ghost-free.svg', import.meta.url).href;
 const homeSearchLogoProUrl = new URL('../../clyde_text_with_pro_ghost.svg', import.meta.url).href;
+const jobDescriptionEmptyUrl = new URL('../../Job_Description_empty.svg', import.meta.url).href;
+const jobDescriptionUrl = new URL('../../Job_Description.svg', import.meta.url).href;
+const calibrationIconUrl = new URL('../../calibration.svg', import.meta.url).href;
+const testAudioIconUrl = new URL('../../test_audio_icon.svg', import.meta.url).href;
 
 const iconHomeUrl = new URL('../../navbar-icons/Home.svg', import.meta.url).href;
 const iconHomeColorUrl = new URL('../../navbar-icons/Home_color.svg', import.meta.url).href;
@@ -37,6 +41,19 @@ const iconCalendarColorUrl = new URL('../../navbar-icons/Calendar_color.svg', im
 const iconMockInterviewUrl = new URL('../../navbar-icons/Mock_Interviews.svg', import.meta.url).href;
 const iconMockInterviewColorUrl = new URL('../../navbar-icons/Mock_Interviews_color.svg', import.meta.url).href;
 const AGENT_CHAT_CONTEXT_LIMIT = 50;
+
+const INTERVIEW_PHASE_OPTIONS = Array.from({ length: 10 }, (_, index) => `Interview #${index + 1}`);
+const ENTITY_PINNED_FILE_LIMIT = 3;
+
+function getNextInterviewPhase(sessions = []) {
+  const highestPhase = sessions.reduce((highest, session) => {
+    const match = String(session?.phase || session?.title || '').match(/^Interview #(\d+)/i);
+    const phaseNumber = match ? Number(match[1]) : 0;
+    return Number.isFinite(phaseNumber) ? Math.max(highest, phaseNumber) : highest;
+  }, 0);
+
+  return `Interview #${Math.min(highestPhase + 1, INTERVIEW_PHASE_OPTIONS.length)}`;
+}
 
 function unwrapTrendAnalysisRecord(record) {
   if (!record) {
@@ -95,6 +112,8 @@ const EMPTY_SETTINGS = {
   pineconeApiKey: '',
   pineconeHost: '',
   userTier: 'free',
+  authEmail: '',
+  authExpiresAt: null,
   subscriptionStatus: 'free',
   subscriptionPlan: 'clyde_assistant',
   entitlementFeatures: [],
@@ -109,6 +128,7 @@ const EMPTY_SETTINGS = {
   googleAccountEmail: '',
   googleSyncAutoApprove: false,
   googleSyncPollMinutes: 15,
+  includeGlobalQuestionBank: false,
   demoMode: false,
   captureProtectionEnabled: true,
   uiOpacity: 100
@@ -120,6 +140,7 @@ const COMMANDS = [
 
 const MAX_ASSISTANT_CARDS = 12;
 const SHOW_DEMO_MODE_SETTING = false;
+const ONBOARDING_GUIDE_DISMISSED_KEY = 'clyde-onboarding-guide-dismissed';
 const PRO_FEATURES = new Set([
   'pro_realtime_agent',
   'knowledge_rag',
@@ -290,10 +311,12 @@ function OutcomeCalibrationNote({ summary }) {
   }
 
   return (
-    <div className="calibration-note">
-      <span className="calibration-note-icon">⚖️</span>
-      {formatOutcomeCalibrationSummary(summary)}
-    </div>
+    <img
+      alt=""
+      className="calibration-icon-only"
+      src={calibrationIconUrl}
+      title={`Outcome calibration uses your prior interview outcomes to interpret confidence and trend signals. ${formatOutcomeCalibrationSummary(summary)}`}
+    />
   );
 }
 
@@ -637,9 +660,6 @@ function buildInterviewPrepSuggestions(sessions = [], phaseBreakdown = []) {
 function NewOpportunityModal({ onClose, onSave }) {
   const [company, setCompany] = useState('');
   const [role, setRole] = useState('');
-  const [phase, setPhase] = useState('Recruiter Screen');
-  const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
-  const [rawText, setRawText] = useState('');
 
   return (
     <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
@@ -647,7 +667,7 @@ function NewOpportunityModal({ onClose, onSave }) {
         <div className="drawer-head">
           <div>
             <h2>Add New Opportunity</h2>
-            <p>Create a company/role tracker. Optionally attach an initial transcript.</p>
+            <p>Create a company/role tracker. Add transcripts later as interview sessions.</p>
           </div>
           <button type="button" onClick={onClose}>Close</button>
         </div>
@@ -660,45 +680,11 @@ function NewOpportunityModal({ onClose, onSave }) {
             Job Title *
             <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Senior Engineer" />
           </label>
-          
-          <hr style={{ borderColor: 'var(--line)', margin: '10px 0' }} />
-          <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Optional: Initial Transcript</p>
-          
-          <label>
-            Phase
-            <select value={phase} onChange={(e) => setPhase(e.target.value)}>
-              <option value="Recruiter Screen">Recruiter Screen</option>
-              <option value="Interview #1">Interview #1</option>
-              <option value="Interview #2">Interview #2</option>
-              <option value="Interview #3">Interview #3</option>
-              <option value="Interview #4">Interview #4</option>
-              <option value="Interview #5">Interview #5</option>
-              <option value="Interview #6">Interview #6</option>
-              <option value="Interview #7">Interview #7</option>
-              <option value="Interview #8">Interview #8</option>
-              <option value="Interview #9">Interview #9</option>
-              <option value="Interview #10">Interview #10</option>
-              <option value="Other">Other</option>
-            </select>
-          </label>
-          <label>
-            Session date
-            <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
-          </label>
-          <label className="wide-field">
-            Transcript Text
-            <textarea 
-              value={rawText} 
-              onChange={(e) => setRawText(e.target.value)} 
-              placeholder={"Interviewer: Hello\nYou: Hi there!"} 
-              style={{ minHeight: '150px' }} 
-            />
-          </label>
         </div>
         <div className="drawer-actions">
           <button type="button" className="primary-action" onClick={() => {
             if (!company || !role) { alert('Company and Role are required.'); return; }
-            onSave({ company, role, phase, date, transcript: rawText ? parseRawTranscript(rawText) : [] });
+            onSave({ company, role });
           }}>
             Create Opportunity
           </button>
@@ -711,9 +697,6 @@ function NewOpportunityModal({ onClose, onSave }) {
 function NewMeetingModal({ onClose, onSave }) {
   const [title, setTitle] = useState('');
   const [attendees, setAttendees] = useState('');
-  const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
-  const [memory, setMemory] = useState('');
-  const [transcriptText, setTranscriptText] = useState('');
 
   return (
     <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
@@ -721,7 +704,7 @@ function NewMeetingModal({ onClose, onSave }) {
         <div className="drawer-head">
           <div>
             <h2>Add New Meeting</h2>
-            <p>Create a meeting record and set it as the active meeting.</p>
+            <p>Create a recurring meeting record. Add dated meeting sessions from the timeline.</p>
           </div>
           <button type="button" onClick={onClose}>Close</button>
         </div>
@@ -733,27 +716,6 @@ function NewMeetingModal({ onClose, onSave }) {
           <label>
             Attendees
             <input value={attendees} onChange={(event) => setAttendees(event.target.value)} placeholder="Morgan: PM, Lee: Eng" />
-          </label>
-          <label>
-            Session date
-            <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
-          </label>
-          <label className="wide-field">
-            Transcript
-            <textarea
-              value={transcriptText}
-              onChange={(event) => setTranscriptText(event.target.value)}
-              placeholder={"Sarah Jenkins: Let's review the launch plan.\nMarcus Thorne: I will send the vendor quote today."}
-              style={{ minHeight: '180px' }}
-            />
-          </label>
-          <label className="wide-field">
-            Meeting memory
-            <textarea
-              value={memory}
-              onChange={(event) => setMemory(event.target.value)}
-              placeholder="Optional long-term context, recurring decisions, or person notes."
-            />
           </label>
         </div>
         <div className="drawer-actions">
@@ -767,10 +729,7 @@ function NewMeetingModal({ onClose, onSave }) {
               }
               onSave({
                 title: title.trim(),
-                attendees: parseAttendees(attendees),
-                date,
-                memory: memory.trim(),
-                transcriptText: transcriptText.trim()
+                attendees: parseAttendees(attendees)
               });
             }}
           >
@@ -782,7 +741,8 @@ function NewMeetingModal({ onClose, onSave }) {
   );
 }
 
-function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
+function PostSessionSaveModal({ entities, mode, onClose, onSave, settings, transcript = [], assistantCards = [], onDraftContextChange, onAskDraft }) {
+  const api = window.electronAPI;
   useEffect(() => {
     // Keep the prompt pinned to the top when it opens after Stop or Save.
     window.scrollTo(0, 0);
@@ -801,14 +761,31 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
   const [company, setCompany] = useState(activeInterview?.name || settings.currentCompany || '');
   const [role, setRole] = useState(activeInterview?.role || settings.currentRole || '');
   const [jobDescription, setJobDescription] = useState('');
-  const [phase, setPhase] = useState('Live Session');
+  const [phase, setPhase] = useState('Interview #1');
+  const [sessionTitle, setSessionTitle] = useState('');
   const [interviewerName, setInterviewerName] = useState('');
   const [interviewerTitle, setInterviewerTitle] = useState('');
   const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
   const [meetingName, setMeetingName] = useState(activeMeeting?.name || settings.meetingTitle || '');
+  const [meetingSessionTitle, setMeetingSessionTitle] = useState('Meeting session');
+  const [meetingTab, setMeetingTab] = useState('meeting');
+  const [preview, setPreview] = useState(null);
+  const [previewStatus, setPreviewStatus] = useState('loading');
+  const [draftQuestion, setDraftQuestion] = useState('');
 
   const isInterview = mode === 'interview';
   const selectedEntity = entities.find((entity) => entity.id === existingEntityId);
+  const selectedMeetingEntity = destination === 'existing'
+    ? {
+      id: selectedEntity?.id || existingEntityId,
+      name: selectedEntity?.name || existingEntityId,
+      role: ''
+    }
+    : {
+      id: meetingName.trim(),
+      name: meetingName.trim(),
+      role: ''
+    };
   const canSubmit = isInterview
     ? (destination === 'existing' ? Boolean(existingEntityId) : Boolean(company.trim() && role.trim()))
     : (destination === 'existing' ? Boolean(existingEntityId) : Boolean(meetingName.trim()));
@@ -834,36 +811,212 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
             name: company.trim(),
             role: role.trim()
           },
-        phase: phase.trim() || 'Live Session',
+        phase: phase.trim() || 'Interview #1',
+        sessionTitle: sessionTitle.trim(),
         interviewerName: interviewerName.trim(),
         interviewerTitle: interviewerTitle.trim(),
+        jobDescription: jobDescription.trim(),
         date
       });
       return;
     }
 
-    const resolvedColor = associationMode === 'opportunity'
-      ? '#00e5ff'
-      : associationMode === 'meeting'
-        ? '#00ffaa'
-        : (color || '#ffaa00');
-
     onSave({
       mode: 'meeting',
       destination,
-      entity: destination === 'existing'
-        ? {
-          id: selectedEntity?.id || existingEntityId,
-          name: selectedEntity?.name || existingEntityId,
-          role: ''
+      entity: selectedMeetingEntity,
+      title: meetingSessionTitle.trim() || 'Meeting session',
+      date,
+      attendees: settings.meetingAttendees || [],
+      notes: preview?.notes ? previewNotesToSavedNotes(preview.notes) : null
+    });
+  }
+
+  useEffect(() => {
+    if (!isInterview) {
+      return;
+    }
+
+    if (destination === 'new') {
+      setPhase('Interview #1');
+      return;
+    }
+
+    if (!existingEntityId || !api?.getSessions) {
+      setPhase('Interview #1');
+      return;
+    }
+
+    let cancelled = false;
+    api.getSessions({ mode: 'interview', entityId: existingEntityId })
+      .then((sessions) => {
+        if (!cancelled) {
+          setPhase(getNextInterviewPhase(Array.isArray(sessions) ? sessions : []));
         }
-        : {
-          id: meetingName.trim(),
-          name: meetingName.trim(),
-          role: ''
-        },
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPhase('Interview #1');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, isInterview, destination, existingEntityId]);
+
+  useEffect(() => {
+    if (isInterview) {
+      return;
+    }
+    let cancelled = false;
+    setPreviewStatus('loading');
+    api?.previewMeetingSession?.({
+      transcript,
+      cards: assistantCards,
+      attendees: settings.meetingAttendees || [],
+      title: meetingSessionTitle,
+      entity: selectedMeetingEntity
+    }).then((result) => {
+      if (!cancelled) {
+        setPreview(result);
+        setPreviewStatus(result?.status || 'generated');
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setPreview(buildRendererMeetingFallback(transcript, assistantCards));
+        setPreviewStatus('fallback');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, isInterview, transcript, assistantCards, settings.meetingAttendees]);
+
+  useEffect(() => {
+    if (isInterview || !onDraftContextChange) {
+      return;
+    }
+    onDraftContextChange({
+      mode: 'meeting',
+      transcript,
+      previewNotes: preview,
+      assistantCards,
+      title: meetingSessionTitle,
+      entity: selectedMeetingEntity,
+      attendees: settings.meetingAttendees || [],
       date
     });
+    return () => onDraftContextChange(null);
+  }, [isInterview, onDraftContextChange, transcript, preview, assistantCards, meetingSessionTitle, meetingName, existingEntityId, destination, date, settings.meetingAttendees]);
+
+  async function askDraftMeeting(event) {
+    event.preventDefault();
+    const prompt = draftQuestion.trim();
+    if (!prompt || !onAskDraft) {
+      return;
+    }
+    await onAskDraft({
+      prompt,
+      mode: 'meeting',
+      transcript,
+      draftSessionContext: {
+        mode: 'meeting',
+        transcript,
+        previewNotes: preview,
+        assistantCards,
+        title: meetingSessionTitle,
+        entity: selectedMeetingEntity,
+        attendees: settings.meetingAttendees || [],
+        date
+      }
+    });
+    setDraftQuestion('');
+  }
+
+  if (!isInterview) {
+    const notes = preview?.notes || buildRendererMeetingFallback(transcript, assistantCards).notes;
+    return (
+      <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
+        <section className="post-meeting-review-modal">
+          <header className="post-meeting-review-topbar">
+            <div className="post-meeting-search">🔎 Search or ask anything...</div>
+            <button type="button" className="primary-action" disabled={!canSubmit} onClick={submit}>💾 Save</button>
+          </header>
+
+          <div className="post-meeting-review-header">
+            <div>
+              <p>Session: {formatSessionDateLabel(date)}</p>
+              <h2>Meeting: {selectedMeetingEntity.name || meetingSessionTitle || 'Meeting'}</h2>
+              <p className="post-meeting-attendees">
+                Attendees: {formatColoredAttendees(settings.meetingAttendees)}
+              </p>
+            </div>
+            <div className="post-meeting-header-actions">
+              <button type="button" className="ghost" disabled title="Coming soon">✉ Follow-up email</button>
+              <button type="button" className="ghost" disabled title="Coming soon">🔗 Share</button>
+              <button type="button" onClick={onClose}>Close</button>
+            </div>
+          </div>
+
+          <div className="post-meeting-review-body">
+            <div className="segmented-tabs post-meeting-tabs">
+              {['meeting', 'summary', 'transcript'].map((tab) => (
+                <button key={tab} type="button" className={meetingTab === tab ? 'active' : ''} onClick={() => setMeetingTab(tab)}>
+                  {tab === 'meeting' ? 'Meeting' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            <div className="post-meeting-tab-panel">
+              {meetingTab === 'meeting' ? (
+                <form className="settings-form post-meeting-destination" onSubmit={submit}>
+                  <div className="tabs" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                    <button type="button" className={destination === 'existing' ? 'active' : ''} onClick={() => setDestination('existing')} disabled={!entities.length}>
+                      Existing meeting
+                    </button>
+                    <button type="button" className={destination === 'new' ? 'active' : ''} onClick={() => setDestination('new')}>
+                      New meeting
+                    </button>
+                  </div>
+                  {destination === 'existing' ? (
+                    <label className="wide-field">
+                      Meeting
+                      <select value={existingEntityId} onChange={(event) => setExistingEntityId(event.target.value)}>
+                        {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                      </select>
+                    </label>
+                  ) : (
+                    <label className="wide-field">
+                      Meeting name
+                      <input value={meetingName} onChange={(event) => setMeetingName(event.target.value)} placeholder="Platform weekly" />
+                    </label>
+                  )}
+                  <div className="form-grid">
+                    <label>
+                      Session title
+                      <input value={meetingSessionTitle} onChange={(event) => setMeetingSessionTitle(event.target.value)} placeholder="Weekly planning, customer call, 1:1" />
+                    </label>
+                    <label>
+                      Session date
+                      <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+                    </label>
+                  </div>
+                </form>
+              ) : meetingTab === 'summary' ? (
+                <MeetingPreviewSummary notes={notes} status={previewStatus} />
+              ) : (
+                <RawTranscriptPreview transcript={transcript} />
+              )}
+            </div>
+          </div>
+
+          <form className="post-meeting-ask" onSubmit={askDraftMeeting}>
+            <input value={draftQuestion} onChange={(event) => setDraftQuestion(event.target.value)} placeholder="🤔 Ask Clyde about this meeting..." />
+          </form>
+        </section>
+      </div>
+    );
   }
 
   return (
@@ -940,20 +1093,13 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
               <label>
                 Interview phase
                 <select value={phase} onChange={(event) => setPhase(event.target.value)}>
-                  <option value="Recruiter Screen">Recruiter Screen</option>
-                  <option value="Interview #1">Interview #1</option>
-                  <option value="Interview #2">Interview #2</option>
-                  <option value="Interview #3">Interview #3</option>
-                  <option value="Interview #4">Interview #4</option>
-                  <option value="Interview #5">Interview #5</option>
-                  <option value="Interview #6">Interview #6</option>
-                  <option value="Interview #7">Interview #7</option>
-                  <option value="Interview #8">Interview #8</option>
-                  <option value="Interview #9">Interview #9</option>
-                  <option value="Interview #10">Interview #10</option>
-                  <option value="Live Session">Live Session</option>
+                  {INTERVIEW_PHASE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                   <option value="Other">Other</option>
                 </select>
+              </label>
+              <label>
+                Session title
+                <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} placeholder="Optional title" />
               </label>
               <label>
                 Interviewer
@@ -969,10 +1115,20 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
               </label>
             </div>
           ) : (
-            <label className="wide-field">
-              Session date
-              <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
-            </label>
+            <div className="form-grid">
+              <label>
+                Session title
+                <input
+                  value={meetingSessionTitle}
+                  onChange={(event) => setMeetingSessionTitle(event.target.value)}
+                  placeholder="Weekly planning, customer call, 1:1"
+                />
+              </label>
+              <label>
+                Session date
+                <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+              </label>
+            </div>
           )}
 
           <button type="submit" className="primary-action" disabled={!canSubmit}>
@@ -982,6 +1138,121 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings }) {
       </section>
     </div>
   );
+}
+
+function MeetingPreviewSummary({ notes = {}, status = '' }) {
+  const sections = [
+    ['Agenda', notes.agenda],
+    ['Decisions', notes.decisions],
+    ['Action Items', notes.actionItems],
+    ['Blockers / risks', notes.blockers],
+    ['Follow-ups', notes.followUps],
+    ['Open questions', notes.openQuestions]
+  ];
+  return (
+    <div className="post-meeting-summary">
+      {status === 'loading' ? <p className="post-meeting-preview-status">Generating summary...</p> : null}
+      {sections.map(([title, items]) => (
+        <section key={title}>
+          <div className="post-meeting-section-head">
+            <h3>{title}</h3>
+            {title === 'Agenda' ? <button type="button" className="copy-button" disabled>Copy Full Summary</button> : null}
+          </div>
+          {Array.isArray(items) && items.length ? (
+            <ul>
+              {items.map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}
+            </ul>
+          ) : (
+            <p className="muted">No {title.toLowerCase()} captured yet.</p>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function RawTranscriptPreview({ transcript = [] }) {
+  const rows = Array.isArray(transcript) ? transcript.filter((turn) => turn?.text) : [];
+  return (
+    <div className="post-meeting-transcript">
+      <div className="post-meeting-section-head">
+        <h3>Meeting Transcription</h3>
+        <button type="button" className="copy-button" disabled>Copy Full Transcription</button>
+      </div>
+      {rows.length ? (
+        <ul>
+          {rows.map((turn, index) => (
+            <li key={`${turn.itemId || index}-${index}`}>
+              <strong className={`speaker-color-${index % 4}`}>{turn.speaker || 'Unknown'}:</strong> {turn.text}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No transcript captured yet.</p>
+      )}
+    </div>
+  );
+}
+
+function buildRendererMeetingFallback(transcript = [], cards = []) {
+  const recent = Array.isArray(transcript)
+    ? transcript.slice(-6).map((turn) => String(turn?.text || '').trim()).filter(Boolean).slice(0, 5)
+    : [];
+  const actions = Array.isArray(cards)
+    ? cards.filter((card) => card.type === 'action' || card.type === 'follow_up').flatMap((card) => [
+      card.body || card.question,
+      ...(Array.isArray(card.bullets) ? card.bullets : [])
+    ]).filter(Boolean).slice(0, 8)
+    : [];
+  return {
+    status: 'fallback',
+    notes: {
+      agenda: recent.length ? recent : ['No generated summary yet. Clyde will create cleaned meeting notes after save.'],
+      decisions: [],
+      actionItems: actions,
+      blockers: [],
+      followUps: actions,
+      openQuestions: recent.filter((text) => /\?$/.test(text))
+    }
+  };
+}
+
+function previewNotesToSavedNotes(notes = {}) {
+  const summary = [
+    ['Agenda', notes.agenda],
+    ['Decisions', notes.decisions],
+    ['Blockers / risks', notes.blockers],
+    ['Follow-ups', notes.followUps],
+    ['Open questions', notes.openQuestions]
+  ].map(([title, items]) => {
+    const rows = Array.isArray(items) ? items.filter(Boolean) : [];
+    return rows.length ? `**${title}:**\n${rows.map((item) => `- ${item}`).join('\n')}` : '';
+  }).filter(Boolean).join('\n\n');
+  return {
+    summary,
+    actionItems: [{
+      attendee: 'Unassigned',
+      items: Array.isArray(notes.actionItems) ? notes.actionItems.filter(Boolean) : []
+    }].filter((group) => group.items.length)
+  };
+}
+
+function formatSessionDateLabel(value) {
+  const date = new Date(fromDateTimeLocal(value) || value || Date.now());
+  if (Number.isNaN(date.getTime())) {
+    return 'Today';
+  }
+  return new Intl.DateTimeFormat([], { weekday: 'long', month: 'short', day: 'numeric' }).format(date);
+}
+
+function formatColoredAttendees(attendees = []) {
+  const colors = ['attendee-orange', 'attendee-red', 'attendee-green', 'attendee-blue'];
+  const rows = Array.isArray(attendees) && attendees.length
+    ? attendees.map((attendee) => attendee?.name || attendee).filter(Boolean)
+    : ['Unassigned'];
+  return rows.map((name, index) => (
+    <span key={`${name}-${index}`} className={colors[index % colors.length]}>{index ? `, ${name}` : name}</span>
+  ));
 }
 
 function JobDescriptionModal({ entity, onClose, onSave }) {
@@ -1024,8 +1295,10 @@ function JobDescriptionModal({ entity, onClose, onSave }) {
   );
 }
 
-function ManualTranscriptModal({ entity, onClose, onSave }) {
-  const [phase, setPhase] = useState('Interview #1');
+function ManualTranscriptModal({ entity, mode = 'interview', onClose, onSave }) {
+  const isMeeting = mode === 'meeting';
+  const [phase, setPhase] = useState(isMeeting ? 'Meeting session' : 'Interview #1');
+  const [sessionTitle, setSessionTitle] = useState('');
   const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
   const [rawText, setRawText] = useState('');
 
@@ -1034,29 +1307,32 @@ function ManualTranscriptModal({ entity, onClose, onSave }) {
       <section className="settings-drawer">
         <div className="drawer-head">
           <div>
-            <h2>Add Manual Transcript</h2>
+            <h2>{isMeeting ? 'Add meeting session' : 'Add manual transcript'}</h2>
             <p>For {entity?.name}</p>
           </div>
           <button type="button" onClick={onClose}>Close</button>
         </div>
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          <label>
-            Phase
-            <select value={phase} onChange={(e) => setPhase(e.target.value)}>
-              <option value="Recruiter Screen">Recruiter Screen</option>
-              <option value="Interview #1">Interview #1</option>
-              <option value="Interview #2">Interview #2</option>
-              <option value="Interview #3">Interview #3</option>
-              <option value="Interview #4">Interview #4</option>
-              <option value="Interview #5">Interview #5</option>
-              <option value="Interview #6">Interview #6</option>
-              <option value="Interview #7">Interview #7</option>
-              <option value="Interview #8">Interview #8</option>
-              <option value="Interview #9">Interview #9</option>
-              <option value="Interview #10">Interview #10</option>
-              <option value="Other">Other</option>
-            </select>
-          </label>
+          {isMeeting ? (
+            <label>
+              Session title
+              <input value={phase} onChange={(e) => setPhase(e.target.value)} placeholder="Weekly sync" />
+            </label>
+          ) : (
+            <label>
+              Phase
+              <select value={phase} onChange={(e) => setPhase(e.target.value)}>
+                {INTERVIEW_PHASE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                <option value="Other">Other</option>
+              </select>
+            </label>
+          )}
+          {!isMeeting ? (
+            <label>
+              Session title
+              <input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="Optional title" />
+            </label>
+          ) : null}
           <label>
             Session date
             <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -1066,7 +1342,7 @@ function ManualTranscriptModal({ entity, onClose, onSave }) {
             <textarea 
               value={rawText} 
               onChange={(e) => setRawText(e.target.value)} 
-              placeholder={"Interviewer: Let's start...\nYou: Okay!"} 
+              placeholder={isMeeting ? "Sarah: Let's review the launch plan.\nMarcus: I will send the vendor quote today." : "Interviewer: Let's start...\nYou: Okay!"}
               style={{ minHeight: '250px' }} 
             />
           </label>
@@ -1074,9 +1350,11 @@ function ManualTranscriptModal({ entity, onClose, onSave }) {
         <div className="drawer-actions">
           <button type="button" className="primary-action" onClick={() => {
             if (!rawText) return;
-            onSave({ phase, date, transcript: parseRawTranscript(rawText) });
+            const nextPhase = phase.trim() || (isMeeting ? 'Meeting session' : 'Interview #1');
+            const customTitle = sessionTitle.trim();
+            onSave({ phase: customTitle ? `${nextPhase} - ${customTitle}` : nextPhase, date, transcript: parseRawTranscript(rawText) });
           }}>
-            Save & Grade
+            {isMeeting ? 'Save session' : 'Save & Grade'}
           </button>
         </div>
       </section>
@@ -1163,8 +1441,6 @@ function EditEntityModal({ entity, onClose, onSave }) {
 
 function EditSessionModal({ session, onClose, onSave }) {
   const [title, setTitle] = useState(session?.title || '');
-  const [company, setCompany] = useState(session?.entity?.name || '');
-  const [role, setRole] = useState(session?.entity?.role || '');
   const [date, setDate] = useState(toDateTimeLocal(session?.date));
   const meetingFallback = getMeetingTranscriptFallback(session);
   const [summary, setSummary] = useState(meetingFallback.summary);
@@ -1176,8 +1452,6 @@ function EditSessionModal({ session, onClose, onSave }) {
   useEffect(() => {
     const nextMeetingFallback = getMeetingTranscriptFallback(session);
     setTitle(session?.title || '');
-    setCompany(session?.entity?.name || '');
-    setRole(session?.entity?.role || '');
     setDate(toDateTimeLocal(session?.date));
     setSummary(nextMeetingFallback.summary);
     setActions(formatActionItemsForEditor(
@@ -1202,14 +1476,6 @@ function EditSessionModal({ session, onClose, onSave }) {
         <div className="settings-form">
           <div className="form-grid">
             <label>
-              Company name
-              <input value={company} onChange={(event) => setCompany(event.target.value)} />
-            </label>
-            <label>
-              Title
-              <input value={role} onChange={(event) => setRole(event.target.value)} />
-            </label>
-            <label>
               Session title
               <input value={title} onChange={(event) => setTitle(event.target.value)} />
             </label>
@@ -1218,18 +1484,22 @@ function EditSessionModal({ session, onClose, onSave }) {
               <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
             </label>
           </div>
-          <label className="wide-field">
-            {session?.mode === 'meeting' ? 'Meeting notes' : 'Summary'}
-            <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
-          </label>
-          <label className="wide-field">
-            {session?.mode === 'interview' ? 'Examples' : 'Action items by attendee'}
-            <textarea
-              value={actions}
-              onChange={(event) => setActions(event.target.value)}
-              placeholder={session?.mode === 'meeting' ? 'Sarah Jenkins: Send recap\nMarcus Thorne: Confirm owner' : 'One item per line'}
-            />
-          </label>
+          {session?.mode === 'meeting' ? (
+            <>
+              <label className="wide-field">
+                Meeting notes
+                <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
+              </label>
+              <label className="wide-field">
+                Action items by attendee
+                <textarea
+                  value={actions}
+                  onChange={(event) => setActions(event.target.value)}
+                  placeholder="Sarah Jenkins: Send recap\nMarcus Thorne: Confirm owner"
+                />
+              </label>
+            </>
+          ) : null}
           <label className="wide-field">
             Transcript
             <textarea
@@ -1251,20 +1521,14 @@ function EditSessionModal({ session, onClose, onSave }) {
               date: fromDateTimeLocal(date, session.date),
               entity: {
                 ...(session.entity || {}),
-                name: company.trim() || session.entity?.name || 'Interview',
-                role: role.trim()
+                name: session.entity?.name || 'Interview',
+                role: session.entity?.role || ''
               },
               transcript: parseRawTranscript(transcriptText),
-              notes: {
-                summary: summary.trim(),
-                actionItems: session?.mode === 'interview'
-                  ? []
-                  : parseActionItemsText(actions)
-              },
-              grading: session?.mode === 'interview' ? {
-                ...(session.grading || {}),
-                examples: actions.split('\n').map((item) => item.trim()).filter(Boolean)
-              } : session?.grading
+              notes: session?.mode === 'meeting'
+                ? { summary: summary.trim(), actionItems: parseActionItemsText(actions) }
+                : session?.notes,
+              grading: session?.grading
             })}
           >
             Save changes
@@ -2441,6 +2705,8 @@ function App() {
   const [workspaceView, setWorkspaceView] = useState('home');
   const [workspaceNavCollapsed, setWorkspaceNavCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState('general');
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [userGuideOpen, setUserGuideOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(true);
   const [entities, setEntities] = useState([]);
@@ -2456,11 +2722,13 @@ function App() {
   const [editEntityTarget, setEditEntityTarget] = useState(null);
   const [editSessionTarget, setEditSessionTarget] = useState(null);
   const [postSessionPromptOpen, setPostSessionPromptOpen] = useState(false);
+  const [draftSessionContext, setDraftSessionContext] = useState(null);
   const [preflightRequest, setPreflightRequest] = useState(null);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncProposals, setSyncProposals] = useState([]);
   const [syncAudit, setSyncAudit] = useState([]);
+  const [syncScanning, setSyncScanning] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
     const [calendarTargetEntity, setCalendarTargetEntity] = useState(null);
     const [calendarEditEvent, setCalendarEditEvent] = useState(null);
@@ -2772,17 +3040,28 @@ function App() {
           return;
         }
 
-        const tierStatus = await api?.getTierStatus?.().catch(() => null);
+        let tierStatus = await api?.getTierStatus?.().catch(() => null);
+        let currentSettings = loaded || {};
+        if (currentSettings.userId && api?.refreshEntitlements) {
+          await api.refreshEntitlements().catch((error) => {
+            console.warn('Startup entitlement refresh failed', error);
+          });
+          currentSettings = await api.loadSettings().catch(() => currentSettings);
+          tierStatus = await api?.getTierStatus?.().catch(() => tierStatus);
+        }
         const nextSettings = normalizeEntitledSettings({
           ...EMPTY_SETTINGS,
-          ...(loaded || {}),
+          ...(currentSettings || {}),
           ...(tierStatus || {}),
-          entitlementFeatures: tierStatus?.features || loaded?.entitlementFeatures || []
+          entitlementFeatures: tierStatus?.features || currentSettings?.entitlementFeatures || []
         });
         setSettings(nextSettings);
         setMode(nextSettings.appMode === 'meeting' ? 'meeting' : 'interview');
         setSetupOpen(!nextSettings.currentCompany && !nextSettings.meetingTitle);
         setAppWindowMaximized(Boolean(isMaximized));
+        if (!localStorage.getItem(ONBOARDING_GUIDE_DISMISSED_KEY)) {
+          setOnboardingOpen(true);
+        }
       }
 
     load().catch((error) => setStatus(`Settings failed: ${error.message}`));
@@ -2888,12 +3167,15 @@ function App() {
 
   async function scanGoogleSync() {
     setStatus('Scanning Google for Clyde actions...');
+    setSyncScanning(true);
     try {
       await api?.scanGoogleSync?.();
       await loadSyncState();
       setStatus('Google sync scan complete.');
     } catch (error) {
       setStatus(`Google sync scan failed: ${error.message}`);
+    } finally {
+      setSyncScanning(false);
     }
   }
 
@@ -2910,10 +3192,36 @@ function App() {
     }
   }
 
+  async function approveAllSyncProposals() {
+    let needsInputCount = 0;
+    for (const proposal of syncProposals) {
+      const result = await approveSyncProposal(proposal);
+      if (result?.needsInput) {
+        needsInputCount += 1;
+      }
+    }
+    await loadSyncState();
+    setStatus(needsInputCount
+      ? `Approved available sync actions. ${needsInputCount} need more details.`
+      : 'Approved all sync actions.');
+  }
+
   async function dismissSyncProposal(proposal) {
     try {
       await api?.dismissSyncProposal?.(proposal.id);
       await loadSyncState();
+    } catch (error) {
+      setStatus(`Sync dismiss failed: ${error.message}`);
+    }
+  }
+
+  async function dismissAllSyncProposals() {
+    try {
+      for (const proposal of syncProposals) {
+        await api?.dismissSyncProposal?.(proposal.id);
+      }
+      await loadSyncState();
+      setStatus('Dismissed all sync actions.');
     } catch (error) {
       setStatus(`Sync dismiss failed: ${error.message}`);
     }
@@ -2932,7 +3240,7 @@ function App() {
     await reloadSessions(nextMode, '');
   }
 
-  async function saveSettings(nextSettings) {
+  async function saveSettings(nextSettings, options = {}) {
     try {
       const normalized = {
         ...settings,
@@ -2959,8 +3267,10 @@ function App() {
         ...(savedTierStatus || {}),
         entitlementFeatures: savedTierStatus?.features || entitled.entitlementFeatures || []
       }));
-      setSettingsOpen(false);
-      setSetupOpen(false);
+      if (options.close !== false) {
+        setSettingsOpen(false);
+        setSetupOpen(false);
+      }
       setStatus('Settings saved.');
       await reloadSessions(mode);
     } catch (error) {
@@ -3001,6 +3311,7 @@ function App() {
         setHealth(nextHealth);
       }
       setStatus('Service check complete.');
+      return nextHealth;
     } catch (error) {
       setStatus(`Service check failed: ${error.message}`);
     } finally {
@@ -3086,6 +3397,7 @@ function App() {
       }
 
       setPostSessionPromptOpen(false);
+      setDraftSessionContext(null);
       setStatus(payload.mode === 'interview'
         ? 'Interview transcript saved. Scoring started.'
         : 'Meeting transcript saved. Notes and action items were generated.');
@@ -3102,7 +3414,9 @@ function App() {
       name: settings.currentCompany || 'Interview',
       role: settings.currentRole || ''
     };
-    const phase = payload?.phase || 'Live Session';
+    const phase = payload?.phase || 'Interview #1';
+    const customTitle = String(payload?.sessionTitle || '').trim();
+    const title = customTitle ? `${phase} - ${customTitle}` : phase;
     const attendees = payload?.interviewerName
       ? [{ name: payload.interviewerName, role: payload.interviewerTitle || '' }]
       : [];
@@ -3115,7 +3429,7 @@ function App() {
     await api?.saveSession?.({
       mode: 'interview',
       entity,
-      title: phase,
+      title,
       phase,
       date: fromDateTimeLocal(payload?.date),
       attendees,
@@ -3147,11 +3461,11 @@ function App() {
     await api?.saveSession?.({
       mode: 'meeting',
       entity,
-      title: 'Meeting transcript',
+      title: payload?.title || 'Meeting session',
       date: fromDateTimeLocal(payload?.date),
-      attendees: settings.meetingAttendees || [],
+      attendees: payload?.attendees || settings.meetingAttendees || [],
       transcript,
-      notes: buildNotes(transcript, assistantCards, 'meeting'),
+      notes: payload?.notes || buildNotes(transcript, assistantCards, 'meeting'),
       cards: assistantCards,
       grading: null
     });
@@ -3159,7 +3473,7 @@ function App() {
     const nextSettings = await api?.setActiveSessionContext?.({
       mode: 'meeting',
       meetingTitle: entity.name || entity.id,
-      attendees: settings.meetingAttendees || []
+      attendees: payload?.attendees || settings.meetingAttendees || []
     });
     if (nextSettings) {
       setSettings(nextSettings);
@@ -3224,7 +3538,7 @@ function App() {
     const nextSettings = await api?.setActiveSessionContext?.({
       mode: 'meeting',
       meetingTitle: entity?.name || entityId,
-      attendees: latest?.attendees || []
+      attendees: latest?.attendees || entity?.attendees || []
     });
     if (nextSettings) {
       setSettings(nextSettings);
@@ -3232,26 +3546,13 @@ function App() {
   }
 
   async function createMeetingMemory(data) {
-    const transcript = parseMeetingTranscriptInput(data);
-    const hasTranscript = transcript.length > 0;
-
-    await api?.saveSession?.({
+    await api?.updateSessionEntity?.({
       mode: 'meeting',
-      entity: {
-        id: data.title,
+      entityId: data.title,
+      patch: {
         name: data.title,
-        role: ''
-      },
-      title: hasTranscript ? 'Meeting transcript' : 'Meeting memory',
-      date: fromDateTimeLocal(data.date),
-      attendees: data.attendees || [],
-      transcript,
-      notes: {
-        summary: hasTranscript ? '' : (data.memory || ''),
-        actionItems: []
-      },
-      cards: [],
-      grading: null
+        attendees: data.attendees || []
+      }
     });
 
     setNewMeetingOpen(false);
@@ -3534,7 +3835,7 @@ function App() {
         <div className={`workspace-shell ${workspaceNavCollapsed ? 'sidebar-collapsed' : ''}`}>
           <WorkspaceNav
                 mode={mode}
-                onViewChange={setWorkspaceView}
+                onViewChange={chooseWorkspaceView}
                 nextUpcomingEvent={nextUpcomingEvent}
                 onOpenNextUpcomingEvent={openNextUpcomingEvent}
                 view={workspaceView}
@@ -3545,6 +3846,14 @@ function App() {
                 onToggleCaptureProtection={toggleCaptureProtection}
                 notificationsOpen={notificationsOpen}
                 setNotificationsOpen={setNotificationsOpen}
+                settings={settings}
+                syncStatus={syncStatus}
+                syncProposals={syncProposals}
+                syncAudit={syncAudit}
+                syncScanning={syncScanning}
+                onScanGoogleSync={scanGoogleSync}
+                onApproveSyncProposal={approveSyncProposal}
+                onDismissSyncProposal={dismissSyncProposal}
                 unreadAutoApproved={unreadAutoApproved}
                 onMarkAuditRead={(ids) => {
                    api?.markSyncAuditRead?.(ids).catch(() => {});
@@ -3566,10 +3875,13 @@ function App() {
             settings={settings}
             chatState={homeChatState}
             setChatState={setHomeChatState}
+            draftSessionContext={draftSessionContext}
             syncStatus={syncStatus}
             syncProposals={syncProposals}
             onApproveSyncProposal={approveSyncProposal}
+            onApproveAllSyncProposals={approveAllSyncProposals}
             onDismissSyncProposal={dismissSyncProposal}
+            onDismissAllSyncProposals={dismissAllSyncProposals}
             onScanGoogleSync={scanGoogleSync}
             onActionComplete={() => {
               reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
@@ -3586,6 +3898,7 @@ function App() {
             onAddNewOpportunity={() => setNewOpportunityOpen(true)}
             onAddNewMeeting={() => setNewMeetingOpen(true)}
             onEditEntity={(entity) => setEditEntityTarget(entity)}
+            onUpdateEntity={saveEntityEdits}
             onEditSession={(session) => setEditSessionTarget(session)}
             onSelectEntity={async (entityId) => {
               setSelectedEntity(entityId);
@@ -3635,6 +3948,14 @@ function App() {
               setCalendarModalOpen(true);
             }}
             mode={mode}
+          />
+        ) : workspaceView === 'question-bank' && mode === 'interview' ? (
+          <QuestionBankView
+            activeEntityId={activeEntityId}
+            activeEntityLabel={activeEntityLabel}
+            entities={entities}
+            settings={settings}
+            onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
           />
         ) : workspaceView === 'knowledge' && canUseFeature(settings, 'knowledge_rag') ? (
           <KnowledgeView
@@ -3700,6 +4021,7 @@ function App() {
           settings={settings}
           chatState={homeChatState}
           setChatState={setHomeChatState}
+          draftSessionContext={draftSessionContext}
           onActionComplete={() => {
             reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
             loadCalendarEvents().catch((error) => setStatus(`Calendar failed: ${error.message}`));
@@ -3710,6 +4032,7 @@ function App() {
       {settingsOpen ? (
           <SettingsDrawer
             api={api}
+            initialTab={settingsInitialTab}
             mode={mode}
             onClose={() => setSettingsOpen(false)}
             onSave={saveSettings}
@@ -3718,10 +4041,33 @@ function App() {
             settings={settings}
             syncAudit={syncAudit}
             setSyncAudit={setSyncAudit}
+            onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
           />
         ) : null}
 
         {userGuideOpen ? <UserGuideModal onClose={() => setUserGuideOpen(false)} /> : null}
+
+        {onboardingOpen ? (
+          <OnboardingWizard
+            api={api}
+            mode={mode}
+            settings={settings}
+            onClose={({ dontShowAgain, route } = {}) => {
+              if (dontShowAgain) {
+                localStorage.setItem(ONBOARDING_GUIDE_DISMISSED_KEY, 'true');
+              }
+              setOnboardingOpen(false);
+              if (route) {
+                setWorkspaceView(route);
+              }
+            }}
+            onModeChange={chooseMode}
+            onReload={reloadSessions}
+            onCalendarChanged={loadCalendarEvents}
+            onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
+            onValidate={validateServices}
+          />
+        ) : null}
 
         {preflightRequest ? (
           <CallPreflightModal
@@ -3737,25 +4083,11 @@ function App() {
           <NewOpportunityModal 
             onClose={() => setNewOpportunityOpen(false)} 
             onSave={async (data) => {
-              if (data.transcript && data.transcript.length > 0) {
-                await api?.saveSession?.({
-                  mode: 'interview',
-                  entity: { id: data.company, name: data.company, role: data.role },
-                  title: data.phase,
-                  phase: data.phase,
-                  date: fromDateTimeLocal(data.date),
-                  transcript: data.transcript,
-                  grading: { status: 'pending' }
-                });
-              } else {
-                await api?.saveSession?.({
-                  mode: 'interview',
-                  entity: { id: data.company, name: data.company, role: data.role },
-                  title: 'Opportunity created',
-                  date: fromDateTimeLocal(data.date),
-                  transcript: []
-                });
-              }
+              await api?.updateSessionEntity?.({
+                mode: 'interview',
+                entityId: data.company,
+                patch: { name: data.company, role: data.role, outcome: 'active' }
+              });
               setNewOpportunityOpen(false);
               reloadSessions('interview');
             }} 
@@ -3773,9 +4105,16 @@ function App() {
           <PostSessionSaveModal
             entities={entities}
             mode={mode}
-            onClose={() => setPostSessionPromptOpen(false)}
+            onClose={() => {
+              setPostSessionPromptOpen(false);
+              setDraftSessionContext(null);
+            }}
             onSave={saveSessionFromPrompt}
             settings={settings}
+            transcript={transcript}
+            assistantCards={assistantCards}
+            onDraftContextChange={setDraftSessionContext}
+            onAskDraft={runCommand}
           />
         )}
 
@@ -3803,19 +4142,21 @@ function App() {
         {manualTranscriptOpen && (
           <ManualTranscriptModal
             entity={manualTargetEntity}
+            mode={mode}
             onClose={() => setManualTranscriptOpen(false)}
             onSave={async (data) => {
               await api?.saveSession?.({
-                mode: 'interview',
+                mode,
                 entity: manualTargetEntity,
                 title: data.phase,
                 phase: data.phase,
                 date: fromDateTimeLocal(data.date),
                 transcript: data.transcript,
-                grading: { status: 'pending' }
+                notes: mode === 'meeting' ? { summary: '', actionItems: [] } : undefined,
+                grading: mode === 'interview' ? { status: 'pending' } : null
               });
               setManualTranscriptOpen(false);
-              reloadSessions('interview', manualTargetEntity.id);
+              reloadSessions(mode, manualTargetEntity.id);
             }}
           />
         )}
@@ -3870,6 +4211,7 @@ function App() {
 
 function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, request = {} }) {
   const [preflight, setPreflight] = useState(null);
+  const [includeGlobalQuestionBank, setIncludeGlobalQuestionBank] = useState(false);
   const [status, setStatus] = useState('Checking connection...');
   const [testingAudio, setTestingAudio] = useState(false);
   const [audioLevels, setAudioLevels] = useState([]);
@@ -3912,10 +4254,12 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
       const next = await api?.getCallPreflightContext?.({
         mode,
         entityId: request.entityId || '',
-        entityName: request.entityName || ''
+        entityName: request.entityName || '',
+        includeGlobalQuestionBank
       });
       if (!mountedRef.current) return;
       setPreflight(next || null);
+      setIncludeGlobalQuestionBank(Boolean(next?.activeContext?.questionBank?.includeGlobal));
       setStatus('Ready to start.');
     } catch (error) {
       setStatus(`Preflight failed: ${error.message}`);
@@ -3982,11 +4326,55 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
     }
   }
 
+  async function removeActiveFile(fileId) {
+    if (!fileId) return;
+    setUploadStatus('Removing active context file...');
+    try {
+      await api?.removeEntityFile?.(fileId);
+      setUploadStatus('Active context file removed.');
+      await refreshPreflight();
+    } catch (error) {
+      setUploadStatus(`Remove failed: ${error.message}`);
+    }
+  }
+
+  async function toggleGlobalQuestionBank(event) {
+    const checked = event.target.checked;
+    setIncludeGlobalQuestionBank(checked);
+    const currentSettings = await api?.loadSettings?.().catch(() => null);
+    if (currentSettings) {
+      await api?.saveSettings?.({ ...currentSettings, includeGlobalQuestionBank: checked });
+    }
+    await refreshPreflight();
+  }
+
   const health = preflight?.health || DEFAULT_HEALTH;
   const models = preflight?.models || {};
   const activeContext = preflight?.activeContext || {};
+  const questionBank = activeContext.questionBank || {};
   const audio = preflight?.audio || {};
+  const proTier = preflight?.settings?.userTier === 'pro' || preflight?.models?.proAgentEnabled;
   const callLabel = mode === 'meeting' ? 'meeting' : 'interview';
+  const statusTone = (state) => String(state || '').toLowerCase() === 'ready' ? 'status-ready' : 'status-bad';
+  const entityName = mode === 'meeting'
+    ? activeContext.meetingTitle || preflight?.entityName || request.entityName || 'Meeting session'
+    : activeContext.company || preflight?.entityName || request.entityName || 'Interview session';
+  const entityRole = mode === 'meeting' ? '' : activeContext.role || '';
+  const titleContext = mode === 'meeting'
+    ? entityName
+    : [entityName, entityRole].filter(Boolean).join(', ');
+  const audioHealth = health.audio || DEFAULT_HEALTH.audio;
+  const transcriptionHealth = health.whisper || DEFAULT_HEALTH.whisper;
+  const assistantHealth = health.lmStudio || DEFAULT_HEALTH.lmStudio;
+  const activeFiles = activeContext.entityFiles || [];
+  const pinnedKnowledgeFiles = activeContext.pinnedKnowledge || [];
+  const activeFileLimit = preflight?.limits?.activeEntityFiles || 5;
+  const pinnedLimit = preflight?.limits?.pinnedKnowledge || activeFileLimit;
+  const ragSummary = models.ragEnabled
+    ? (models.pineconeConfigured ? 'Enabled and configured' : 'Enabled, needs setup')
+    : 'Disabled';
+  const proRealtimeSummary = models.proAgentEnabled ? (models.proRealtimeModel || 'Enabled') : 'Disabled';
+  const questionBankSummary = questionBank.includedCount || questionBank.activeCount || 0;
 
   return (
     <div className="modal-backdrop preflight-backdrop" role="presentation">
@@ -3994,101 +4382,145 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
         <header className="preflight-hero">
           <div>
             <span className="preflight-eyebrow">Preflight</span>
-            <h2>Start {callLabel}</h2>
-            <p>{preflight?.entityName || request.entityName || (mode === 'meeting' ? 'Meeting session' : 'Interview session')}</p>
+            <h2>Start {callLabel}{titleContext ? ` - ${titleContext}` : ''}</h2>
+            <p>{entityName}</p>
           </div>
           <div className={`preflight-ready-pill ${preflight ? 'ready' : 'checking'}`}>{status}</div>
         </header>
 
-        <div className="preflight-grid">
-          <section className="preflight-panel preflight-checks">
-            <div className="preflight-panel-head">
-              <strong>Connection checks</strong>
-              <button type="button" className="ghost" onClick={refreshPreflight}>Recheck</button>
+        <div className="preflight-body">
+          <section className="preflight-summary-strip" aria-label="Preflight summary">
+            <div>
+              <p><strong>Pro Realtime:</strong> <span className={models.proAgentEnabled ? 'ready-text' : ''}>{proRealtimeSummary}</span></p>
+              <p><strong>RAG / Memory:</strong> <span className={models.ragEnabled && models.pineconeConfigured ? 'ready-text' : ''}>{ragSummary}</span></p>
             </div>
-            <div className="preflight-status-grid">
-              {Object.entries(health).map(([key, item]) => (
-                <article className={`preflight-status-card ${item.state || 'unknown'}`} key={key}>
-                  <span>{item.label || key}</span>
-                  <strong>{item.state || 'unknown'}</strong>
-                  <small>{item.detail || 'No details yet.'}</small>
-                </article>
-              ))}
-            </div>
+            {mode === 'interview' ? (
+              <div>
+                <p><strong>Question Bank:</strong> {questionBankSummary} Q&A Pairs Linked</p>
+                <label className="preflight-inline-toggle">
+                  <strong>Include Global ({questionBank.globalCount || 0} Pairs):</strong>
+                  <input type="checkbox" checked={includeGlobalQuestionBank} onChange={toggleGlobalQuestionBank} disabled={!proTier} />
+                </label>
+              </div>
+            ) : null}
           </section>
 
-          <section className="preflight-panel">
-            <div className="preflight-panel-head">
-              <strong>Models in use</strong>
-              <span>{models.proAgentEnabled ? 'Pro realtime enabled' : 'Standard assistant'}</span>
-            </div>
-            <div className="preflight-model-list">
-              <PreflightModel label="Transcription" value={`${models.transcriptionProvider || 'Not selected'} · ${models.transcriptionModel || 'Not selected'}`} />
-              <PreflightModel label="Assistant" value={`${models.assistantProvider || 'Not selected'} · ${models.assistantModel || 'Not selected'}`} />
-              <PreflightModel label="Pro realtime" value={models.proAgentEnabled ? models.proRealtimeModel : 'Disabled'} />
-              <PreflightModel label="RAG / Memory" value={models.ragEnabled ? (models.pineconeConfigured ? 'Enabled and configured' : 'Enabled, needs Pinecone') : 'Async memory disabled'} />
-            </div>
-          </section>
+          <div className="preflight-main-layout">
+            <div className="preflight-left-stack">
+              <section className="preflight-panel preflight-checks">
+                <div className="preflight-panel-head compact">
+                  <strong>Connection Checks</strong>
+                  <button type="button" className="ghost compact" onClick={refreshPreflight}>Recheck</button>
+                </div>
+                <div className="preflight-connection-card">
+                  <p><strong>Audio:</strong> <span className={statusTone(audioHealth.state)}>{audioHealth.state || 'unknown'}</span></p>
+                  <p><strong>Rust audio engine:</strong> <span className={audio.engine === 'rust' ? 'status-ready' : 'status-bad'}>{audio.engine === 'rust' ? 'ready' : audio.engine || 'not selected'}</span></p>
+                  <p><strong>Mic:</strong> <span>{(audio.sources || [])[0]?.device || 'Default device'}</span></p>
+                  <p><strong>System audio:</strong> <span>{(audio.sources || [])[1]?.device || 'Default device'}</span></p>
+                </div>
+                <div className="preflight-connection-card">
+                  <p><strong>Transcription:</strong> <span className={statusTone(transcriptionHealth.state)}>{models.transcriptionProvider || 'Not selected'} {transcriptionHealth.state || 'unknown'}</span></p>
+                  <p><strong>Local Server:</strong> <span>{models.transcriptionModel || transcriptionHealth.detail || 'Not selected'}</span></p>
+                  <hr />
+                  <p><strong>Assistant LLM:</strong> <span className={statusTone(assistantHealth.state)}>{assistantHealth.state || 'unknown'}</span></p>
+                  <p><strong>Provider:</strong> <span>{models.assistantProvider || 'Not selected'}</span></p>
+                  <p><strong>Model:</strong> <span>{models.assistantModel || 'Not selected'}</span></p>
+                </div>
+              </section>
 
-          <section className="preflight-panel preflight-audio-panel">
-            <div className="preflight-panel-head">
-              <strong>Audio test</strong>
-              <button type="button" className={testingAudio ? 'ghost active' : 'ghost'} onClick={toggleAudioTest}>{testingAudio ? 'Stop test' : 'Test audio'}</button>
+              <section className="preflight-panel preflight-audio-panel">
+                <button type="button" className={testingAudio ? 'preflight-test-button active' : 'preflight-test-button'} onClick={toggleAudioTest}>
+                  <span>{testingAudio ? 'Stop Audio' : 'Test Audio'}</span>
+                  <img src={testAudioIconUrl} alt="" aria-hidden="true" />
+                </button>
+                <div className="preflight-audio-grid">
+                  {(audio.sources || []).map((source) => {
+                    const level = audioLevels.find((item) => item.id === source.id || item.label === source.label) || {};
+                    const width = Math.max(0, Math.min(100, level.level || 0));
+                    return (
+                      <article className={`preflight-audio-source ${level.speaking ? 'speaking' : ''}`} key={source.id || source.label}>
+                        <div>
+                          <strong>{source.label}</strong>
+                          <span>{source.device || 'Default device'}</span>
+                        </div>
+                        <div className="preflight-meter"><span style={{ width: `${width}%` }} /></div>
+                        <small>{testingAudio ? `${Math.round(level.rms || 0)} RMS` : 'Start the audio test to verify signal.'}</small>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
-            <div className="preflight-audio-grid">
-              {(audio.sources || []).map((source) => {
-                const level = audioLevels.find((item) => item.id === source.id || item.label === source.label) || {};
-                const width = Math.max(0, Math.min(100, level.level || 0));
-                return (
-                  <article className={`preflight-audio-source ${level.speaking ? 'speaking' : ''}`} key={source.id || source.label}>
-                    <div>
-                      <strong>{source.label}</strong>
-                      <span>{source.device || 'Default device'}</span>
+
+            <div className="preflight-middle-stack">
+              <section className="preflight-panel preflight-context-panel">
+                <div className="preflight-panel-head centered">
+                  <strong>Active Context</strong>
+                </div>
+                <div className="preflight-context-summary">
+                  <p><strong>{mode === 'meeting' ? 'Meeting:' : 'Opportunity:'}</strong> {entityName}</p>
+                  {entityRole ? <p><strong>Role:</strong> {entityRole}</p> : null}
+                  <p><strong>Resume/Background:</strong> <span className="ready-text">{activeContext.resume?.chars || 0} chars</span></p>
+                  {mode === 'interview' ? <p><strong>Job Description:</strong> <span className="ready-text">{activeContext.jobDescription?.chars || 0} chars</span></p> : null}
+                  {mode === 'meeting' ? <p><strong>Meeting Memory:</strong> <span className="ready-text">{activeContext.meetingMemory?.chars || 0} chars</span></p> : null}
+                </div>
+              </section>
+
+              <section className="preflight-panel preflight-rag-panel">
+                <div className="preflight-rag-summary">
+                  <strong>Knowledge page pins: <span className="ready-text">{pinnedKnowledgeFiles.length}/{pinnedLimit}</span></strong>
+                  <small>{proTier ? 'Pro RAG context from the Knowledge page.' : 'Requires Pro RAG.'}</small>
+                  {pinnedKnowledgeFiles.length ? (
+                    <div className="preflight-file-chip-list">
+                      {pinnedKnowledgeFiles.map((file) => (
+                        <span key={file.id} className="preflight-file-chip preflight-rag-chip">
+                          {file.filename}
+                        </span>
+                      ))}
                     </div>
-                    <div className="preflight-meter"><span style={{ width: `${width}%` }} /></div>
-                    <small>{testingAudio ? `${Math.round(level.rms || 0)} RMS` : 'Start the audio test to verify signal.'}</small>
-                  </article>
-                );
-              })}
+                  ) : <p>No Knowledge page pins.</p>}
+                </div>
+              </section>
             </div>
-          </section>
 
-          <section className="preflight-panel preflight-context-panel">
-            <div className="preflight-panel-head">
-              <strong>Active context</strong>
-              <span>{mode === 'meeting' ? activeContext.meetingTitle || 'No meeting selected' : [activeContext.company, activeContext.role].filter(Boolean).join(' · ') || 'No interview selected'}</span>
-            </div>
-            <div className="preflight-context-list">
-              <PreflightContextRow title="Resume / background" meta={`${activeContext.resume?.chars || 0} chars`} body={activeContext.resume?.excerpt} />
-              <PreflightContextRow title="Job description" meta={`${activeContext.jobDescription?.chars || 0} chars`} body={activeContext.jobDescription?.excerpt} />
-              <PreflightContextRow title="Meeting memory" meta={`${activeContext.meetingMemory?.chars || 0} chars`} body={activeContext.meetingMemory?.excerpt} />
-              <PreflightContextRow title="Pinned knowledge brief" meta={`${activeContext.pinnedKnowledgeBrief?.chars || 0} chars`} body={activeContext.pinnedKnowledgeBrief?.excerpt} />
-              <PreflightContextRow title="Active files" meta={`${activeContext.entityFiles?.length || 0}/${preflight?.limits?.activeEntityFiles || 5} included`} body={(activeContext.entityFiles || []).map((file) => file.filename).join(', ')} />
-            </div>
-          </section>
-
-          <section
-            className={`preflight-panel preflight-upload-panel ${dragActive ? 'drag-active' : ''}`}
-            onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
-            onDragOver={(event) => event.preventDefault()}
-            onDragLeave={(event) => { event.preventDefault(); setDragActive(false); }}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-              ingestFiles(Array.from(event.dataTransfer.files || []).map((file) => file.path));
-            }}
-          >
-            <div className="preflight-panel-head">
-              <strong>Add active context</strong>
-              <button type="button" className="ghost" onClick={openFilePicker}>Choose files</button>
-            </div>
-            <div className="preflight-dropzone">
-              <strong>Drop .txt, .md, or .pdf files</strong>
-              <span>Files attach to this {callLabel}. Up to {preflight?.limits?.activeEntityFiles || 5} active files are included directly in fast context.</span>
-              <small>{formatBytes(preflight?.limits?.maxUploadBytes || 25 * 1024 * 1024)} max per file.</small>
-            </div>
-            {uploadStatus ? <p className="preflight-upload-status">{uploadStatus}</p> : null}
-          </section>
+            <section
+              className={`preflight-panel preflight-upload-panel ${dragActive ? 'drag-active' : ''}`}
+              onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={(event) => { event.preventDefault(); setDragActive(false); }}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragActive(false);
+                ingestFiles(Array.from(event.dataTransfer.files || []).map((file) => file.path));
+              }}
+            >
+              <div className="preflight-panel-head centered">
+                <strong>Add Active Context</strong>
+              </div>
+              <button type="button" className="preflight-choose-files" onClick={openFilePicker}>
+                Choose Files <span aria-hidden="true">↥</span>
+              </button>
+              <div className="preflight-dropzone">
+                <strong>Drop .txt, .md, or .pdf files</strong>
+                <span>Files attach to this {callLabel}. Up to {activeFileLimit} active files are included directly in fast context.</span>
+                <small>{formatBytes(preflight?.limits?.maxUploadBytes || 25 * 1024 * 1024)} max per file</small>
+              </div>
+              <div className="preflight-upload-pins">
+                <strong>Active opportunity files: <span className="ready-text">{activeFiles.length}/{activeFileLimit}</span></strong>
+                {activeFiles.length ? (
+                  <div className="preflight-file-chip-list">
+                    {activeFiles.map((file) => (
+                      <span key={file.id} className="preflight-file-chip">
+                        {file.filename}
+                        <button type="button" onClick={() => removeActiveFile(file.id)} aria-label={`Remove ${file.filename}`}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                ) : <p>No pinned files yet.</p>}
+              </div>
+              {uploadStatus ? <p className="preflight-upload-status">{uploadStatus}</p> : null}
+            </section>
+          </div>
         </div>
 
         <footer className="preflight-actions">
@@ -4483,9 +4915,20 @@ function SpinnerIcon() {
   );
 }
 
-function SyncReviewPanel({ proposals = [], syncStatus, onApprove, onDismiss, onScan }) {
+function SyncReviewPanel({ proposals = [], syncStatus, onApprove, onApproveAll, onDismiss, onDismissAll, onScan }) {
   const [activeInput, setActiveInput] = useState(null);
   const [values, setValues] = useState({});
+  const groupedProposals = useMemo(() => {
+    const groups = [
+      { id: 'gmail', label: 'Gmail', proposals: [] },
+      { id: 'calendar', label: 'Google Calendar', proposals: [] }
+    ];
+    for (const proposal of proposals) {
+      const type = proposal.source?.type === 'calendar' ? 'calendar' : 'gmail';
+      groups.find((group) => group.id === type)?.proposals.push(proposal);
+    }
+    return groups.filter((group) => group.proposals.length);
+  }, [proposals]);
 
   async function approve(proposal, completedAction) {
     const result = await onApprove?.(proposal, completedAction);
@@ -4523,7 +4966,11 @@ function SyncReviewPanel({ proposals = [], syncStatus, onApprove, onDismiss, onS
           <strong>Google sync actions</strong>
           <p>{syncStatus?.connected ? `${proposals.length} pending from ${syncStatus.accountEmail || 'Google'}.` : 'Connect Google in Settings to scan Gmail and Calendar.'}</p>
         </div>
-        <button type="button" className="ghost" onClick={onScan} disabled={!syncStatus?.connected}>Scan now</button>
+        <div className="sync-review-head-actions">
+          <button type="button" className="ghost" onClick={onScan} disabled={!syncStatus?.connected}>Scan now</button>
+          <button type="button" className="ghost" onClick={onDismissAll} disabled={!proposals.length}>Dismiss all</button>
+          <button type="button" className="primary-action" onClick={onApproveAll} disabled={!proposals.length}>Approve all</button>
+        </div>
       </div>
 
       {activeInput ? (
@@ -4553,18 +5000,30 @@ function SyncReviewPanel({ proposals = [], syncStatus, onApprove, onDismiss, onS
 
       {proposals.length ? (
         <div className="sync-proposal-list">
-          {proposals.slice(0, 6).map((proposal) => (
-            <article key={proposal.id} className="sync-proposal-card">
-              <div>
-                <strong>{proposal.label || proposal.action?.label || 'Sync action'}</strong>
-                <p>{proposal.summary}</p>
-                <small>{proposal.source?.type || 'source'} {proposal.source?.title ? `- ${proposal.source.title}` : ''}</small>
+          {groupedProposals.map((group) => (
+            <section key={group.id} className="sync-proposal-group">
+              <div className="sync-proposal-group-head">
+                <strong>{group.label}</strong>
+                <div>
+                  <span>{group.proposals.length}</span>
+                  <button type="button" onClick={() => group.proposals.forEach((proposal) => approve(proposal))}>Approve All</button>
+                  <button type="button" onClick={() => group.proposals.forEach((proposal) => onDismiss?.(proposal))}>Dismiss All</button>
+                </div>
               </div>
-              <div className="sync-proposal-actions">
-                <button type="button" className="primary-action" onClick={() => approve(proposal)}>Approve</button>
-                <button type="button" className="ghost" onClick={() => onDismiss?.(proposal)}>Dismiss</button>
-              </div>
-            </article>
+              {group.proposals.map((proposal) => (
+                <article key={proposal.id} className="sync-proposal-card">
+                  <div>
+                    <strong>{proposal.label || proposal.action?.label || 'Sync action'}</strong>
+                    <p>{proposal.summary}</p>
+                    <small>{proposal.source?.type || 'source'} {proposal.source?.title ? `- ${proposal.source.title}` : ''}</small>
+                  </div>
+                  <div className="sync-proposal-actions">
+                    <button type="button" className="primary-action" onClick={() => approve(proposal)}>Approve</button>
+                    <button type="button" className="ghost" onClick={() => onDismiss?.(proposal)}>Dismiss</button>
+                  </div>
+                </article>
+              ))}
+            </section>
           ))}
         </div>
       ) : (
@@ -4574,7 +5033,7 @@ function SyncReviewPanel({ proposals = [], syncStatus, onApprove, onDismiss, onS
   );
 }
 
-function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete, chatState, setChatState, syncStatus, syncProposals, onApproveSyncProposal, onDismissSyncProposal, onScanGoogleSync }) {
+function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete, chatState, setChatState, draftSessionContext }) {
   const hasConversation = Boolean(
     (Array.isArray(chatState?.messages) && chatState.messages.length)
     || chatState?.pendingAction
@@ -4599,13 +5058,7 @@ function HomeView({ activeEntityId, activeEntityLabel, mode, settings, onActionC
           variant="home"
           chatState={chatState}
           setChatState={setChatState}
-        />
-        <SyncReviewPanel
-          proposals={syncProposals}
-          syncStatus={syncStatus}
-          onApprove={onApproveSyncProposal}
-          onDismiss={onDismissSyncProposal}
-          onScan={onScanGoogleSync}
+          draftSessionContext={draftSessionContext}
         />
       </div>
     </section>
@@ -4834,7 +5287,8 @@ function AgentChatSurface({
   onActionComplete,
   variant = 'panel',
   chatState,
-  setChatState
+  setChatState,
+  draftSessionContext = null
 }) {
   const api = window.electronAPI;
   const [localSessionId, setLocalSessionId] = useState('');
@@ -4911,12 +5365,12 @@ function AgentChatSurface({
 
   const loadSources = useCallback(async (query = '') => {
     try {
-      const nextSources = await api?.listAgentSources?.({ query, mode, activeEntityId, tier: proTier ? 'pro' : 'free' });
+      const nextSources = await api?.listAgentSources?.({ query, mode, activeEntityId, tier: proTier ? 'pro' : 'free', draftSessionContext });
       setSources(Array.isArray(nextSources) ? nextSources : []);
     } catch (error) {
       setStatus(`Sources failed: ${error.message}`);
     }
-  }, [activeEntityId, api, mode, proTier]);
+  }, [activeEntityId, api, mode, proTier, draftSessionContext]);
 
   useEffect(() => {
     loadSources('').catch((error) => setStatus(`Sources failed: ${error.message}`));
@@ -4987,6 +5441,7 @@ function AgentChatSurface({
         activeEntityId,
         selectedSourceIds,
         sourceMode,
+        draftSessionContext,
         tier: proTier ? 'pro' : 'free'
       });
       if (response?.sessionId && response.sessionId !== sessionId) {
@@ -5189,7 +5644,7 @@ function AgentChatSurface({
             <span className="agent-source-mode-label">{sourceModeLabel(sourceMode, activeEntityLabel)}</span>
             <span className="agent-source-selection-label">
               {proTier
-                ? (selectedSourceIds.length ? `${selectedSourceIds.length} selected` : 'RAG on by default')
+                ? (selectedSourceIds.length ? `${selectedSourceIds.length} selected` : (settings.ragEnabled ? 'RAG on by default' : 'Active context'))
                 : 'Free'}
             </span>
           </div>
@@ -5228,7 +5683,7 @@ function AgentChatSurface({
   );
 }
 
-function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete, chatState, setChatState }) {
+function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings, onActionComplete, chatState, setChatState, draftSessionContext }) {
   const api = window.electronAPI;
   const [prefs, setPrefs] = useState({ enabled: true, x: 24, y: 120, panelOpen: false });
   const dragRef = useRef(null);
@@ -5339,6 +5794,7 @@ function FloatingClydeAgent({ activeEntityId, activeEntityLabel, mode, settings,
             variant="floating"
             chatState={chatState}
             setChatState={setChatState}
+            draftSessionContext={draftSessionContext}
           />
         </div>
       ) : null}
@@ -5381,6 +5837,196 @@ function clampFloatingPrefs(prefs = {}) {
   };
 }
 
+function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entities = [], settings = {}, onSettingsUpdated }) {
+  const api = window.electronAPI;
+  const [entries, setEntries] = useState([]);
+  const [dashboard, setDashboard] = useState({});
+  const [query, setQuery] = useState('');
+  const [source, setSource] = useState('');
+  const [entityFilter, setEntityFilter] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
+  const [status, setStatus] = useState('');
+  const proTier = settings.userTier === 'pro';
+
+  async function toggleAlwaysIncludeGlobal(event) {
+    const nextSettings = { ...settings, includeGlobalQuestionBank: event.target.checked };
+    await api?.saveSettings?.(nextSettings);
+    onSettingsUpdated?.(nextSettings);
+  }
+
+  const loadQuestionBank = useCallback(async () => {
+    const filters = {
+      mode: 'interview',
+      query,
+      source,
+      ...(entityFilter === 'global' ? { scopeMode: 'global' } : {}),
+      ...(entityFilter && entityFilter !== 'global' ? { entityId: entityFilter } : {})
+    };
+    const [rows, nextDashboard] = await Promise.all([
+      api?.listQuestionBank?.(filters),
+      api?.getQuestionBankDashboard?.({ mode: 'interview' })
+    ]);
+    const scopedRows = proTier
+      ? rows
+      : (Array.isArray(rows) ? rows.filter((entry) => entry.entityId === activeEntityId) : []);
+    setEntries(scopedRows || []);
+    setDashboard(nextDashboard || {});
+  }, [activeEntityId, api, entityFilter, proTier, query, source]);
+
+  useEffect(() => {
+    loadQuestionBank().catch((error) => setStatus(`Question Bank failed: ${error.message}`));
+  }, [loadQuestionBank]);
+
+  function startEdit(entry) {
+    setEditing(entry);
+    setForm({
+      question: entry?.question || '',
+      sampleAnswer: entry?.sampleAnswer || '',
+      entityId: entry?.entityId || ''
+    });
+  }
+
+  async function saveEntry(event) {
+    event.preventDefault();
+    const entity = entities.find((item) => item.id === form.entityId);
+    await api?.saveQuestionBankEntry?.({
+      id: editing?.id,
+      question: form.question,
+      sampleAnswer: form.sampleAnswer,
+      entityId: form.entityId,
+      entityName: entity?.name || (form.entityId ? activeEntityLabel : ''),
+      mode: 'interview',
+      source: editing?.source || 'manual',
+      answerSource: editing?.answerSource || 'candidate'
+    });
+    setStatus(editing ? 'Question updated.' : 'Question added.');
+    setEditing(null);
+    setForm({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
+    await loadQuestionBank();
+  }
+
+  async function importCsv() {
+    const saved = await api?.openQuestionBankCsvDialog?.({ mode: 'interview' });
+    setStatus(saved?.length ? `Imported ${saved.length} questions.` : 'No CSV imported.');
+    await loadQuestionBank();
+  }
+
+  async function deleteEntry(id) {
+    await api?.deleteQuestionBankEntry?.(id);
+    setStatus('Question deleted.');
+    await loadQuestionBank();
+  }
+
+  const stats = [
+    ['Questions', dashboard.total || entries.length || 0],
+    ['Manual', dashboard.sourceCounts?.find((item) => item.label === 'manual')?.count || 0],
+    ['Added by Clyde', dashboard.sourceCounts?.find((item) => item.label === 'clyde')?.count || 0],
+    ['Linked', dashboard.linked || 0]
+  ];
+
+  return (
+    <section className="question-bank-view">
+      <div className="question-bank-head">
+        <div>
+          <h2>Question Bank</h2>
+          <p>{proTier ? 'Review questions across opportunities.' : 'Free tier shows questions linked to the active opportunity.'}</p>
+        </div>
+        {proTier ? (
+          <label className="question-bank-global-toggle">
+            <input type="checkbox" checked={Boolean(settings.includeGlobalQuestionBank)} onChange={toggleAlwaysIncludeGlobal} />
+            Always include Global Q&A in active context
+          </label>
+        ) : null}
+        <button type="button" className="primary-action" onClick={importCsv}>Import CSV</button>
+      </div>
+
+      <div className="question-bank-dashboard">
+        {stats.map(([label, value]) => (
+          <article key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </article>
+        ))}
+      </div>
+
+      <div className="question-bank-insights">
+        <section>
+          <h3>Themes</h3>
+          {(dashboard.themes || dashboard.keywords || []).slice(0, 8).map((item) => <span key={item.label}>{item.label} ({item.count})</span>)}
+        </section>
+        <section>
+          <h3>Top companies</h3>
+          {(dashboard.topEntities || []).slice(0, 6).map((item) => <span key={item.label}>{item.label} ({item.count})</span>)}
+        </section>
+      </div>
+
+      <form className="question-bank-editor" onSubmit={saveEntry}>
+        <label>
+          Question
+          <textarea value={form.question} onChange={(event) => setForm((current) => ({ ...current, question: event.target.value }))} required />
+        </label>
+        <label>
+          Sample answer
+          <textarea value={form.sampleAnswer} onChange={(event) => setForm((current) => ({ ...current, sampleAnswer: event.target.value }))} required />
+        </label>
+        <label>
+          Linked opportunity
+          <select value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))}>
+            <option value="">Global</option>
+            {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+          </select>
+        </label>
+        <div className="question-bank-editor-actions">
+          <button type="submit" className="primary-action">{editing ? 'Save question' : 'Add question'}</button>
+          {editing ? <button type="button" className="ghost" onClick={() => startEdit(null)}>Cancel</button> : null}
+        </div>
+      </form>
+
+      <form className="question-bank-filters" onSubmit={(event) => event.preventDefault()}>
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search questions or answers" />
+        <select value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)}>
+          <option value="">All links</option>
+          <option value="global">Global</option>
+          {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+        </select>
+        <select value={source} onChange={(event) => setSource(event.target.value)}>
+          <option value="">All sources</option>
+          <option value="manual">Manual</option>
+          <option value="csv">CSV</option>
+          <option value="clyde">Clyde</option>
+        </select>
+      </form>
+
+      {status ? <p className="question-bank-status">{status}</p> : null}
+
+      <div className="question-bank-table" role="table" aria-label="Question Bank">
+        <div className="question-bank-row question-bank-row-head" role="row">
+          <span>Question</span>
+          <span>Sample answer</span>
+          <span>Linked opportunity</span>
+          <span>Source</span>
+          <span></span>
+        </div>
+        {entries.length ? entries.map((entry) => (
+          <div key={entry.id} className="question-bank-row" role="row">
+            <span>{entry.question}</span>
+            <span>{entry.sampleAnswer}</span>
+            <span>{entry.entityName || 'Global'}</span>
+            <span>{entry.source === 'clyde' ? 'Clyde' : entry.source === 'csv' ? 'CSV' : 'Manual'}</span>
+            <span>
+              <button type="button" className="ghost" onClick={() => startEdit(entry)}>Edit</button>
+              <button type="button" className="ghost danger" onClick={() => deleteEntry(entry.id)}>Delete</button>
+            </span>
+          </div>
+        )) : (
+          <div className="question-bank-empty">No questions found.</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function WorkspaceNav({ 
   mode, 
   onViewChange, 
@@ -5394,17 +6040,65 @@ function WorkspaceNav({
   onToggleCaptureProtection,
   notificationsOpen,
   setNotificationsOpen,
-    unreadAutoApproved = [],
+  settings = {},
+  syncStatus,
+  syncProposals = [],
+  syncAudit = [],
+  syncScanning = false,
+  onScanGoogleSync,
+  onApproveSyncProposal,
+  onDismissSyncProposal,
+  unreadAutoApproved = [],
   onMarkAuditRead,
   onSettings
 }) {
+  const notificationsRef = useRef(null);
   const timelineLabel = mode === 'interview' ? 'Opportunity Tracker' : 'Meeting Notes';
   const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
   const nextEventLabel = resolveEventEntityLabel(nextUpcomingEvent);
+  const notificationCount = syncProposals.length + unreadAutoApproved.length;
+  const lastSyncValue = syncStatus?.lastSyncAt || syncStatus?.lastScanAt || settings.googleLastSyncAt || syncAudit[0]?.createdAt;
+  const groupedSyncProposals = useMemo(() => {
+    const groups = [
+      { id: 'gmail', label: 'Gmail', proposals: [] },
+      { id: 'calendar', label: 'Google Calendar', proposals: [] }
+    ];
+    for (const proposal of syncProposals) {
+      const type = proposal.source?.type === 'calendar' ? 'calendar' : 'gmail';
+      groups.find((group) => group.id === type)?.proposals.push(proposal);
+    }
+    return groups.filter((group) => group.proposals.length);
+  }, [syncProposals]);
+
+  useEffect(() => {
+    if (!notificationsOpen) {
+      return undefined;
+    }
+    function handlePointerDown(event) {
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target)) {
+        setNotificationsOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [notificationsOpen, setNotificationsOpen]);
+
+  async function approveProposalGroup(proposals) {
+    for (const proposal of proposals) {
+      await onApproveSyncProposal?.(proposal);
+    }
+  }
+
+  async function dismissProposalGroup(proposals) {
+    for (const proposal of proposals) {
+      await onDismissSyncProposal?.(proposal);
+    }
+  }
   const tabs = [
     { id: 'home', eyebrow: 'Ask', label: 'Home', testId: 'homeNav', icon: 'home' },
     { id: 'live', eyebrow: 'Now', label: 'Pre-Call Prep', icon: 'assist' },
     { id: 'timeline', eyebrow: timelineHint, label: timelineLabel, testId: 'timelineNav', icon: mode === 'interview' ? 'timeline' : 'meeting-notes' },
+    ...(mode === 'interview' ? [{ id: 'question-bank', eyebrow: 'Prep', label: 'Question Bank', testId: 'questionBankNav', icon: 'question-bank' }] : []),
     ...(mode === 'interview' ? [{ id: 'trends', eyebrow: 'Pro', label: 'Trend Analysis', testId: 'trendsNav', icon: 'trends', hasProBadge: true, requiresPro: true }] : []),
     { id: 'knowledge', eyebrow: 'Pro', label: 'Knowledge', testId: 'knowledgeNav', icon: 'knowledge', hasProBadge: true, requiresPro: true },
     ...(mode === 'interview' ? [{ id: 'mock-interview', eyebrow: 'Practice', label: 'Mock Interview', testId: 'mockInterviewNav', icon: 'mock-interview', hasProBadge: true, requiresPro: true }] : [])
@@ -5473,13 +6167,20 @@ function WorkspaceNav({
                 <span className="view-tab-copy">
                   <strong style={{ display: 'inline', verticalAlign: 'middle' }}>
                     {tab.label}
-                    {tab.hasProBadge && <img src={proGoldBadgeUrl} alt="PRO" style={{ height: '14px', width: 'auto', display: 'inline-block', verticalAlign: 'middle', marginLeft: '6px', transform: 'translateY(-1px)' }} />}
+                    {tab.hasProBadge && !isProTier && <img src={proGoldBadgeUrl} alt="PRO" style={{ height: '14px', width: 'auto', display: 'inline-block', verticalAlign: 'middle', marginLeft: '6px', transform: 'translateY(-1px)' }} />}
                   </strong>
                 </span>
               )}
             </button>
           )})}
         </div>
+
+        {settings.googleSyncEnabled ? (
+          <div className={`workspace-sync-summary ${collapsed ? 'collapsed' : ''}`}>
+            {collapsed ? null : <span>Last Sync {lastSyncValue ? new Date(lastSyncValue).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Never'}</span>}
+            <button type="button" className={`workspace-sync-refresh ${syncScanning ? 'spinning' : ''}`} disabled={syncScanning} onClick={onScanGoogleSync} aria-label="Refresh Google sync" title="Refresh Google sync">↻</button>
+          </div>
+        ) : null}
 
         <div className={`workspace-nav-footer ${collapsed ? 'collapsed' : 'expanded'}`}>
           <button
@@ -5492,12 +6193,12 @@ function WorkspaceNav({
           >
             <span className="footer-emoji-icon" aria-hidden="true">👻</span>
           </button>
-          <div className="notifications-wrapper">
+          <div className="notifications-wrapper" ref={notificationsRef}>
             <button className="icon-button notifications-trigger" type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications" title="Notifications">
               <span className="footer-emoji-icon" aria-hidden="true">🔔</span>
-              {unreadAutoApproved.length > 0 && (
+              {notificationCount > 0 && (
                 <span className="notifications-badge">
-                  {unreadAutoApproved.length}
+                  {notificationCount}
                 </span>
               )}
             </button>
@@ -5510,6 +6211,30 @@ function WorkspaceNav({
                   )}
                 </div>
                 <div className="notifications-modal-list">
+                  {groupedSyncProposals.map((group) => (
+                    <section key={group.id} className="sync-proposal-group">
+                      <div className="sync-proposal-group-head">
+                        <strong>{group.label}</strong>
+                        <div>
+                          <span>{group.proposals.length}</span>
+                          <button type="button" onClick={() => approveProposalGroup(group.proposals)}>Approve All</button>
+                          <button type="button" onClick={() => dismissProposalGroup(group.proposals)}>Dismiss All</button>
+                        </div>
+                      </div>
+                      {group.proposals.map((proposal) => (
+                        <article key={proposal.id} className="notifications-modal-item">
+                          <div className="notifications-modal-item-row">
+                            <p>{proposal.label || proposal.action?.label || proposal.summary || 'Sync action'}</p>
+                          </div>
+                          <small>{proposal.source?.title || proposal.source?.type || 'Google sync'}</small>
+                          <div className="sync-proposal-actions">
+                            <button type="button" className="primary-action" onClick={() => onApproveSyncProposal?.(proposal)}>Approve</button>
+                            <button type="button" className="ghost" onClick={() => onDismissSyncProposal?.(proposal)}>Dismiss</button>
+                          </div>
+                        </article>
+                      ))}
+                    </section>
+                  ))}
                   {unreadAutoApproved.length ? unreadAutoApproved.map((entry) => (
                     <article key={entry.id} className="notifications-modal-item">
                       <div className="notifications-modal-item-row">
@@ -5518,7 +6243,8 @@ function WorkspaceNav({
                       </div>
                       <small>{new Date(entry.createdAt).toLocaleString()}</small>
                     </article>
-                  )) : <small>No new notifications.</small>}
+                  )) : null}
+                  {!groupedSyncProposals.length && !unreadAutoApproved.length ? <small>No new notifications.</small> : null}
                 </div>
               </div>
             )}
@@ -5552,6 +6278,7 @@ function WorkspaceNavIcon({ id, active }) {
     trends: active ? iconTrendsColorUrl : iconTrendsUrl,
     knowledge: active ? iconKnowledgeColorUrl : iconKnowledgeUrl,
     calendar: active ? iconCalendarColorUrl : iconCalendarUrl,
+    'question-bank': active ? iconAssistColorUrl : iconAssistUrl,
     'mock-interview': active ? iconMockInterviewColorUrl : iconMockInterviewUrl
   };
   
@@ -5762,10 +6489,7 @@ function WorkspaceNavIcon({ id, active }) {
       <section className="knowledge-view">
         <div className="knowledge-head">
           <div>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                Knowledge
-                <img src={proGoldBadgeUrl} alt="Pro" style={{ height: '22px', width: 'auto', display: 'inline-block' }} />
-              </h2>
+              <h2>Knowledge</h2>
           </div>
         </div>
 
@@ -5981,11 +6705,8 @@ function SetupPanel({ api, mode, onClose, onSave, onValidate, serviceChecking, s
         <h2>First-run setup</h2>
         <p>Choose context, check providers, test audio, then start a live session.</p>
       </div>
-      <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} compact />
+      <SetupFields api={api} mode={mode} onSave={onSave} onValidate={onValidate} serviceChecking={serviceChecking} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} compact />
       <div className="setup-actions">
-        <button type="button" onClick={onValidate} disabled={serviceChecking}>
-          {serviceChecking ? 'Checking...' : 'Validate services'}
-        </button>
         <button type="button" className="ghost" onClick={onClose}>Skip for now</button>
       </div>
     </section>
@@ -6377,8 +7098,14 @@ function ActiveCaptureView({
         </button>
       ) : null}
       {!hidden ? (
-        <div className="active-assistant-panel" ref={panelRef} style={{ '--active-capture-opacity': (settings.activeCaptureOpacity ?? 88) / 100 }}>
-          {sourceMenuOpen && promptType === 'custom' ? (
+        <div
+          className="active-assistant-panel"
+          ref={panelRef}
+          style={{
+            '--active-capture-opacity': (settings.activeCaptureOpacity ?? 88) / 100
+          }}
+        >
+          {promptType === 'custom' && sourceMenuOpen ? (
             <ActiveSourceMenu
               includeScreenshot={includeScreenshot}
               mode={mode}
@@ -6494,9 +7221,9 @@ function ActiveCaptureView({
                   )}
                   <button type="submit" className="active-icon-btn active-send-button" disabled={isAsking || (!prompt.trim() && promptType !== 'camera')} aria-label="Send" title="Send">
                     {isAsking ? (
-                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin-icon" style={{width: '18px', height: '18px'}}><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin-icon" style={{width: '18px', height: '18px'}}><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
                     ) : (
-                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style={{width: '18px', height: '18px'}}><path d="M8 5v14l11-7z"></path></svg>
                     )}
                   </button>
                 </form>
@@ -6916,7 +7643,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
       })
       .sort((a, b) => new Date(a.date) - new Date(b.date))[0]
     : null;
-  const prepSessionTitle = nextInterviewEvent?.title || latestSession?.title || 'Next session';
+  const prepSessionTitle = nextInterviewEvent?.title || 'Next interview';
   const interviewSummaryParsed = parseEvaluationText(interviewFallbackSummary);
   const meetingSummaryParsed = parseEvaluationText(latestSession?.notes?.summary || '');
 
@@ -7122,6 +7849,17 @@ function EntityFilesPanel({ mode, entity }) {
     loadFiles().catch((error) => setStatus(`Files failed: ${error.message}`));
   }, [loadFiles]);
 
+  useEffect(() => {
+    function handlePinFile(event) {
+      if (!entity?.id || event.detail?.id !== entity.id) {
+        return;
+      }
+      addFiles();
+    }
+    window.addEventListener('pin-entity-file', handlePinFile);
+    return () => window.removeEventListener('pin-entity-file', handlePinFile);
+  }, [entity?.id, addFiles]);
+
   async function addFiles() {
     if (!entity?.id) {
       return;
@@ -7141,41 +7879,38 @@ function EntityFilesPanel({ mode, entity }) {
     await loadFiles();
   }
 
+  const fileLimit = Number(entity?.pinnedFileLimit || entity?.fileLimit || ENTITY_PINNED_FILE_LIMIT) || ENTITY_PINNED_FILE_LIMIT;
   return (
-    <section className="entity-files-panel">
-      <div className="entity-files-head">
-        <div>
-          <strong>Pinned files</strong>
-          <p>These files are attached to this {mode === 'meeting' ? 'meeting' : 'opportunity'} and used when it is active.</p>
-        </div>
-        <button type="button" className="primary-action" onClick={addFiles}>Add files</button>
-      </div>
-      {files.length ? (
-        <div className="entity-file-list">
-          {files.map((file) => (
-            <article key={file.id} className="entity-file-row">
-              <div>
-                <strong>{file.filename}</strong>
-                <small>{file.metadata?.pinecone?.status || 'Local context'}</small>
-              </div>
-              <button type="button" className="ghost" onClick={() => removeFile(file.id)}>Remove</button>
-            </article>
-          ))}
-        </div>
-      ) : <small>No pinned files for this record yet.</small>}
+    <section className="entity-file-chips" aria-label="Pinned files">
+      {files.map((file) => (
+        <span key={file.id} className="entity-file-chip" title={file.filename}>
+          <span aria-hidden="true">📌</span>
+          <strong>{file.filename}</strong>
+          <button type="button" aria-label={`Remove ${file.filename}`} onClick={() => removeFile(file.id)}>×</button>
+        </span>
+      ))}
+      {files.length < fileLimit ? (
+        <button type="button" className="pin-file-chip" onClick={addFiles}>+ Pin file</button>
+      ) : null}
       {status ? <small className="knowledge-status">{status}</small> : null}
     </section>
   );
 }
 
-function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
+function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onUpdateEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeMeetingId = mode === 'meeting'
     ? entities.find((entity) => entity.id === settings?.meetingTitle || entity.name === settings?.meetingTitle)?.id || ''
     : '';
   const [hasJd, setHasJd] = useState(false);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ rejected: false, offer: false });
   const [railWidth, setRailWidth] = useState(390);
+  const actionMenuRef = useRef(null);
+  const editMenuRef = useRef(null);
+  const statusMenuRef = useRef(null);
   const api = window.electronAPI;
   const calibrationSummary = useOutcomeCalibrationSummary(api, mode, selected);
   const nowMs = useNowMs();
@@ -7202,6 +7937,36 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
       api.getCompanyJobDescription(selected.id).then(res => setHasJd(!!(res && res.trim().length > 0)));
     }
   }, [selected, api]);
+
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(event.target)) {
+        setActionMenuOpen(false);
+      }
+      if (editMenuRef.current && !editMenuRef.current.contains(event.target)) {
+        setEditMenuOpen(false);
+      }
+      if (statusMenuRef.current && !statusMenuRef.current.contains(event.target)) {
+        setStatusMenuOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
+
+  async function updateSelectedOutcome(outcome) {
+    if (!selected) {
+      return;
+    }
+    setStatusMenuOpen(false);
+    const patch = { outcome };
+    if (typeof onUpdateEntity === 'function') {
+      await onUpdateEntity(selected, patch);
+      return;
+    }
+    await api?.updateSessionEntity?.({ mode, entityId: selected.id, patch });
+    await onRefresh?.();
+  }
 
   const handleDeleteEntity = async () => {
     if (confirm(`Delete "${selected.name}" and all its transcripts? This cannot be undone.`)) {
@@ -7328,7 +8093,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
     <section className="timeline-view" data-testid="sessionTimeline" style={{ '--timeline-rail-width': `${railWidth}px` }}>
       <div className="timeline-rail">
         <div className="timeline-heading">
-          <h2>{mode === 'interview' ? 'Interview timeline' : 'Meeting memory'}</h2>
+          <h2>{mode === 'interview' ? 'Interview timeline' : 'Meeting timeline'}</h2>
           <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
             {mode === 'interview' && (
               <button type="button" onClick={onAddNewOpportunity} className="primary-action" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
@@ -7385,73 +8150,91 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
 
       <div className="timeline-main">
         <div className="timeline-title">
-            <div>
+          <div className="timeline-title-copy">
+            <div className="timeline-title-row">
               <h2>{selected?.name || 'Select a record'}</h2>
+              {selected ? (
+                <div className="timeline-title-icon-actions">
+                  <span ref={actionMenuRef}>
+                    <button type="button" className="timeline-icon-button" aria-label="Add opportunity item" onClick={() => setActionMenuOpen((open) => !open)}>+</button>
+                    {actionMenuOpen ? (
+                      <div className="timeline-action-menu">
+                        <button type="button" onClick={() => { setActionMenuOpen(false); window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: selected })); }}>{mode === 'interview' ? 'Add New Interview to Calendar' : 'Add New Meeting to Calendar'}</button>
+                        <button type="button" onClick={() => { setActionMenuOpen(false); window.dispatchEvent(new CustomEvent('open-manual-transcript-modal', { detail: selected })); }}>{mode === 'interview' ? 'Add New Interview Session to Timeline' : 'Add New Meeting Session to Timeline'}</button>
+                        {mode === 'interview' && !hasJd ? <button type="button" onClick={() => { setActionMenuOpen(false); window.dispatchEvent(new CustomEvent('open-jd-modal', { detail: selected })); }}>Add job description</button> : null}
+                        <button type="button" onClick={() => { setActionMenuOpen(false); window.dispatchEvent(new CustomEvent('pin-entity-file', { detail: selected })); }}>Add New Pinned File</button>
+                      </div>
+                    ) : null}
+                  </span>
+                  <span ref={editMenuRef}>
+                    <button type="button" className="timeline-icon-button" aria-label="Edit opportunity" onClick={() => setEditMenuOpen((open) => !open)}>✎</button>
+                    {editMenuOpen ? (
+                      <div className="timeline-action-menu">
+                        <button type="button" onClick={() => { setEditMenuOpen(false); onEditEntity(selected); }}>{mode === 'interview' ? 'Edit opportunity details' : 'Edit meeting details'}</button>
+                        {mode === 'interview' && hasJd ? <button type="button" onClick={() => { setEditMenuOpen(false); window.dispatchEvent(new CustomEvent('open-jd-modal', { detail: selected })); }}>Edit job description</button> : null}
+                        <button type="button" className="danger" onClick={() => { setEditMenuOpen(false); handleDeleteEntity(); }}>{mode === 'interview' ? 'Delete opportunity' : 'Delete meeting'}</button>
+                      </div>
+                    ) : null}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+            {selected ? (
               <div className="timeline-title-meta">
-                <p>{sessions.length} saved sessions</p>
-                {mode === 'interview' && selected ? <OutcomeBadge outcome={selected.outcome} /> : null}
-                {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
-              </div>
-            </div>
-            {selected && (
-              <div className="timeline-title-actions">
-                <button type="button" className="primary-action" onClick={() => window.dispatchEvent(new CustomEvent('open-calendar-modal', { detail: selected }))}>
-                  {mode === 'interview' ? '+ Schedule Interview' : '+ Schedule Meeting'}
-                </button>
-              {mode === 'interview' && (
-                <button type="button" onClick={() => onEditEntity(selected)}>
-                  Edit details
-                </button>
-              )}
-              <button type="button" onClick={handleDeleteEntity} style={{ padding: '4px', background: 'transparent', border: 'none', cursor: 'pointer' }} title="Delete Entity">
-                🗑️
-              </button>
-              {mode === 'interview' && (
-                <>
-              <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('open-jd-modal', { detail: selected }))}>
-                {hasJd ? 'View Job Description' : 'Attach Job Description'}
-              </button>
-                  <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('open-manual-transcript-modal', { detail: selected }))}>
-                    + Add Manual Transcript
+                <p>{selected.role || selected.kind || ''}</p>
+                {mode === 'interview' ? (
+                  <button type="button" className="job-description-icon-button" onClick={() => window.dispatchEvent(new CustomEvent('open-jd-modal', { detail: selected }))} title={hasJd ? 'View job description' : 'Add job description'}>
+                    <img src={hasJd ? jobDescriptionUrl : jobDescriptionEmptyUrl} alt="" />
                   </button>
-                </>
-              )}
-            </div>
-          )}
+                ) : null}
+              </div>
+            ) : <p>Choose a company or meeting from the rail.</p>}
+          </div>
         </div>
-        
+
+        {selected && entityEvents.length > 0 ? (
+          <div className="upcoming-event-rows">
+            {entityEvents.map((evt) => (
+              <div className="upcoming-event-row" key={evt.id} style={{ borderLeftColor: calendarEventColor(evt) }}>
+                <span className="upcoming-event-icon" aria-hidden="true">•</span>
+                <strong>{evt.title} · {formatEventDateTime(evt.date)}</strong>
+                <button type="button" className="primary-action" onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('start-from-event', { detail: { entity: selected, evt } })); }}>Start</button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {selected ? <EntityFilesPanel mode={mode} entity={selected} /> : null}
 
-        {selected && entityEvents.length > 0 && (
-          <div className="upcoming-events-section" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px', marginBottom: '20px', margin: '0 20px 20px 20px' }}>
-            <h4 style={{ margin: '0 0 15px 0', color: 'var(--text)', fontWeight: 500 }}>Upcoming Events</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {entityEvents.map(evt => {
-                const eventLabel = resolveEventEntityLabel(evt, entities);
-                return (
-                  <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px', borderLeft: `4px solid ${calendarEventColor(evt)}` }}>
-                    <div>
-                      <strong style={{ display: 'block', color: 'var(--text)', fontSize: '0.95rem' }}>{evt.title}</strong>
-                      <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.78rem', marginTop: '2px' }}>{eventLabel}</span>
-                      <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{new Date(evt.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                    </div>
-                    <button type="button" className="primary-action" style={{ marginRight: '8px' }} onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('start-from-event', { detail: { entity: selected, evt } })); }}>Start</button>
+        <div className="timeline-session-area">
+          <div className="interview-timeline-head">
+            <h3>{mode === 'interview' ? `Interview Timeline (${sessions.length})` : `Meeting Timeline (${sessions.length})`}</h3>
+            {mode === 'interview' && selected ? (
+              <span className="interview-timeline-status" ref={statusMenuRef}>
+                <button type="button" className="outcome-badge-button" onClick={() => setStatusMenuOpen((open) => !open)}>
+                  <OutcomeBadge outcome={selected.outcome} />
+                </button>
+                {statusMenuOpen ? (
+                  <div className="timeline-action-menu status-menu">
+                    {['active', 'advanced', 'rejected', 'offer'].map((outcome) => (
+                      <button key={outcome} type="button" onClick={() => updateSelectedOutcome(outcome)}>{getOutcomeLabel(outcome)}</button>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                ) : null}
+              </span>
+            ) : null}
+            {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
           </div>
-        )}
-
-        <div className="session-list">
-          {sessions.length ? sessions.map((session) => (
-            <SessionBlock
-              key={`${session.mode}-${session.entity.id}-${session.id}`}
-              session={session}
-              onDelete={() => handleDeleteSession(session)}
-              onEdit={() => onEditSession(session)}
-            />
-          )) : <EmptyState title="No sessions selected" body="Choose a company or meeting from the rail." />}
+          <div className="session-list">
+            {sessions.length ? sessions.map((session) => (
+              <SessionBlock
+                key={`${session.mode}-${session.entity.id}-${session.id}`}
+                session={session}
+                onDelete={() => handleDeleteSession(session)}
+                onEdit={() => onEditSession(session)}
+              />
+            )) : <EmptyState title="No sessions selected" body="Choose a company or meeting from the rail." />}
+          </div>
         </div>
       </div>
     </section>
@@ -7462,51 +8245,56 @@ function SessionBlock({ session, onDelete, onEdit }) {
   const transcriptRating = getTranscriptRating(session.grading);
 
   return (
-    <article className="session-block">
-      <div className="session-head">
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3>{session.title}</h3>
-            {onDelete && (
-              <button type="button" onClick={onDelete} style={{ padding: '2px 6px', fontSize: '0.8rem', background: 'transparent', border: 'none', cursor: 'pointer' }} title="Delete Session">
-                🗑️
-              </button>
-            )}
-            {onEdit && (
-              <button type="button" onClick={onEdit} className="small-action">
-                Edit
-              </button>
+    <details className="session-block session-block-collapsible">
+      <summary className="session-summary-row">
+        <div className="session-head">
+          <div>
+            <div className="session-title-row">
+              <span className="session-expand-indicator" aria-hidden="true">›</span>
+              <h3>{session.title}</h3>
+              {onDelete && (
+                <button type="button" className="session-icon-action" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onDelete(); }} title="Delete session" aria-label="Delete session">
+                  🗑
+                </button>
+              )}
+              {onEdit && (
+                <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }} className="session-icon-action" title="Edit session" aria-label="Edit session">
+                  ✎
+                </button>
+              )}
+            </div>
+            <p>{new Date(session.date).toLocaleString()}</p>
+          </div>
+          <div className="session-grade-stack">
+            {session.mode === 'interview' && transcriptRating !== null ? (
+              <div className="session-rating" title={`Transcript rating ${transcriptRating} out of 5`}>
+                <span>Transcript rating</span>
+                <StarRating rating={transcriptRating} />
+              </div>
+            ) : (
+              <span className="grade-pill muted">{session.mode === 'interview' ? 'Transcript rating pending' : session.mode}</span>
             )}
           </div>
-          <p>{new Date(session.date).toLocaleString()}</p>
         </div>
-        <div className="session-grade-stack">
-          {session.mode === 'interview' && transcriptRating !== null ? (
-            <div className="session-rating" title={`Transcript rating ${transcriptRating} out of 5`}>
-              <span>Transcript rating</span>
-              <StarRating rating={transcriptRating} />
-            </div>
-          ) : (
-            <span className="grade-pill muted">{session.mode === 'interview' ? 'Transcript rating pending' : session.mode}</span>
-          )}
-        </div>
+      </summary>
+      <div className="session-expanded-content">
+        <EvaluationNotes
+          mode={session.mode}
+          summary={session.notes?.summary}
+          examples={session.mode === 'interview' ? (session.grading?.examples || []) : (session.notes?.actionItems || [])}
+        />
+        <details className="session-transcript-details">
+          <summary>Transcript</summary>
+          <div className="session-transcript">
+            {session.transcript.map((turn, index) => (
+              <p key={`${turn.speaker}-${index}`}>
+                <strong>{turn.speaker}:</strong> {turn.text}
+              </p>
+            ))}
+          </div>
+        </details>
       </div>
-      <EvaluationNotes
-        mode={session.mode}
-        summary={session.notes?.summary}
-        examples={session.mode === 'interview' ? (session.grading?.examples || []) : (session.notes?.actionItems || [])}
-      />
-      <details>
-        <summary>Transcript</summary>
-        <div className="session-transcript">
-          {session.transcript.map((turn, index) => (
-            <p key={`${turn.speaker}-${index}`}>
-              <strong>{turn.speaker}:</strong> {turn.text}
-            </p>
-          ))}
-        </div>
-      </details>
-    </article>
+    </details>
   );
 }
 
@@ -7561,8 +8349,749 @@ function EvaluationNotes({ mode = 'interview', summary, examples = [] }) {
   );
 }
 
+function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange, onReload, onSettingsUpdated, onValidate, settings }) {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [plan, setPlan] = useState(settings.userTier === 'pro' ? 'pro' : '');
+  const [wizardMode, setWizardMode] = useState(mode || 'interview');
+  const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [checkoutStarted, setCheckoutStarted] = useState(false);
+  const [completed, setCompleted] = useState({});
+  const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
+  const [proForm, setProForm] = useState({ email: '', password: '', confirmPassword: '' });
+  const [signInForm, setSignInForm] = useState({ email: '', password: '' });
+  const [workspaceDraft, setWorkspaceDraft] = useState({
+    company: settings.currentCompany || '',
+    role: settings.currentRole || '',
+    phase: 'Interview #1',
+    jobDescription: '',
+    meetingTitle: settings.meetingTitle || '',
+    attendeesText: attendeeLines(settings.meetingAttendees || []),
+    meetingMemory: settings.meetingMemory || ''
+  });
+  const [settingsDraft, setSettingsDraft] = useState({
+    ...settings,
+    appMode: mode || settings.appMode || 'interview',
+    llmProvider: settings.llmProvider || 'local',
+    transcriptionProvider: settings.transcriptionProvider || 'local',
+    audioEngine: settings.audioEngine || 'rust',
+    googleSyncPollMinutes: settings.googleSyncPollMinutes || 15,
+    proRealtimeModel: settings.proRealtimeModel || 'gpt-realtime-2',
+    pineconeNamespace: settings.pineconeNamespace || 'clyde-pro-knowledge'
+  });
+  const [eventDraft, setEventDraft] = useState({
+    title: '',
+    date: toDateTimeLocal(new Date().toISOString()),
+    description: ''
+  });
+
+  const proEntitled = canUseFeature(settingsDraft, 'pro_realtime_agent') || canUseFeature(settings, 'pro_realtime_agent');
+  const steps = [
+    { id: 'plan', label: 'Plan' },
+    { id: 'mode', label: 'Mode' },
+    { id: 'workspace', label: wizardMode === 'meeting' ? 'Meeting' : 'Opportunity' },
+    { id: 'context', label: 'Context' },
+    { id: 'providers', label: 'Providers' },
+    ...(proEntitled ? [{ id: 'pro', label: 'Pro setup' }] : []),
+    { id: 'schedule', label: 'Schedule' },
+    { id: 'finish', label: 'Finish' }
+  ];
+  const step = steps[stepIndex] || steps[0];
+  const lastStep = stepIndex === steps.length - 1;
+
+  function updateSetting(key, value) {
+    setSettingsDraft((current) => {
+      if (key === 'googleSyncEnabled' && !value) {
+        return { ...current, googleSyncEnabled: false, googleSyncAutoApprove: false };
+      }
+      return { ...current, [key]: value };
+    });
+  }
+
+  function updateWorkspace(key, value) {
+    setWorkspaceDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function persistSettings(patch = {}) {
+    const nextSettings = normalizeEntitledSettings({
+      ...settings,
+      ...settingsDraft,
+      ...patch,
+      appMode: wizardMode,
+      meetingAttendees: parseAttendees(patch.meetingAttendeesText ?? workspaceDraft.attendeesText ?? attendeeLines(settingsDraft.meetingAttendees || []))
+    });
+    delete nextSettings.meetingAttendeesText;
+    await api?.saveSettings?.(nextSettings);
+    await api?.setActiveSessionContext?.({
+      mode: wizardMode,
+      company: nextSettings.currentCompany,
+      role: nextSettings.currentRole,
+      meetingTitle: nextSettings.meetingTitle,
+      attendees: nextSettings.meetingAttendees,
+      memory: nextSettings.meetingMemory
+    });
+    setSettingsDraft(nextSettings);
+    onSettingsUpdated?.(nextSettings);
+    return nextSettings;
+  }
+
+  async function continueFree() {
+    setPlan('free');
+    setCompleted((current) => ({ ...current, plan: true }));
+    setStatus('Free setup selected. You can upgrade later from Settings.');
+    setStepIndex(1);
+  }
+
+  function restartOnboardingPlan() {
+    setPlan('free');
+    setCheckoutStarted(false);
+    setCompleted({});
+    setStatus('');
+    setStepIndex(0);
+  }
+
+  async function startProCheckout() {
+    if (!proForm.email) {
+      setStatus('Enter the email address to use for the Pro account.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api?.startProSignupCheckout?.({
+        email: proForm.email,
+        password: proForm.password
+      });
+      setPlan('pro');
+      setCheckoutStarted(true);
+      setCompleted((current) => ({ ...current, plan: true }));
+      setStatus(result?.message || 'Checkout opened. After payment, Clyde sends an account invite email so you can set your password and sign in.');
+    } catch (error) {
+      setStatus(error.message || 'Pro checkout failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signInAndRefresh() {
+    if (!signInForm.email || !signInForm.password) {
+      setStatus('Enter the Pro account email and password.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api?.signIn?.(signInForm);
+      if (result?.settings) {
+        onSettingsUpdated?.(normalizeEntitledSettings(result.settings));
+      }
+      const entitlements = await api?.refreshEntitlements?.();
+      const latest = await api?.loadSettings?.();
+      const nextSettings = normalizeEntitledSettings({
+        ...(latest || result?.settings || settings),
+        ...(entitlements || {}),
+        entitlementFeatures: entitlements?.features || latest?.entitlementFeatures || []
+      });
+      setSettingsDraft((current) => ({ ...current, ...nextSettings }));
+      onSettingsUpdated?.(nextSettings);
+      if (entitlements?.tier === 'pro' || entitlements?.userTier === 'pro') {
+        setStatus('Pro is active. Pro setup is now available.');
+        setPlan('pro');
+        setCompleted((current) => ({ ...current, plan: true, proActive: true }));
+      } else {
+        setStatus('Subscription still shows Free. Complete checkout, then refresh again.');
+      }
+    } catch (error) {
+      setStatus(error.message || 'Sign in failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshSubscription() {
+    setBusy(true);
+    try {
+      const entitlements = await api?.refreshEntitlements?.();
+      const latest = await api?.loadSettings?.();
+      const nextSettings = normalizeEntitledSettings({
+        ...(latest || settings),
+        ...(entitlements || {}),
+        entitlementFeatures: entitlements?.features || latest?.entitlementFeatures || []
+      });
+      setSettingsDraft((current) => ({ ...current, ...nextSettings }));
+      onSettingsUpdated?.(nextSettings);
+      if (entitlements?.tier === 'pro' || entitlements?.userTier === 'pro' || nextSettings.userTier === 'pro') {
+        setStatus('Pro is active. Pro setup is now available.');
+        setPlan('pro');
+        setCompleted((current) => ({ ...current, plan: true, proActive: true }));
+      } else {
+        setStatus('Subscription still shows Free. Complete checkout, then refresh again.');
+      }
+    } catch (error) {
+      setStatus(error.message || 'Subscription refresh failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveModeStep() {
+    setBusy(true);
+    try {
+      await onModeChange?.(wizardMode);
+      await persistSettings({ appMode: wizardMode });
+      setCompleted((current) => ({ ...current, mode: true }));
+      setStatus(`${wizardMode === 'meeting' ? 'Meeting' : 'Interview'} mode saved.`);
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Mode save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveWorkspaceStep(skip = false) {
+    if (skip) {
+      setCompleted((current) => ({ ...current, workspace: false }));
+      setStepIndex((index) => index + 1);
+      return;
+    }
+    setBusy(true);
+    try {
+      if (wizardMode === 'interview') {
+        const company = workspaceDraft.company.trim();
+        const role = workspaceDraft.role.trim();
+        if (!company || !role) {
+          setStatus('Company and role are required to create an opportunity.');
+          return;
+        }
+        await api?.updateSessionEntity?.({
+          mode: 'interview',
+          entityId: company,
+          patch: { name: company, role, outcome: 'active' }
+        });
+        if (workspaceDraft.jobDescription.trim()) {
+          await api?.setCompanyJobDescription?.(company, workspaceDraft.jobDescription.trim());
+        }
+        const nextSettings = await api?.setActiveSessionContext?.({ mode: 'interview', company, role });
+        onSettingsUpdated?.(nextSettings || { ...settings, currentCompany: company, currentRole: role });
+      } else {
+        const title = workspaceDraft.meetingTitle.trim();
+        if (!title) {
+          setStatus('Meeting title is required to create a meeting.');
+          return;
+        }
+        const attendees = parseAttendees(workspaceDraft.attendeesText);
+        await api?.updateSessionEntity?.({
+          mode: 'meeting',
+          entityId: title,
+          patch: { name: title, attendees }
+        });
+        const nextSettings = await api?.setActiveSessionContext?.({
+          mode: 'meeting',
+          meetingTitle: title,
+          attendees,
+          memory: workspaceDraft.meetingMemory.trim()
+        });
+        onSettingsUpdated?.(nextSettings || { ...settings, meetingTitle: title, meetingAttendees: attendees, meetingMemory: workspaceDraft.meetingMemory.trim() });
+      }
+      await onReload?.(wizardMode);
+      setCompleted((current) => ({ ...current, workspace: true }));
+      setStatus('First workspace item saved.');
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Workspace save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importResume() {
+    setBusy(true);
+    try {
+      const file = await api?.openResumeFileDialog?.();
+      if (file?.text) {
+        updateSetting('resumeText', file.text);
+        setStatus(`Imported ${file.filename || 'resume file'}.`);
+      } else {
+        setStatus('No readable resume text was imported.');
+      }
+    } catch (error) {
+      setStatus(error.message || 'Resume import failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveContextStep(skip = false) {
+    if (skip) {
+      setCompleted((current) => ({ ...current, context: false }));
+      setStepIndex((index) => index + 1);
+      return;
+    }
+    setBusy(true);
+    try {
+      await persistSettings({
+        resumeText: wizardMode === 'interview' ? settingsDraft.resumeText || '' : settings.resumeText || '',
+        meetingMemory: wizardMode === 'meeting' ? settingsDraft.meetingMemory || workspaceDraft.meetingMemory || '' : settings.meetingMemory || ''
+      });
+      setCompleted((current) => ({ ...current, context: true }));
+      setStatus('Context saved.');
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Context save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshAudioDevices() {
+    setBusy(true);
+    try {
+      const result = await api?.listAudioDevices?.();
+      setAudioDevices({
+        microphones: Array.isArray(result?.microphones) ? result.microphones : [],
+        systemOutputs: Array.isArray(result?.systemOutputs) ? result.systemOutputs : []
+      });
+      setStatus(result?.message || 'Audio devices refreshed.');
+    } catch (error) {
+      setStatus(error.message || 'Audio device refresh failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveProvidersStep(skip = false) {
+    if (skip) {
+      setCompleted((current) => ({ ...current, providers: false }));
+      setStepIndex((index) => index + 1);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api?.setAudioDevices?.({
+        audioEngine: settingsDraft.audioEngine || 'rust',
+        microphoneDeviceId: settingsDraft.microphoneDeviceId || '',
+        systemAudioDeviceId: settingsDraft.systemAudioDeviceId || ''
+      });
+      await persistSettings(settingsDraft);
+      setCompleted((current) => ({ ...current, providers: true }));
+      setStatus('Provider settings saved.');
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Provider save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function validateServicesFromWizard() {
+    setBusy(true);
+    try {
+      await persistSettings(settingsDraft);
+      const result = await onValidate?.();
+      setStatus(result ? 'Service check complete.' : 'Service check ran.');
+    } catch (error) {
+      setStatus(error.message || 'Service check failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveProStep(skip = false) {
+    if (skip) {
+      setCompleted((current) => ({ ...current, pro: false }));
+      setStepIndex((index) => index + 1);
+      return;
+    }
+    setBusy(true);
+    try {
+      await persistSettings({
+        ...settingsDraft,
+        googleSyncEnabled: Boolean(settingsDraft.googleSyncEnabled),
+        googleSyncAutoApprove: Boolean(settingsDraft.googleSyncAutoApprove),
+        ragEnabled: Boolean(settingsDraft.ragEnabled),
+        proAgentEnabled: Boolean(settingsDraft.proAgentEnabled),
+        proRealtimeModel: settingsDraft.proRealtimeModel || 'gpt-realtime-2',
+        transcriptionProvider: settingsDraft.proAgentEnabled ? 'openai-realtime-whisper' : settingsDraft.transcriptionProvider
+      });
+      setCompleted((current) => ({ ...current, pro: true }));
+      setStatus('Pro setup saved.');
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Pro setup save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function connectGoogle() {
+    setBusy(true);
+    try {
+      await api?.connectGoogleSync?.();
+      setStatus('Google connected.');
+    } catch (error) {
+      setStatus(error.message || 'Google connection failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveScheduleStep(skip = false) {
+    if (skip) {
+      setCompleted((current) => ({ ...current, schedule: false }));
+      setStepIndex((index) => index + 1);
+      return;
+    }
+    if (!eventDraft.title.trim()) {
+      setStatus('Event title is required to schedule the first event.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const entityId = wizardMode === 'meeting'
+        ? (workspaceDraft.meetingTitle || settings.meetingTitle || '')
+        : (workspaceDraft.company || settings.currentCompany || '');
+      await api?.saveCalendarEvent?.({
+        title: eventDraft.title.trim(),
+        date: fromDateTimeLocal(eventDraft.date),
+        description: eventDraft.description.trim(),
+        associationMode: wizardMode === 'meeting' ? 'meeting' : 'opportunity',
+        entityId,
+        entityName: entityId,
+        opportunityId: wizardMode === 'interview' ? entityId : '',
+        meetingId: wizardMode === 'meeting' ? entityId : '',
+        color: wizardMode === 'meeting' ? '#00ffaa' : '#00e5ff'
+      });
+      await onCalendarChanged?.();
+      setCompleted((current) => ({ ...current, schedule: true }));
+      setStatus('First event scheduled.');
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Calendar save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function finishWizard() {
+    onClose?.({ dontShowAgain: true, route: completed.schedule ? 'calendar' : completed.workspace ? 'timeline' : 'home' });
+  }
+
+  function skipCurrentStep() {
+    if (step.id === 'workspace') return saveWorkspaceStep(true);
+    if (step.id === 'context') return saveContextStep(true);
+    if (step.id === 'providers') return saveProvidersStep(true);
+    if (step.id === 'pro') return saveProStep(true);
+    if (step.id === 'schedule') return saveScheduleStep(true);
+    setStepIndex((index) => Math.min(steps.length - 1, index + 1));
+  }
+
+  function continueCurrentStep() {
+    if (step.id === 'plan') {
+      if (!plan) {
+        setStatus('Choose Free or start Pro checkout.');
+        return;
+      }
+      if (plan === 'pro' && !proEntitled) {
+        setStatus('Complete checkout and refresh subscription, or continue with Free for now.');
+        return;
+      }
+      setStepIndex(1);
+      return;
+    }
+    if (step.id === 'mode') return saveModeStep();
+    if (step.id === 'workspace') return saveWorkspaceStep();
+    if (step.id === 'context') return saveContextStep();
+    if (step.id === 'providers') return saveProvidersStep();
+    if (step.id === 'pro') return saveProStep();
+    if (step.id === 'schedule') return saveScheduleStep();
+    if (step.id === 'finish') return finishWizard();
+  }
+
+  const canSkip = ['workspace', 'context', 'providers', 'pro', 'schedule'].includes(step.id);
+
+  return (
+    <div className="onboarding-backdrop" role="presentation">
+      <section className="onboarding-wizard" role="dialog" aria-modal="true" aria-label="Clyde onboarding wizard">
+        <aside className="onboarding-steps">
+          <span>Getting started</span>
+          <h2>Clyde setup</h2>
+          {steps.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`${index === stepIndex ? 'active' : ''} ${completed[item.id] ? 'complete' : ''}`}
+              onClick={() => setStepIndex(index)}
+            >
+              <span>{index + 1}</span>
+              {item.label}
+            </button>
+          ))}
+        </aside>
+        <div className="onboarding-panel">
+          <div className="onboarding-head">
+            <div>
+              <span>Step {stepIndex + 1} of {steps.length}</span>
+              <h2>{step.label}</h2>
+            </div>
+            <button type="button" className="ghost" onClick={() => onClose?.({ dontShowAgain })}>Close</button>
+          </div>
+
+          <div className="onboarding-body">
+            {step.id === 'plan' ? (
+              <PlanStep
+                busy={busy}
+                plan={plan}
+                checkoutStarted={checkoutStarted}
+                proEntitled={proEntitled}
+                proForm={proForm}
+                setProForm={setProForm}
+                signInForm={signInForm}
+                setSignInForm={setSignInForm}
+                onContinueFree={continueFree}
+                onStartProCheckout={startProCheckout}
+                onSignInRefresh={signInAndRefresh}
+                onRefreshSubscription={refreshSubscription}
+                onRestart={restartOnboardingPlan}
+              />
+            ) : null}
+            {step.id === 'mode' ? (
+              <ModeStep wizardMode={wizardMode} setWizardMode={setWizardMode} />
+            ) : null}
+            {step.id === 'workspace' ? (
+              <WorkspaceStep mode={wizardMode} draft={workspaceDraft} update={updateWorkspace} />
+            ) : null}
+            {step.id === 'context' ? (
+              <ContextStep mode={wizardMode} draft={settingsDraft} update={updateSetting} onImportResume={importResume} />
+            ) : null}
+            {step.id === 'providers' ? (
+              <ProviderStep
+                audioDevices={audioDevices}
+                draft={settingsDraft}
+                update={updateSetting}
+                onRefreshAudio={refreshAudioDevices}
+                onValidate={validateServicesFromWizard}
+              />
+            ) : null}
+            {step.id === 'pro' ? (
+              <ProSetupStep
+                draft={settingsDraft}
+                update={updateSetting}
+                onConnectGoogle={connectGoogle}
+                onOpenBilling={() => api?.openBillingPortal?.()}
+                onRefreshSubscription={refreshSubscription}
+              />
+            ) : null}
+            {step.id === 'schedule' ? (
+              <ScheduleStep mode={wizardMode} draft={eventDraft} setDraft={setEventDraft} />
+            ) : null}
+            {step.id === 'finish' ? (
+              <FinishStep completed={completed} plan={plan || 'free'} proEntitled={proEntitled} />
+            ) : null}
+          </div>
+
+          {status ? <div className="onboarding-status" role="status">{status}</div> : null}
+
+          <div className="onboarding-foot">
+            <label className="toggle-row">
+              <input type="checkbox" checked={dontShowAgain} onChange={(event) => setDontShowAgain(event.target.checked)} />
+              Do not show this again
+            </label>
+            <div>
+              {stepIndex > 0 ? <button type="button" className="ghost" disabled={busy} onClick={() => setStepIndex((index) => Math.max(0, index - 1))}>Back</button> : null}
+              {canSkip ? <button type="button" className="ghost" disabled={busy} onClick={skipCurrentStep}>Skip for now</button> : null}
+              <button type="button" className="primary-action" disabled={busy} onClick={continueCurrentStep}>
+                {busy ? 'Working...' : lastStep ? 'Finish' : 'Save and continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PlanStep({ busy, checkoutStarted, plan, proEntitled, proForm, setProForm, signInForm, setSignInForm, onContinueFree, onStartProCheckout, onSignInRefresh, onRestart }) {
+  if (checkoutStarted && !proEntitled) {
+    return (
+      <div className="onboarding-grid">
+        <section className="onboarding-wide-card">
+          <h3>Finish Pro sign-in</h3>
+          <p>After checkout, check your email, open the Clyde invite link, and set your password. Then sign in here with that email and password.</p>
+          <div className="onboarding-form-grid">
+            <label>Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
+            <label>Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
+            <button type="button" className="primary-action" disabled={busy} onClick={onSignInRefresh}>Sign in</button>
+            <button type="button" className="ghost" disabled={busy} onClick={onRestart}>Restart onboarding</button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="onboarding-grid">
+      <section className={`plan-card ${plan === 'free' ? 'active' : ''}`}>
+        <h3>Free</h3>
+        <strong>$0</strong>
+        <p>Local/basic Clyde setup for live capture, current-context help, manual calendar events, and saved sessions.</p>
+        <ul>
+          <li>Local/basic knowledge</li>
+          <li>Manual opportunities and meetings</li>
+          <li>Bring your own LLM and transcription provider</li>
+        </ul>
+        <button type="button" className="ghost" disabled={busy} onClick={onContinueFree}>Continue with Free</button>
+      </section>
+      <section className={`plan-card pro ${plan === 'pro' || proEntitled ? 'active' : ''}`}>
+        <h3>Pro</h3>
+        <strong>$20 / month</strong>
+        <p>Clyde Pro Agent adds Google sync, RAG, GPT Realtime setup, mock interviews, trends, and agent actions.</p>
+        <ul>
+          <li>Gmail and Calendar sync</li>
+          <li>Pinecone RAG across knowledge and sessions</li>
+          <li>GPT Realtime 2 voice agent</li>
+        </ul>
+        {proEntitled ? (
+          <p className="onboarding-note">Pro is active on this account.</p>
+        ) : (
+          <div className="onboarding-form-grid">
+            <label className="wide-field">Email<input type="email" value={proForm.email} onChange={(event) => setProForm((current) => ({ ...current, email: event.target.value }))} /></label>
+            <p className="wide-field onboarding-note">Clyde creates the Supabase account after Stripe confirms payment. You will receive an email invite to set your password.</p>
+            <button type="button" className="primary-action wide-field" disabled={busy} onClick={onStartProCheckout}>Create Pro account</button>
+          </div>
+        )}
+      </section>
+      <section className="onboarding-wide-card">
+        <h3>Already subscribed?</h3>
+        <div className="onboarding-form-grid">
+          <label>Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
+          <label>Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
+          <button type="button" className="ghost" disabled={busy} onClick={onSignInRefresh}>Sign in and refresh subscription</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ModeStep({ wizardMode, setWizardMode }) {
+  return (
+    <div className="choice-grid">
+      <button type="button" className={wizardMode === 'interview' ? 'active' : ''} onClick={() => setWizardMode('interview')}>
+        <strong>Interview</strong>
+        <span>Track opportunities, job descriptions, rounds, prep, outcomes, and interview scorecards.</span>
+      </button>
+      <button type="button" className={wizardMode === 'meeting' ? 'active' : ''} onClick={() => setWizardMode('meeting')}>
+        <strong>Meeting</strong>
+        <span>Track recurring conversations, attendees, long-term memory, notes, and action items.</span>
+      </button>
+    </div>
+  );
+}
+
+function WorkspaceStep({ mode, draft, update }) {
+  return (
+    <div className="onboarding-form-grid">
+      {mode === 'interview' ? (
+        <>
+          <label>Company<input value={draft.company} onChange={(event) => update('company', event.target.value)} placeholder="Apollo" /></label>
+          <label>Role<input value={draft.role} onChange={(event) => update('role', event.target.value)} placeholder="Support Operations Manager" /></label>
+          <label>Interview phase<select value={draft.phase} onChange={(event) => update('phase', event.target.value)}>{INTERVIEW_PHASE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          <label className="wide-field">Job description<textarea value={draft.jobDescription} onChange={(event) => update('jobDescription', event.target.value)} placeholder="Paste the job description." /></label>
+        </>
+      ) : (
+        <>
+          <label>Meeting title<input value={draft.meetingTitle} onChange={(event) => update('meetingTitle', event.target.value)} placeholder="Product weekly" /></label>
+          <label>Attendees<input value={draft.attendeesText} onChange={(event) => update('attendeesText', event.target.value)} placeholder="Morgan: PM, Lee: Eng" /></label>
+          <label className="wide-field">Meeting memory<textarea value={draft.meetingMemory} onChange={(event) => update('meetingMemory', event.target.value)} placeholder="Recurring context, decisions, and preferences." /></label>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ContextStep({ mode, draft, update, onImportResume }) {
+  return (
+    <div className="onboarding-form-grid">
+      {mode === 'interview' ? (
+        <label className="wide-field">Resume / background
+          <div className="resume-import-row"><button type="button" className="ghost" onClick={onImportResume}>Import file</button><small>.txt, .md, and .pdf supported.</small></div>
+          <textarea value={draft.resumeText || ''} onChange={(event) => update('resumeText', event.target.value)} placeholder="Paste resume facts, metrics, projects, and stories." />
+        </label>
+      ) : (
+        <label className="wide-field">Long-term meeting memory<textarea value={draft.meetingMemory || ''} onChange={(event) => update('meetingMemory', event.target.value)} placeholder="Persistent context Clyde should use across future meetings." /></label>
+      )}
+    </div>
+  );
+}
+
+function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate }) {
+  const cloudLlm = draft.llmProvider && !['local', 'openai'].includes(draft.llmProvider);
+  return (
+    <div className="onboarding-form-grid">
+      <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => update('llmProvider', event.target.value)}><option value="">Select provider</option><option value="local">Local LM Studio</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option></select></label>
+      <label>Model<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" /></label>
+      {draft.llmProvider === 'local' ? <label className="wide-field">Local LLM URL<input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" /></label> : null}
+      {draft.llmProvider === 'openai' ? <label className="wide-field">OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
+      {cloudLlm ? <label className="wide-field">API key<input type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} /></label> : null}
+      <label>Transcription provider<select value={draft.transcriptionProvider || ''} onChange={(event) => update('transcriptionProvider', event.target.value)}><option value="">Select provider</option><option value="local">Local Whisper</option><option value="openai">OpenAI Whisper</option></select></label>
+      {draft.transcriptionProvider === 'local' ? <label>Local transcription URL<input value={draft.localTranscriptionUrl || ''} onChange={(event) => update('localTranscriptionUrl', event.target.value)} placeholder="http://localhost:8000/v1/audio/transcriptions" /></label> : null}
+      {draft.transcriptionProvider === 'openai' ? <label>OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
+      <label>Audio engine<select value={draft.audioEngine || 'rust'} onChange={(event) => update('audioEngine', event.target.value)}><option value="rust">Rust native audio</option><option value="legacy">Legacy recorder</option></select></label>
+      <label>Microphone<select value={draft.microphoneDeviceId || ''} onChange={(event) => update('microphoneDeviceId', event.target.value)}><option value="">Default microphone</option>{audioDevices.microphones.map((device) => <option key={device.id || device.name} value={device.id || device.name}>{device.name || device.id}</option>)}</select></label>
+      <label>System audio<select value={draft.systemAudioDeviceId || ''} onChange={(event) => update('systemAudioDeviceId', event.target.value)}><option value="">Default system audio</option>{audioDevices.systemOutputs.map((device) => <option key={device.id || device.name} value={device.id || device.name}>{device.name || device.id}</option>)}</select></label>
+      <div className="wide-field onboarding-inline-actions"><button type="button" className="ghost" onClick={onRefreshAudio}>Refresh devices</button><button type="button" className="ghost" onClick={onValidate}>Validate services</button></div>
+    </div>
+  );
+}
+
+function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefreshSubscription }) {
+  return (
+    <div className="onboarding-form-grid">
+      <div className="wide-field onboarding-inline-actions"><button type="button" className="primary-action" onClick={onConnectGoogle}>Connect Google</button><button type="button" className="ghost" onClick={onRefreshSubscription}>Refresh subscription</button><button type="button" className="ghost" onClick={onOpenBilling}>Billing portal</button></div>
+      <label className="toggle-row"><input type="checkbox" checked={Boolean(draft.googleSyncEnabled)} onChange={(event) => update('googleSyncEnabled', event.target.checked)} />Enable periodic Google sync</label>
+      <label className="toggle-row"><input type="checkbox" checked={Boolean(draft.googleSyncAutoApprove)} disabled={!draft.googleSyncEnabled} onChange={(event) => update('googleSyncAutoApprove', event.target.checked)} />Auto-approve generated sync actions</label>
+      <label>Poll interval<input type="number" min="1" value={draft.googleSyncPollMinutes || 15} onChange={(event) => update('googleSyncPollMinutes', Number(event.target.value) || 15)} /></label>
+      <label className="toggle-row wide-field"><input type="checkbox" checked={Boolean(draft.ragEnabled)} onChange={(event) => update('ragEnabled', event.target.checked)} />Enable RAG with Pinecone</label>
+      <label>Embedding provider<select value={draft.embeddingProvider || ''} onChange={(event) => update('embeddingProvider', event.target.value)}><option value="">Select provider</option><option value="gemini">Gemini</option><option value="openai">OpenAI</option></select></label>
+      <label>Embedding model<input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" /></label>
+      <label>Embedding API key<input type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} /></label>
+      <label>Pinecone API key<input type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} /></label>
+      <label>Pinecone host<input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="https://index.pinecone.io" /></label>
+      <label>Pinecone namespace<input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} /></label>
+      <label className="toggle-row wide-field"><input type="checkbox" checked={Boolean(draft.proAgentEnabled)} onChange={(event) => update('proAgentEnabled', event.target.checked)} />Enable GPT Realtime 2 agent</label>
+      <label>Realtime model<input value={draft.proRealtimeModel || 'gpt-realtime-2'} onChange={(event) => update('proRealtimeModel', event.target.value)} /></label>
+      <label className="toggle-row"><input type="checkbox" checked={draft.transcriptionProvider === 'openai-realtime-whisper'} onChange={(event) => update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : 'openai')} />Use OpenAI Realtime Whisper</label>
+    </div>
+  );
+}
+
+function ScheduleStep({ mode, draft, setDraft }) {
+  return (
+    <div className="onboarding-form-grid">
+      <label>Event title<input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder={mode === 'meeting' ? 'Product weekly' : 'Recruiter screen'} /></label>
+      <label>Date and time<input type="datetime-local" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} /></label>
+      <label className="wide-field">Notes<textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional agenda, Zoom details, or prep notes." /></label>
+    </div>
+  );
+}
+
+function FinishStep({ completed, plan, proEntitled }) {
+  const rows = [
+    ['Plan', plan === 'pro' && proEntitled ? 'Pro active' : plan === 'pro' ? 'Pro checkout started' : 'Free selected'],
+    ['Workspace item', completed.workspace ? 'Created' : 'Skipped'],
+    ['Context', completed.context ? 'Saved' : 'Skipped'],
+    ['Providers', completed.providers ? 'Saved' : 'Skipped'],
+    ['Schedule', completed.schedule ? 'Created' : 'Skipped']
+  ];
+  return (
+    <div className="finish-checklist">
+      <h3>Setup checklist</h3>
+      {rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+    </div>
+  );
+}
+
 function SettingsDrawer(props) {
-  const { api, mode, onClose, onSave, onValidate, serviceChecking, settings, syncAudit, setSyncAudit } = props;
+  const { api, initialTab, mode, onClose, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit } = props;
 
   return (
     <div className="drawer-backdrop">
@@ -7574,12 +9103,7 @@ function SettingsDrawer(props) {
           </div>
           <button type="button" onClick={onClose}>Close</button>
         </div>
-        <SetupFields api={api} mode={mode} onSave={onSave} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} />
-        <div className="drawer-actions">
-          <button type="button" onClick={onValidate} disabled={serviceChecking}>
-            {serviceChecking ? 'Checking...' : 'Validate services'}
-          </button>
-        </div>
+        <SetupFields api={api} initialTab={initialTab} mode={mode} onSave={onSave} onSettingsUpdated={onSettingsUpdated} onValidate={onValidate} serviceChecking={serviceChecking} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} />
       </section>
     </div>
   );
@@ -7613,23 +9137,29 @@ function RefreshEntitlementsButton({ onRefresh, className = '' }) {
   );
 }
 
-function settingsStatusClassName(message = '') {
-  return /failed|error|invalid|missing/i.test(message)
-    ? 'settings-save-status error'
-    : 'settings-save-status success';
+function isSettingsProgressMessage(message = '') {
+  return /\.\.\.$/.test(String(message || '').trim());
 }
 
-function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, setSyncAudit }) {
-  const statusClassNameBase = 'settings-save-status';
+function settingsDialogTone(message = '') {
+  return /failed|error|invalid|missing/i.test(message) ? 'error' : 'success';
+}
+
+function SetupFields({ api, compact = false, initialTab = 'general', mode, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit }) {
   const [draft, setDraft] = useState({ ...settings });
-  const [activeTab, setActiveTab] = useState('general');
+  const [activeTab, setActiveTab] = useState(initialTab || 'general');
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
   const [audioDeviceStatus, setAudioDeviceStatus] = useState('');
   const [googleStatus, setGoogleStatus] = useState(null);
   const [saveStatus, setSaveStatus] = useState('');
+  const [statusDialog, setStatusDialog] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [authForm, setAuthForm] = useState({ email: '', password: '', confirmPassword: '' });
+  const [authBusy, setAuthBusy] = useState(false);
   const mountedRef = useRef(true);
+  const preserveStatusOnSettingsUpdateRef = useRef(false);
   const proEntitled = canUseFeature(settings, 'pro_realtime_agent');
+  const signedIn = Boolean(settings.userId && settings.authEmail);
 
   async function refreshEntitlements() {
     setSaveStatus('Refreshing subscription...');
@@ -7640,16 +9170,130 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
         ...(entitlements || {}),
         entitlementFeatures: entitlements?.features || current.entitlementFeatures || []
       }));
-      setSaveStatus('Subscription refreshed.');
+      const nextSettings = await api?.loadSettings?.();
+      if (nextSettings) {
+        preserveStatusOnSettingsUpdateRef.current = true;
+        onSettingsUpdated?.(nextSettings);
+      }
+      const tier = entitlements?.tier === 'pro' || entitlements?.userTier === 'pro' ? 'Clyde Pro Agent' : 'Clyde Assistant';
+      const status = entitlements?.status || (tier === 'Clyde Pro Agent' ? 'active' : 'free');
+      setSaveStatus(`Subscription refreshed: ${tier} (${status}).`);
     } catch (error) {
       setSaveStatus(`Subscription refresh failed: ${error.message}`);
     }
   }
 
+  async function runAuthAction(action) {
+    if (action === 'sign-up' && authForm.password !== authForm.confirmPassword) {
+      setSaveStatus('Account creation failed: passwords do not match.');
+      return;
+    }
+    setAuthBusy(true);
+    setSaveStatus(action === 'sign-up' ? 'Creating account...' : 'Signing in...');
+    try {
+      const payload = {
+        email: authForm.email.trim(),
+        password: authForm.password
+      };
+      const result = action === 'sign-up'
+        ? await api?.signUp?.(payload)
+        : await api?.signIn?.(payload);
+      if (result?.settings) {
+        setDraft(normalizeEntitledSettings(result.settings));
+        onSettingsUpdated?.(result.settings);
+      }
+      setAuthForm({ email: '', password: '', confirmPassword: '' });
+      if (action === 'sign-up') {
+        window.alert('Check your email to confirm your Clyde account, then return here to sign in.');
+        setSaveStatus('Account created. Check your email to confirm your address.');
+      } else {
+        setSaveStatus('Signed in.');
+      }
+    } catch (error) {
+      setSaveStatus(`${action === 'sign-up' ? 'Account creation' : 'Sign in'} failed: ${error.message}`);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function signOut() {
+    setAuthBusy(true);
+    setSaveStatus('Signing out...');
+    try {
+      const result = await api?.signOut?.();
+      if (result?.settings) {
+        setDraft(normalizeEntitledSettings(result.settings));
+        onSettingsUpdated?.(result.settings);
+      }
+      setSaveStatus('Signed out.');
+    } catch (error) {
+      setSaveStatus(`Sign out failed: ${error.message}`);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function startCheckout() {
+    setSaveStatus('Opening Stripe checkout...');
+    try {
+      await api?.startCheckoutSession?.();
+      setSaveStatus('Checkout opened in your browser. Return here and refresh after payment.');
+    } catch (error) {
+      setSaveStatus(`Checkout failed: ${error.message}`);
+    }
+  }
+
+  async function openBillingPortal() {
+    setSaveStatus('Opening billing portal...');
+    try {
+      await api?.openBillingPortal?.();
+      setSaveStatus('Billing portal opened in your browser.');
+    } catch (error) {
+      const message = error?.message || '';
+      if (/No Stripe customer found/i.test(message)) {
+        await refreshEntitlements();
+        setSaveStatus('No Stripe billing record was found for this account. Start checkout to create one.');
+        return;
+      }
+      setSaveStatus(`Billing portal failed: ${message}`);
+    }
+  }
+
+  async function validateServicesFromSettings() {
+    setSaveStatus('Checking services...');
+    try {
+      const nextHealth = await onValidate?.();
+      const entries = Object.values(nextHealth || {});
+      const readyCount = entries.filter((item) => item?.state === 'ready').length;
+      const issueCount = entries.filter((item) => ['error', 'warning'].includes(item?.state)).length;
+      setSaveStatus(`Service check complete: ${readyCount} ready, ${issueCount} need attention.`);
+    } catch (error) {
+      setSaveStatus(`Service check failed: ${error.message}`);
+    }
+  }
+
   useEffect(() => {
     setDraft(normalizeEntitledSettings({ ...settings }));
+    if (preserveStatusOnSettingsUpdateRef.current) {
+      preserveStatusOnSettingsUpdateRef.current = false;
+      return;
+    }
     setSaveStatus('');
   }, [settings]);
+
+  useEffect(() => {
+    setActiveTab(initialTab || 'general');
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (!saveStatus || isSettingsProgressMessage(saveStatus)) {
+      return;
+    }
+    setStatusDialog({
+      message: saveStatus,
+      tone: settingsDialogTone(saveStatus)
+    });
+  }, [saveStatus]);
 
   useEffect(() => {
     return () => {
@@ -7681,16 +9325,23 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
   }, [settings.uiOpacity]);
 
   function update(key, value) {
-    setDraft((current) => ({ ...current, [key]: value }));
+    setDraft((current) => {
+      if (key === 'googleSyncEnabled' && !value) {
+        return { ...current, googleSyncEnabled: false, googleSyncAutoApprove: false };
+      }
+      return { ...current, [key]: value };
+    });
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
+  async function saveDraft(close) {
     setSaving(true);
     setSaveStatus('');
 
     try {
-      await onSave(draft);
+      await onSave(draft, { close });
+      if (!close) {
+        setSaveStatus('Settings saved.');
+      }
     } catch (error) {
       const message = error?.message || 'Unknown error';
       setSaveStatus(`Save failed: ${message}`);
@@ -7699,6 +9350,11 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
         setSaving(false);
       }
     }
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    await saveDraft(true);
   }
 
   async function refreshAudioDevices() {
@@ -7805,13 +9461,102 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
 
   return (
     <form className={`settings-form ${compact ? 'compact' : ''}`} onSubmit={handleSubmit}>
-      <div className="tabs" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+      <div className="tabs" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+        <button type="button" className={activeTab === 'account' ? 'active' : ''} onClick={() => setActiveTab('account')}>Account</button>
         <button type="button" className={activeTab === 'general' ? 'active' : ''} onClick={() => setActiveTab('general')}>General</button>
         <button type="button" className={activeTab === 'context' ? 'active' : ''} onClick={() => setActiveTab('context')}>Context</button>
         <button type="button" className={activeTab === 'sync' ? 'active' : ''} onClick={() => setActiveTab('sync')}>Sync</button>
         <button type="button" className={activeTab === 'llm' ? 'active' : ''} onClick={() => setActiveTab('llm')}>LLM</button>
         <button type="button" className={activeTab === 'transcription' ? 'active' : ''} onClick={() => setActiveTab('transcription')}>Speech</button>
       </div>
+
+      {activeTab === 'account' && (
+        <div className="account-billing-panel">
+          <div className="settings-section-label wide-field">
+            <strong>Account and billing</strong>
+            <small>Sign in to connect Clyde Pro billing to this desktop app.</small>
+          </div>
+          {!signedIn ? (
+            <div className="form-grid account-auth-form">
+              <label>
+                Email
+                <input
+                  autoComplete="email"
+                  type="email"
+                  value={authForm.email}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  autoComplete="current-password"
+                  type="password"
+                  value={authForm.password}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                  placeholder="Password"
+                />
+              </label>
+              <label>
+                Confirm password
+                <input
+                  autoComplete="new-password"
+                  type="password"
+                  value={authForm.confirmPassword}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                  placeholder="Retype password"
+                />
+              </label>
+              <div className="wide-field account-actions">
+                <button type="button" className="primary-action" disabled={authBusy || !authForm.email || !authForm.password} onClick={() => runAuthAction('sign-in')}>Sign in</button>
+                <button type="button" className="ghost" disabled={authBusy || !authForm.email || !authForm.password || !authForm.confirmPassword || authForm.password !== authForm.confirmPassword} onClick={() => runAuthAction('sign-up')}>Create account</button>
+              </div>
+              <small className="wide-field">Clyde Pro requires a signed-in account so Stripe can attach the subscription to your Supabase user ID.</small>
+            </div>
+          ) : (
+            <div className="account-summary-grid">
+              <div>
+                <span>Email</span>
+                <strong>{settings.authEmail || 'Signed in'}</strong>
+              </div>
+              <div>
+                <span>User ID</span>
+                <strong>{settings.userId}</strong>
+              </div>
+              <div>
+                <span>Tier</span>
+                <strong>{settings.userTier === 'pro' ? 'Clyde Pro Agent' : 'Clyde Assistant'}</strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>{settings.subscriptionStatus || 'free'}</strong>
+              </div>
+              <div>
+                <span>Plan</span>
+                <strong>{settings.subscriptionPlan || 'clyde_assistant'}</strong>
+              </div>
+              <div>
+                <span>Period end</span>
+                <strong>{settings.entitlementsExpiresAt ? new Date(settings.entitlementsExpiresAt).toLocaleDateString() : 'None'}</strong>
+              </div>
+              <div>
+                <span>Last check</span>
+                <strong>{settings.entitlementsCheckedAt ? new Date(settings.entitlementsCheckedAt).toLocaleString() : 'Never'}</strong>
+              </div>
+              <div className="account-actions wide-field">
+                {settings.userTier === 'pro' ? (
+                  <button type="button" className="primary-action" onClick={openBillingPortal}>Manage billing</button>
+                ) : (
+                  <button type="button" className="primary-action" onClick={startCheckout}>Upgrade to Pro</button>
+                )}
+                <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
+                <button type="button" className="ghost" disabled={authBusy} onClick={signOut}>Sign out</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {activeTab === 'general' && (
         <>
@@ -7867,6 +9612,15 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
               </button>
             </div>
           </div>
+          <div className="wide-field validate-services-card">
+            <div>
+              <strong>Service check</strong>
+              <small>Checks audio, transcription, assistant provider, and capture status using the current saved settings.</small>
+            </div>
+            <button type="button" className="ghost" onClick={validateServicesFromSettings} disabled={serviceChecking}>
+              {serviceChecking ? 'Checking...' : 'Validate services'}
+            </button>
+          </div>
         </>
       )}
 
@@ -7911,7 +9665,7 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
                 }}
               />
               <span>{proEntitled ? 'Enable RAG with Pinecone' : 'RAG with Pinecone requires Pro'}</span>
-              <ProSettingsBadge />
+              {!proEntitled ? <ProSettingsBadge /> : null}
             </label>
             {proEntitled && draft.ragEnabled && (
               <div className="form-grid">
@@ -8025,7 +9779,7 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
               }}
             />
             <span>{proEntitled ? 'Enable Clyde Pro agent' : 'Clyde Pro agent requires Pro'}</span>
-            <ProSettingsBadge />
+            {!proEntitled ? <ProSettingsBadge /> : null}
           </label>
           {proEntitled && draft.proAgentEnabled && (
             <>
@@ -8117,28 +9871,57 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
 
       {activeTab === 'sync' && (
         <div className="sync-settings">
+          {!proEntitled ? (
+            <div className="upgrade-pro-callout sync-pro-callout">
+              <strong>Google sync requires Clyde Pro</strong>
+              <span>Free tier keeps manual calendar, transcripts, local context, and saved sessions. Pro adds Gmail and Calendar scans, suggested actions, and auto-approval.</span>
+              <div className="upgrade-pro-actions">
+                <UpgradeToProButton />
+                <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
+              </div>
+            </div>
+          ) : null}
           <div className="form-grid">
             <label className="toggle-row">
-              <input type="checkbox" checked={Boolean(draft.googleSyncEnabled)} onChange={(event) => update('googleSyncEnabled', event.target.checked)} />
-              Enable periodic Google sync
+              <input
+                type="checkbox"
+                checked={proEntitled && Boolean(draft.googleSyncEnabled)}
+                disabled={!proEntitled}
+                onChange={(event) => {
+                  if (proEntitled) {
+                    update('googleSyncEnabled', event.target.checked);
+                  }
+                }}
+              />
+              {proEntitled ? 'Enable periodic Google sync' : 'Google sync requires Pro'}
+              {!proEntitled ? <ProSettingsBadge /> : null}
             </label>
             <label className="toggle-row">
-              <input type="checkbox" checked={Boolean(draft.googleSyncAutoApprove)} onChange={(event) => update('googleSyncAutoApprove', event.target.checked)} />
-              <span>Auto-approve generated sync actions</span>
-              <ProSettingsBadge />
+              <input
+                type="checkbox"
+                checked={proEntitled && Boolean(draft.googleSyncAutoApprove)}
+                disabled={!proEntitled || !draft.googleSyncEnabled}
+                onChange={(event) => {
+                  if (proEntitled && draft.googleSyncEnabled) {
+                    update('googleSyncAutoApprove', event.target.checked);
+                  }
+                }}
+              />
+              <span>{proEntitled ? 'Auto-approve generated sync actions' : 'Auto-approval requires Pro'}</span>
+              {!proEntitled ? <ProSettingsBadge /> : null}
             </label>
             <label>
               Poll interval (minutes)
-              <input type="number" min="1" value={draft.googleSyncPollMinutes || 15} onChange={(event) => update('googleSyncPollMinutes', Number(event.target.value) || 15)} />
+              <input type="number" min="1" value={draft.googleSyncPollMinutes || 15} disabled={!proEntitled} onChange={(event) => update('googleSyncPollMinutes', Number(event.target.value) || 15)} />
             </label>
           </div>
           <div className="sync-settings-card">
             <strong>{googleStatus?.connected ? `Connected: ${googleStatus.accountEmail || draft.googleAccountEmail || 'Google'}` : 'Google is disconnected'}</strong>
             <p>{googleStatus?.pendingCount || 0} pending sync actions.</p>
             <div className="sync-settings-actions">
-              <button type="button" className="primary-action" onClick={connectGoogle}>Connect Google</button>
-              <button type="button" className="ghost" onClick={disconnectGoogle} disabled={!googleStatus?.connected}>Disconnect</button>
-              <button type="button" className="ghost" onClick={scanGoogle} disabled={!googleStatus?.connected}>Scan now</button>
+              <button type="button" className="primary-action" onClick={connectGoogle} disabled={!proEntitled}>Connect Google</button>
+              <button type="button" className="ghost" onClick={disconnectGoogle} disabled={!proEntitled || !googleStatus?.connected}>Disconnect</button>
+              <button type="button" className="ghost" onClick={scanGoogle} disabled={!proEntitled || !googleStatus?.connected}>Scan now</button>
             </div>
           </div>
           <div className="sync-audit-log">
@@ -8158,10 +9941,21 @@ function SetupFields({ api, compact = false, mode, onSave, settings, syncAudit, 
 
       <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <button type="submit" data-testid="saveBtn" className="primary-action" disabled={saving}>
-          {saving ? 'Saving...' : 'Save setup'}
+          {saving ? 'Saving...' : 'Save and close'}
         </button>
-        {saveStatus ? <small className={settingsStatusClassName(saveStatus)} role="status">{saveStatus}</small> : null}
+        <button type="button" className="ghost" disabled={saving} onClick={() => saveDraft(false)}>
+          {saving ? 'Saving...' : 'Save'}
+        </button>
       </div>
+      {statusDialog ? (
+        <div className="settings-message-backdrop" role="presentation">
+          <section className={`settings-message-modal ${statusDialog.tone}`} role="alertdialog" aria-modal="true" aria-label="Settings message">
+            <strong>{statusDialog.tone === 'error' ? 'Action needed' : 'Done'}</strong>
+            <p>{statusDialog.message}</p>
+            <button type="button" className="primary-action" onClick={() => setStatusDialog(null)}>OK</button>
+          </section>
+        </div>
+      ) : null}
     </form>
   );
 }

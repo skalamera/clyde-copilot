@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RealtimeInterviewService } from './realtimeInterviewService';
 
-const proBadgeUrl = new URL('../../clyde_pro-badge.svg', import.meta.url).href;
 
 export function RealtimeInterview({ api, targetEntity, settings = {} }) {
   const [status, setStatus] = useState('disconnected');
@@ -36,6 +35,7 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
   const selectedSaved = savedInterviews.find((item) => item.id === selectedSavedId) || null;
   const activeSavedTranscript = selectedSaved?.transcript || [];
   const activeSavedAssessment = selectedSaved?.assessment || null;
+  const activeSavedHasScorecard = hasAssessmentScorecard(activeSavedAssessment);
   const durationSeconds = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
   const isLive = status === 'connected' || status === 'connecting';
 
@@ -302,7 +302,7 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
           <div className="mock-interview-header">
             <div>
                 <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  Mock Interview <img src={proBadgeUrl} alt="Pro" style={{ height: '22px', width: 'auto', display: 'inline-block', transform: 'translateY(-1px)' }} />
+                  Mock Interview
                   {targetEntity ? ` - ${targetEntity.name}` : ''}
                 </h2>
               <p>{currentOpportunity.role || 'General interview practice'}</p>
@@ -412,7 +412,7 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
                     <div className={selectedSavedId === item.id ? 'mock-saved-item active' : 'mock-saved-item'} key={item.id}>
                       <button type="button" className="mock-saved-select" onClick={() => selectSavedInterview(item.id)}>
                         <span>{new Date(item.date).toLocaleDateString()}</span>
-                        <strong>{item.assessment?.overallScore || 0}/100</strong>
+                        <strong>{hasAssessmentScorecard(item.assessment) ? `${item.assessment.overallScore || 0}/100` : 'Pending'}</strong>
                         <small>{(item.transcript || []).length} transcript turns</small>
                       </button>
                       <button
@@ -454,7 +454,7 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
                   </div>
                 </div>
                 {libraryTab === 'scorecard' ? (
-                  <AssessmentPanel assessment={activeSavedAssessment} status="Scorecard pending" />
+                  <AssessmentPanel assessment={activeSavedAssessment} hasScorecard={activeSavedHasScorecard} status="Scorecard pending" />
                 ) : (
                   <SavedTranscriptPanel transcript={activeSavedTranscript} panelRef={savedTranscriptRef} />
                 )}
@@ -484,8 +484,8 @@ function SavedTranscriptPanel({ transcript = [], panelRef }) {
   );
 }
 
-function AssessmentPanel({ assessment, status }) {
-  if (!assessment || !assessment.overallScore) {
+function AssessmentPanel({ assessment, hasScorecard = hasAssessmentScorecard(assessment), status }) {
+  if (!hasScorecard) {
     return (
       <section className="mock-assessment-card empty">
         <span>Scorecard</span>
@@ -551,6 +551,19 @@ function AssessmentPanel({ assessment, status }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function hasAssessmentScorecard(assessment) {
+  if (!assessment || typeof assessment !== 'object') {
+    return false;
+  }
+  return Boolean(
+    assessment.generatedAt
+    || assessment.verdict
+    || assessment.executiveSummary
+    || (Array.isArray(assessment.categories) && assessment.categories.length)
+    || (Array.isArray(assessment.answerReviews) && assessment.answerReviews.length)
   );
 }
 

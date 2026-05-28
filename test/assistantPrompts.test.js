@@ -82,3 +82,18 @@ test('meeting custom prompt command uses generic answer and note cards', () => {
   assert.match(prompt, /follow the user's custom prompt/i);
   assert.deepEqual(Object.keys(schema), ['answers', 'notes']);
 });
+
+test('interview questions command returns one answer card with bullet questions', () => {
+  const prompt = buildAssistantPrompt({
+    mode: 'interview',
+    context: { company: 'Apollo', role: 'Support Operations Manager' },
+    command: 'interviewer_questions'
+  });
+  const schema = getAssistantSchema('interview', 'interviewer_questions');
+
+  assert.match(prompt, /questions the candidate can ask the interviewer/i);
+  assert.match(prompt, /Questions to ask the interviewer/);
+  assert.deepEqual(Object.keys(schema), ['answers']);
+  assert.equal(schema.answers.items.properties.question.type, 'string');
+  assert.equal(schema.answers.items.properties.bullets.type, 'array');
+});

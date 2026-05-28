@@ -35,7 +35,7 @@ function createAgentActionRegistry(options = {}) {
     if (actionType === 'deleteMeeting') {
       return deleteEntity('meeting', payload);
     }
-    if (actionType === 'saveCalendarEvent') {
+    if (actionType === 'saveCalendarEvent' || actionType === 'addInterviewMeetingRequest') {
       return saveCalendarEvent(payload);
     }
     if (actionType === 'deleteCalendarEvent') {
@@ -157,14 +157,15 @@ function createAgentActionRegistry(options = {}) {
       ], payload);
     }
     const mode = normalizeCalendarMode(payload.mode, payload.originalUserMessage);
+    const explicitEntityName = clean(payload.entityName || payload.company || payload.meetingName);
     const match = mode === 'generic'
       ? { ok: false }
-      : resolveEntity(mode, entityQuery(payload, mode), { allowEmpty: true });
+      : resolveEntity(mode, explicitEntityName || entityQuery(payload, mode), { allowEmpty: true });
     const entity = match.ok ? match.entity : null;
-    const entityName = clean(payload.entityName || payload.company || payload.meetingName || entity?.name || entity?.id);
+    const entityName = clean(explicitEntityName || entity?.name || entity?.id);
     const title = clean(payload.title || payload.name || (entityName ? `${entityName} ${mode}` : 'Calendar event'));
     const associationMode = mode === 'meeting' ? 'meeting' : mode === 'generic' ? 'generic' : 'opportunity';
-    const entityId = clean(payload.entityId || entity?.id || entityName);
+    const entityId = clean(explicitEntityName ? (entity?.id || explicitEntityName) : (payload.entityId || entity?.id || entityName));
     const saved = calendarStore.saveEvent({
       ...payload,
       title,
@@ -368,20 +369,21 @@ function createAgentActionRegistry(options = {}) {
       };
     }
 
-    if (actionType === 'saveCalendarEvent') {
+    if (actionType === 'saveCalendarEvent' || actionType === 'addInterviewMeetingRequest') {
       const date = normalizeCalendarDate(payload.date || payload.start || payload.startTime, message, getNow());
       const mode = normalizeCalendarMode(payload.mode, message);
       const title = clean(payload.title || payload.name || extractCalendarTitleFromText(message));
       const entityFromRequest = extractEntityFromText(mode, message);
       const meetingName = mode === 'meeting' ? clean(payload.meetingName || extractMeetingNameFromText(message)) : '';
-      const entityName = clean(entityFromRequest || meetingName || payload.entityName || payload.entityId || payload.company);
+      const explicitEntityName = clean(payload.entityName || payload.company || meetingName);
+      const entityName = clean(entityFromRequest || explicitEntityName || payload.entityId);
       return {
         ...payload,
         date,
         title: clean(title || meetingName || (mode === 'meeting' ? 'Meeting' : 'Interview')),
         meetingName,
         entityName,
-        entityId: entityFromRequest ? '' : payload.entityId,
+        entityId: entityFromRequest || explicitEntityName ? '' : payload.entityId,
         mode
       };
     }

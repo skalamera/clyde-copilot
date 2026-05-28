@@ -53,9 +53,11 @@ function buildAssistantPrompt(options = {}) {
     context.role ? `Role: ${context.role}.` : '',
     context.jobDescription ? `Job Description:\n${context.jobDescription}` : '',
     context.resumeText ? `Candidate Resume/Background:\n${context.resumeText}` : '',
+    context.questionBankContext ? `Question Bank:\n${context.questionBankContext}` : '',
     context.pinnedKnowledgeBrief ? `Pinned Knowledge Brief:\n${context.pinnedKnowledgeBrief}` : '',
     formatEntityFiles(context.entityFiles),
     ragContext ? `Relevant RAG Context:\n${ragContext}` : '',
+    command === 'interviewer_questions' ? 'Generate 5 to 7 thoughtful questions the candidate can ask the interviewer at the end of the interview. Return one answer card with question set to "Questions to ask the interviewer" and the questions as bullets.' : '',
     'Use first-person language for suggested responses.',
     'If the question asks about past experience, projects, or background, use only the supplied context for specific project names, metrics, and details.',
     'Never suggest questions for the interviewer to ask unless the current command asks for follow-up questions.',
@@ -154,6 +156,12 @@ function getAssistantSchema(mode = 'interview', command = 'assist') {
           required: ['text']
         }
       }
+    };
+  }
+
+  if (command === 'interviewer_questions') {
+    return {
+      answers: answerArraySchema()
     };
   }
 

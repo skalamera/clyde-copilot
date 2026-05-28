@@ -33,6 +33,12 @@ test('preload exposes mode-aware session APIs', () => {
     'setAudioDevices',
     'onSessionDataChanged',
     'getTierStatus',
+    'getAuthSession',
+    'signUp',
+    'signIn',
+    'startProSignupCheckout',
+    'signOut',
+    'refreshAuthSession',
     'listKnowledge',
     'ingestKnowledgeFile',
     'deleteKnowledgeItem',
@@ -79,6 +85,10 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /listAudioDevices:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-audio-devices'\)/);
   assert.match(source, /setAudioDevices:\s*\(devices\)\s*=>\s*ipcRenderer\.invoke\('set-audio-devices', devices\)/);
   assert.match(source, /getTierStatus:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-tier-status'\)/);
+  assert.match(source, /signIn:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('sign-in', payload\)/);
+  assert.match(source, /startProSignupCheckout:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('start-pro-signup-checkout', payload\)/);
+  assert.match(source, /startCheckoutSession:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('start-checkout-session'\)/);
+  assert.match(source, /openBillingPortal:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-billing-portal'\)/);
   assert.match(source, /openUpgradePage:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-upgrade-page'\)/);
   assert.match(source, /listKnowledge:\s*\(filters\)\s*=>\s*ipcRenderer\.invoke\('list-knowledge', filters\)/);
   assert.match(source, /ingestKnowledgeFile:\s*\(filePath\)\s*=>\s*ipcRenderer\.invoke\('ingest-knowledge-file', filePath\)/);

@@ -1,5 +1,15 @@
+import { findSubscriptionByUserId, readJson, requireSupabaseUser } from './_billing.js';
+
 const LIVEAVATAR_API_BASE = 'https://api.liveavatar.com';
 const SANDBOX_AVATAR_ID = 'dd73ea75-1218-4ef3-92ce-606d5f7fbc0a';
+
+function isActiveSubscription(subscription) {
+  return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
+}
+
+function clampText(value, limit) {
+  return String(value || '').slice(0, limit);
+}
 
 export default async function handler(request, response) {
   if (request.method !== 'POST') {
@@ -15,21 +25,47 @@ export default async function handler(request, response) {
   }
 
   try {
+    const body = await readJson(request);
+    const hasAuth = String(request.headers.authorization || '').toLowerCase().startsWith('bearer ');
+    let contextPayload = {
+      name: `Clyde website sandbox - ${new Date().toISOString()}`,
+      opening_text: 'Hi, I am Clyde. Let us run a quick mock interview practice round.',
+      prompt: [
+        'You are Clyde, a concise mock interview practice avatar for software and operations interviews.',
+        'Ask one interview question at a time. Keep responses brief, supportive, and practical.',
+        'This is a public website sandbox demo, so do not ask for sensitive personal information.'
+      ].join('\n')
+    };
+    let isSandbox = true;
+
+    if (hasAuth) {
+      const user = await requireSupabaseUser(request);
+      const subscription = await findSubscriptionByUserId(user.id);
+      if (!isActiveSubscription(subscription)) {
+        response.status(403).json({ error: 'Clyde Pro Agent is required for LiveAvatar mock interviews.' });
+        return;
+      }
+
+      contextPayload = {
+        name: clampText(body.contextName || `Clyde mock interview - ${user.id} - ${new Date().toISOString()}`, 120),
+        opening_text: clampText(body.openingText || "Hello there! I'm ready to begin the interview.", 1000),
+        prompt: clampText(body.prompt || '', 30000)
+      };
+      isSandbox = body.isSandbox !== false;
+
+      if (!contextPayload.prompt) {
+        response.status(400).json({ error: 'Missing LiveAvatar prompt.' });
+        return;
+      }
+    }
+
     const contextRes = await fetch(`${LIVEAVATAR_API_BASE}/v1/contexts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-API-KEY': apiKey
       },
-      body: JSON.stringify({
-        name: `Clyde website sandbox - ${new Date().toISOString()}`,
-        opening_text: 'Hi, I am Clyde. Let us run a quick mock interview practice round.',
-        prompt: [
-          'You are Clyde, a concise mock interview practice avatar for software and operations interviews.',
-          'Ask one interview question at a time. Keep responses brief, supportive, and practical.',
-          'This is a public website sandbox demo, so do not ask for sensitive personal information.'
-        ].join('\n')
-      })
+      body: JSON.stringify(contextPayload)
     });
 
     if (!contextRes.ok) {
@@ -51,8 +87,8 @@ export default async function handler(request, response) {
       },
       body: JSON.stringify({
         mode: 'FULL',
-        is_sandbox: true,
-        avatar_id: SANDBOX_AVATAR_ID,
+        is_sandbox: isSandbox,
+        avatar_id: body.avatarId || SANDBOX_AVATAR_ID,
         avatar_persona: {
           context_id: contextId,
           language: 'en'

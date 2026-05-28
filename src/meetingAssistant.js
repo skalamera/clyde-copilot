@@ -1,4 +1,4 @@
-const { detectResumeQuestion, searchKnowledgeVectors } = require('./pineconeClient');
+const { detectResumeQuestion, extractLikelyInterviewQuestion, searchKnowledgeVectors } = require('./pineconeClient');
 const { generateChat } = require('./llmClient');
 const { buildAssistantPrompt, getAssistantSchema, normalizeMode } = require('./assistantPrompts');
 const { createProRealtimeAgent } = require('./proRealtimeAgent');
@@ -123,6 +123,7 @@ function createMeetingAssistant(options = {}) {
     const isSayNextRequest = requestIntent === 'say_next';
     const isScreenQuestionRequest = requestIntent === 'screen_question';
     const isCustomPromptRequest = requestIntent === 'custom_prompt';
+    const isInterviewerQuestionsRequest = requestIntent === 'interviewer_questions';
     const isManualQuestion = !isSayNextRequest && Boolean(manualPrompt || screenshot || screenshotWarning);
     const proCandidate = shouldUseProAgent(settings, { screenshot });
 
@@ -152,9 +153,12 @@ function createMeetingAssistant(options = {}) {
       return { ok: true, skipped: 'rate-limited' };
     }
 
-    const digest = isSuggestionRequest
-      ? recentHistory.slice(-6).map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
-      : intentTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
+    const suppliedTranscriptDigest = transcriptDigest(requestOptions.transcript);
+    const digest = isInterviewerQuestionsRequest && suppliedTranscriptDigest
+      ? suppliedTranscriptDigest
+      : isSuggestionRequest
+        ? recentHistory.slice(-6).map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
+        : intentTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
     const digestMaxIntentTurnId = getMaxIntentTurnId(intentTurns);
 
     // Only check for unchanged if it's NOT a forced suggestion request
@@ -187,15 +191,19 @@ function createMeetingAssistant(options = {}) {
       } else if (mode === 'meeting') {
         targetQuestion = '';
       } else {
-        if (isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion) && !hasLikelyCompleteInterviewerPrompt(digest)) {
-          logger.log(`[Intent] Waiting for a complete interviewer question before generating an answer card.`);
+        const localInterviewQuestion = isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion) && typeof extractLikelyInterviewQuestion === 'function'
+          ? extractLikelyInterviewQuestion(digest)
+          : '';
+
+        if (isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion) && !localInterviewQuestion && !hasLikelyCompleteInterviewerPrompt(digest)) {
+          logger.log(`[Intent] Waiting for a complete interviewer question before generating an answer card. Latest prompt: "${extractLatestInterviewerPrompt(digest).slice(0, 240)}"`);
           inFlight = false;
           return { ok: true, skipped: 'waiting-for-complete-question' };
         }
 
         if (proCandidate && isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion)) {
-          targetQuestion = extractLatestInterviewerPrompt(digest);
-          logger.log(`[Intent] Sending complete interviewer prompt directly to Clyde Pro.`);
+          targetQuestion = localInterviewQuestion || extractLatestInterviewerPrompt(digest);
+          logger.log(`[Intent] Sending complete interviewer prompt directly to Clyde Pro: "${targetQuestion.slice(0, 240)}"`);
         } else {
           try {
             const extractedQuestion = await detectResumeQuestion(digest);
@@ -212,7 +220,7 @@ function createMeetingAssistant(options = {}) {
               }
             } else if (proCandidate) {
               if (!hasLikelyCompleteInterviewerPrompt(digest)) {
-                logger.log(`[Intent] Waiting for a complete interviewer question before sending to Clyde Pro.`);
+                logger.log(`[Intent] Waiting for a complete interviewer question before sending to Clyde Pro. Latest prompt: "${extractLatestInterviewerPrompt(digest).slice(0, 240)}"`);
                 inFlight = false;
                 return { ok: true, skipped: 'waiting-for-complete-question' };
               }
@@ -240,6 +248,7 @@ function createMeetingAssistant(options = {}) {
         isSayNextRequest,
         isScreenQuestionRequest,
         isCustomPromptRequest,
+        isInterviewerQuestionsRequest,
         isManualQuestion,
         isSuggestionRequest
       });
@@ -755,6 +764,7 @@ function resolveAssistantCommand({
   isSayNextRequest,
   isScreenQuestionRequest,
   isCustomPromptRequest,
+  isInterviewerQuestionsRequest,
   isManualQuestion,
   isSuggestionRequest
 }) {
@@ -774,7 +784,26 @@ function resolveAssistantCommand({
     return isSuggestionRequest ? 'meeting_say_next' : 'assist';
   }
 
+  if (isInterviewerQuestionsRequest) {
+    return 'interviewer_questions';
+  }
+
   return isSayNextRequest ? 'suggestion' : (isManualQuestion ? 'manual_question' : (isSuggestionRequest ? 'suggestion' : 'assist'));
+}
+
+function transcriptDigest(transcript = []) {
+  if (!Array.isArray(transcript)) {
+    return '';
+  }
+
+  return transcript
+    .map((turn) => {
+      const speaker = cleanText(turn?.speaker || 'Unknown');
+      const text = cleanText(turn?.text);
+      return text ? `${speaker}: ${text}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 function parseAssistantCards(text) {
@@ -1004,6 +1033,10 @@ function outputShapeFor(mode, command) {
     return 'Schema: {"suggestions":[{"text":"...","why":"..."}],"notes":[{"text":"..."}]}.';
   }
 
+  if (command === 'interviewer_questions') {
+    return 'Schema: {"answers":[{"question":"Questions to ask the interviewer","bullets":["..."]}]}.';
+  }
+
   if (mode === 'meeting') {
     return 'Schema: {"recaps":[{"text":"..."}],"actions":[{"text":"..."}],"follow_up":[{"text":"...","why":"..."}],"suggestions":[{"text":"..."}],"notes":[{"text":"..."}]}.';
   }
@@ -1038,6 +1071,10 @@ function buildUserPrompt({ digest, manualPrompt, screenshot, screenshotWarning, 
     }
     lines.push('Follow the custom prompt exactly. Use the selected sources listed above when relevant.');
   } else {
+    if (command === 'interviewer_questions') {
+      lines.push('Generate 5 to 7 concise questions the candidate can ask the interviewer now. Use the full transcript and active context. Prioritize questions that show preparation, clarify expectations, team needs, success measures, risks, and next steps. Return one answer card with the question field set to "Questions to ask the interviewer" and each suggested question as a bullet.');
+    }
+
     if (manualPrompt) {
       lines.push(`User question:\n${manualPrompt}`);
     }
@@ -1169,10 +1206,18 @@ function hasLikelyCompleteInterviewerPrompt(text) {
     return false;
   }
 
-  const hasQuestionCue = /\b(can|could|would|what|why|how|tell me|walk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there)\b/i.test(lastSpeakerText);
+  const hasQuestionCue = hasInterviewPromptCue(lastSpeakerText);
   const hasTerminalPunctuation = /[?.!]\s*$/.test(lastSpeakerText);
 
-  return hasTerminalPunctuation && hasQuestionCue;
+  if (hasTerminalPunctuation && hasQuestionCue) {
+    return true;
+  }
+
+  return false;
+}
+
+function hasInterviewPromptCue(text) {
+  return /\b(can|could|would|what|why|how|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there)\b/i.test(text);
 }
 
 function extractLatestInterviewerPrompt(text) {

@@ -107,6 +107,9 @@ function createSessionManager({ appPath }) {
       id: normalizedEntityId,
       name: clean(patch.name || existing.name || entityId),
       role: clean(patch.role !== undefined ? patch.role : existing.role),
+      attendees: Array.isArray(patch.attendees)
+        ? patch.attendees
+        : (Array.isArray(existing.attendees) ? existing.attendees : []),
       kind: clean(existing.kind || normalizedMode),
       confidence_score: existing.confidence_score !== undefined ? existing.confidence_score : 0,
       trend: existing.trend || 'neutral',
@@ -142,6 +145,7 @@ function createSessionManager({ appPath }) {
       id: normalizedEntityId,
       name: nextEntity.name,
       role: nextEntity.role,
+      attendees: nextEntity.attendees,
       kind: nextEntity.kind,
       confidence: nextEntity.confidence_score,
       trend: nextEntity.trend,
@@ -184,6 +188,7 @@ function createSessionManager({ appPath }) {
         id: entityId,
         name: entity.name || entityId,
         role: entity.role || '',
+        attendees: Array.isArray(entity.attendees) ? entity.attendees : (Array.isArray(existing.attendees) ? existing.attendees : []),
         kind: entity.kind || normalizeMode(mode),
         confidence_score: hasEntityConfidence
           ? (entity.confidence_score !== undefined ? entity.confidence_score : entity.confidence)
@@ -254,6 +259,7 @@ function createSessionManager({ appPath }) {
             id: meta.id || entityId,
             name: meta.name || entityId,
             role: meta.role || '',
+            attendees: Array.isArray(meta.attendees) ? meta.attendees : [],
             kind: meta.kind || mode,
             confidence: meta.confidence_score || 0,
             trend: meta.trend || 'neutral',

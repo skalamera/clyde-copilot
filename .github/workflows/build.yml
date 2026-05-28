@@ -17,9 +17,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
           
       - name: Install Dependencies
         run: npm ci
+
+      - name: Run Tests
+        run: npm test
+
+      - name: Build Renderer
+        run: npm run renderer:build
+
+      - name: Build Audio Engine
+        run: npm run audio-engine:build
 
       - name: Build Electron App
         env:

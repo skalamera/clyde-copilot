@@ -1,4 +1,4 @@
-import { findSubscriptionByUserId, freeEntitlements, proEntitlements, sendJson } from './_billing.js';
+import { findSubscriptionByUserId, freeEntitlements, proEntitlements, reconcileSubscriptionByEmail, requireSupabaseUser, sendJson } from './_billing.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,13 +7,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const userId = String(req.query?.userId || req.headers['x-clyde-user-id'] || '').trim();
-    if (!userId) {
-      sendJson(res, 401, { error: 'Missing userId.' });
-      return;
-    }
+    const user = await requireSupabaseUser(req);
+    const userId = user.id;
 
-    const record = await findSubscriptionByUserId(userId);
+    let record = await findSubscriptionByUserId(userId);
+    if (!record || !['active', 'trialing'].includes(String(record.status || '').toLowerCase())) {
+      record = await reconcileSubscriptionByEmail(user);
+    }
     if (!record || !['active', 'trialing'].includes(record.status)) {
       sendJson(res, 200, freeEntitlements(userId));
       return;
@@ -26,6 +26,6 @@ export default async function handler(req, res) {
         : null
     }));
   } catch (error) {
-    sendJson(res, 500, { error: error.message });
+    sendJson(res, error.statusCode || 500, { error: error.message });
   }
 }

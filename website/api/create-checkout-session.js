@@ -1,4 +1,4 @@
-import { getAppUrl, getStripe, readJson, requireUserId, sendJson } from './_billing.js';
+import { getAppUrl, getStripe, readJson, requireSupabaseUser, sendJson } from './_billing.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -8,8 +8,9 @@ export default async function handler(req, res) {
 
   try {
     const body = await readJson(req);
-    const userId = requireUserId(req, body);
-    const email = String(body.email || '').trim();
+    const user = await requireSupabaseUser(req);
+    const userId = user.id;
+    const email = String(body.email || user.email || '').trim();
     const appUrl = getAppUrl(req);
     const stripe = getStripe();
     const price = process.env.STRIPE_CLYDE_PRO_PRICE_ID;
@@ -18,12 +19,24 @@ export default async function handler(req, res) {
       throw new Error('STRIPE_CLYDE_PRO_PRICE_ID is not configured.');
     }
 
+    let customerId = '';
+    if (email) {
+      const customers = await stripe.customers.list({ email, limit: 1 });
+      customerId = customers.data?.[0]?.id || '';
+      if (customerId) {
+        await stripe.customers.update(customerId, {
+          metadata: { userId, plan: 'clyde_pro_agent' }
+        });
+      }
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price, quantity: 1 }],
       success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/pricing`,
-      customer_email: email || undefined,
+      customer: customerId || undefined,
+      customer_email: customerId ? undefined : email || undefined,
       client_reference_id: userId,
       metadata: { userId },
       subscription_data: {

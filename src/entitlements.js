@@ -107,7 +107,9 @@ function applyEntitlementsToSettings(settings = {}, entitlements = entitlementsF
     entitlementsExpiresAt: normalized.expiresAt,
     entitlementsCheckedAt: normalized.checkedAt,
     proAgentEnabled: normalized.pro ? Boolean(settings.proAgentEnabled) : false,
-    ragEnabled: normalized.pro ? Boolean(settings.ragEnabled) : false
+    ragEnabled: normalized.pro ? Boolean(settings.ragEnabled) : false,
+    googleSyncEnabled: normalized.pro ? Boolean(settings.googleSyncEnabled) : false,
+    googleSyncAutoApprove: normalized.pro ? Boolean(settings.googleSyncAutoApprove) : false
   };
 }
 

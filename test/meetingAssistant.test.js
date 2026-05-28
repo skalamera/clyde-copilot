@@ -100,6 +100,48 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
   assert.deepEqual(updates[0].cards[0].bullets, ['A']);
 });
 
+test('interviewer questions request uses the supplied full transcript', async () => {
+  const requests = [];
+  const assistant = createMeetingAssistant({
+    settings: {
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'gemma-4-e4b'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"answers": [{"question":"Questions to ask the interviewer", "bullets": ["How is success measured?"]}]}' }
+            }]
+          }
+        };
+      }
+    },
+    sendUpdate: () => {}
+  });
+
+  const transcript = Array.from({ length: 12 }, (_, index) => ({
+    speaker: index % 2 === 0 ? 'System Audio' : 'You',
+    text: `Transcript turn ${index + 1}`
+  }));
+
+  await assistant.requestSuggestion({
+    intent: 'interviewer_questions',
+    mode: 'interview',
+    prompt: 'Generate strong questions I can ask the interviewer now.',
+    transcript
+  });
+
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].data.messages[0].content, /Current command: interviewer_questions/);
+  assert.match(requests[0].data.messages[1].content, /Transcript turn 1/);
+  assert.match(requests[0].data.messages[1].content, /Transcript turn 12/);
+  assert.match(requests[0].data.messages[1].content, /Questions to ask the interviewer/);
+});
+
 test('answers fragmented consecutive interviewer questions separately', async () => {
   const originalGeminiApiKey = process.env.GEMINI_API_KEY;
   delete process.env.GEMINI_API_KEY;
@@ -142,6 +184,53 @@ test('answers fragmented consecutive interviewer questions separately', async ()
     assert.match(targetPrompts[1], /The interviewer just asked this question: "Why do you think you would be a good fit for this particular role\."/);
     assert.match(targetPrompts[2], /The interviewer just asked this question: "Can you tell me about the My Career Max project\?"/);
     assert.doesNotMatch(targetPrompts[2], /30 sixty ninety day plan.*good fit/s);
+  } finally {
+    if (originalGeminiApiKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = originalGeminiApiKey;
+    }
+  }
+});
+
+test('automatic assist answers live tuning customer operations prompts', async () => {
+  const originalGeminiApiKey = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+
+  const requests = [];
+
+  try {
+    const assistant = createMeetingAssistant({
+      settings: {
+        llmProvider: 'local',
+        localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+        llmModel: 'gemma-4-e4b'
+      },
+      axiosClient: {
+        post: async (url, data) => {
+          requests.push({ url, data });
+          return {
+            data: {
+              choices: [{
+                message: { content: '{"answers": [{"question":"Answer", "bullets": ["A"]}]}' }
+              }]
+            }
+          };
+        }
+      },
+      intervalMs: 0
+    });
+
+    await assistant.addTranscript({
+      speaker: 'System Audio',
+      text: 'How do you evaluate whether a change of tool or workflow will have downstream effects on other systems or teams. Walk me through your process.'
+    });
+
+    assert.equal(requests.length, 1);
+    assert.match(
+      requests[0].data.messages[0].content,
+      /The interviewer just asked this question: "How do you evaluate whether a change of tool or workflow will have downstream effects on other systems or teams\. Walk me through your process\."/
+    );
   } finally {
     if (originalGeminiApiKey === undefined) {
       delete process.env.GEMINI_API_KEY;
@@ -390,6 +479,56 @@ test('pro automatic assist waits for a complete interviewer prompt', async () =>
   await waitFor(() => proDigests.length === 1, 3500);
   assert.match(proDigests[0], /Can you describe a challenging incident you managed at Sigma and/);
   assert.match(proDigests[0], /how you approached it\?/);
+});
+
+test('pro automatic assist does not answer partial ASR prompts before terminal punctuation', async () => {
+  const proPayloads = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      userTier: 'pro',
+      proAgentEnabled: true,
+      transcriptionApiKey: 'openai-key',
+      llmApiKey: 'openai-key',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'fallback-model'
+    },
+    proAgent: {
+      run: async (payload) => {
+        proPayloads.push(payload);
+        return {
+          ok: true,
+          text: '{"answers":[{"question":"Q","bullets":["A"]}]}',
+          cards: [{ type: 'answer', title: 'Answer', question: 'Q', bullets: ['A'] }],
+          toolCalls: 0
+        };
+      }
+    },
+    axiosClient: {
+      post: async () => {
+        throw new Error('free path should not run');
+      }
+    },
+    intervalMs: 0,
+    utteranceSettleMs: 1
+  });
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you walk me through a time When you audited'
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(proPayloads.length, 0);
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'and or optimized a CRM or ticketing system to improve frontline agent efficiency.'
+  });
+
+  await waitFor(() => proPayloads.length === 1, 500);
+  assert.equal(proPayloads[0].targetQuestion, 'Can you walk me through a time When you audited and or optimized a CRM or ticketing system to improve frontline agent efficiency.');
 });
 
 test('keeps settled interviewer questions separate when a new question starts quickly', async () => {

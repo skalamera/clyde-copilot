@@ -304,7 +304,7 @@ function extractLikelyInterviewQuestion(transcript) {
   const candidates = getLatestInterviewQuestionCandidates(transcript);
 
   for (const candidate of candidates) {
-    if (isCompleteQuestion(candidate) && isLikelyInterviewQuestionText(candidate)) {
+    if ((isCompleteQuestion(candidate) || isLikelyCompleteAsrQuestion(candidate)) && isLikelyInterviewQuestionText(candidate)) {
       return candidate;
     }
   }
@@ -324,7 +324,7 @@ function getLatestInterviewQuestionCandidates(transcript) {
   for (let endIndex = recentNonUserTurns.length - 1; endIndex >= 0; endIndex -= 1) {
     const maxWindow = Math.min(5, endIndex + 1);
 
-    for (let size = 1; size <= maxWindow; size += 1) {
+    for (let size = maxWindow; size >= 1; size -= 1) {
       const fragments = recentNonUserTurns
         .slice(endIndex - size + 1, endIndex + 1)
         .map((turn) => turn.text);
@@ -411,7 +411,7 @@ function mergeFragmentBoundary(left, right) {
 
 function splitQuestionishSegments(text) {
   return cleanQuestionText(text)
-    .split(/(?<=\?)\s+|(?<=\.)\s+(?=(?:can|could|would|what|why|how|tell|walk|if)\b)/i)
+    .split(/(?<=\?)\s+|(?<=\.)\s+(?=(?:can|could|would|what|why|how|if)\b)/i)
     .map(cleanQuestionText)
     .filter(Boolean);
 }
@@ -459,12 +459,55 @@ function isCompleteQuestion(text) {
     return true;
   }
 
+  if (hasCompleteInterviewPromptCue(clean) && /[.!]\s*$/.test(clean)) {
+    return true;
+  }
+
   return /^(can|could|would|what|why|how|tell|walk|if)\b/i.test(clean)
     && /[.!]\s*$/.test(clean);
 }
 
+function isLikelyCompleteAsrQuestion(text) {
+  const normalized = cleanQuestionText(text).toLowerCase();
+
+  if (/[?.!]\s*$/.test(normalized) || normalized.length < 45) {
+    return false;
+  }
+
+  return [
+    /\bhave you had\b.*\b(gen ai|generative ai|automation)\b.*\b(customer support|support workflows|workflows)\b/,
+    /\bwalk me through\b.*\bprocess\b.*\b(downstream|systems|teams|effects|impact)\b/,
+    /\btalk me through\b.*\bprocess\b.*\b(downstream|systems|teams|effects|impact)\b/
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function hasCompleteInterviewPromptCue(text) {
+  const normalized = cleanQuestionText(text).toLowerCase();
+
+  return [
+    /\bwalk me through\b/,
+    /\btalk me through\b/,
+    /\btell me about a time\b/,
+    /\bcan you tell me about a time\b/,
+    /\bcan you describe a time\b/,
+    /\bdescribe a time\b/,
+    /\bshare an example\b/,
+    /\bgive me an example\b/,
+    /\bhave you had (an )?experience\b/,
+    /\bhow do you evaluate\b/,
+    /\bwhat'?s your process\b/,
+    /\bwhat is your process\b/,
+    /\bhow did you navigate\b/
+  ].some((pattern) => pattern.test(normalized));
+}
+
 function isLikelyInterviewQuestionText(text) {
   const normalized = cleanQuestionText(text).toLowerCase();
+
+  if (/\b(i have|i've got|i will|i'll)\b.*\bquestions\b/.test(normalized)
+    || /\blooking for\b.*\b(specific )?examples\b/.test(normalized)) {
+    return false;
+  }
 
   return [
     /\bwhy do you think you would be (a )?good fit\b/,
@@ -479,9 +522,19 @@ function isLikelyInterviewQuestionText(text) {
     /\bwhat'?s the name of (our|the) company\b/,
     /\bwalk me through your (background|experience|resume|career)\b/,
     /\bcan you walk me through your (background|experience|resume|career)\b/,
+    /\bwalk me through\b.*\b(process|experience|time|project|crm|ticketing|workflow|system|systems|integration|efficiency)\b/,
+    /\btalk me through\b.*\b(process|experience|time|project|integration|system|systems|workflow)\b/,
     /\btell me about (a|one of your|your) (project|time|experience)\b/,
+    /\btell me about a time\b.*\b(align|aligned|stakeholder|stakeholders|conflict|conflicted|navigate|navigated|technical project)\b/,
+    /\bcan you describe a time\b.*\b(designed|maintained|built|implemented|integrated|integration|api|system|workflow|stakeholder|stakeholders)\b/,
     /\bcan you tell me about\b.*\b(project|experience|role|background|career)\b/,
+    /\bcan you tell me about a time\b.*\b(stakeholder|stakeholders|product|engineering|operations|priorities|conflicted|navigate|navigated)\b/,
     /\bcan you tell me how\b.*\b(architected|built|secured|securing|designed|implemented)\b/,
+    /\bhave you had (an )?experience\b.*\b(gen ai|generative ai|automation|tools|workflow|workflows|support|customer support)\b/,
+    /\bhow do you evaluate\b.*\b(downstream|systems|teams|impact|effects|process)\b/,
+    /\bwhat'?s your process\b.*\b(downstream|systems|teams|impact|effects)\b/,
+    /\b(api|crm|ticketing|customer experience|support)\b.*\b(integration|integrated|automation|workflow|workflows|optimized|efficiency)\b/,
+    /\b(product|engineering|operations|stakeholder|stakeholders)\b.*\b(align|alignment|conflict|conflicted|priorities|navigate|navigated)\b/,
     /\bcan you (give|share) (me )?an example\b/,
     /\bhow would you handle\b/,
     /\bwhat (are|is) your (strengths|weaknesses)\b/,

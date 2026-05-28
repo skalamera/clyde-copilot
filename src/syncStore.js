@@ -78,6 +78,33 @@ function createSyncStore({ appPath }) {
     return updated;
   }
 
+  function dismissPendingProposals(predicate, result = {}) {
+    if (typeof predicate !== 'function') {
+      return [];
+    }
+    const state = readState();
+    const now = new Date().toISOString();
+    const dismissed = [];
+    state.proposals = state.proposals.map((proposal) => {
+      if (proposal.status !== 'pending' || !predicate(proposal)) {
+        return proposal;
+      }
+      const next = {
+        ...proposal,
+        status: 'dismissed',
+        result,
+        dismissedAt: now,
+        updatedAt: now
+      };
+      dismissed.push(next);
+      return next;
+    });
+    if (dismissed.length) {
+      writeState(state);
+    }
+    return dismissed;
+  }
+
   function addAudit(entry = {}) {
     const state = readState();
     const now = new Date().toISOString();
@@ -116,6 +143,11 @@ function createSyncStore({ appPath }) {
     return readState().audit.slice(0, count);
   }
 
+  function clearState() {
+    writeState(DEFAULT_STATE);
+    return true;
+  }
+
   function getCursors() {
     return { ...readState().cursors };
   }
@@ -152,6 +184,8 @@ function createSyncStore({ appPath }) {
 
   return {
     addAudit,
+    clearState,
+    dismissPendingProposals,
     getCursors,
     getProposal,
     listAudit,

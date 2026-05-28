@@ -30,12 +30,16 @@ test('applyEntitlementsToSettings disables local pro switches for free users', (
   const settings = applyEntitlementsToSettings({
     userTier: 'free',
     proAgentEnabled: true,
-    ragEnabled: true
+    ragEnabled: true,
+    googleSyncEnabled: true,
+    googleSyncAutoApprove: true
   });
 
   assert.equal(settings.userTier, 'free');
   assert.equal(settings.proAgentEnabled, false);
   assert.equal(settings.ragEnabled, false);
+  assert.equal(settings.googleSyncEnabled, false);
+  assert.equal(settings.googleSyncAutoApprove, false);
 });
 
 test('requireFeature throws a typed error when the feature is not available', () => {

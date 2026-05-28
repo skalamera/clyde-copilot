@@ -38,7 +38,14 @@ function createGoogleSyncService(options = {}) {
       ...calendarEvents.map((event) => proposalsFromCalendarEvent(event, settings))
     ]);
 
-    const generated = generatedRaw.flat();
+    const generated = dedupeGeneratedProposals(generatedRaw.flat());
+    dismissStalePendingProposals({
+      scannedSources: [
+        ...gmailMessages.map((message) => sourceKey('gmail', message.id)),
+        ...calendarEvents.map((event) => sourceKey('calendar', event.id))
+      ],
+      generated
+    });
 
     const saved = generated.map((proposal) => syncStore.upsertProposal(proposal));
     syncStore.addAudit({
@@ -56,6 +63,10 @@ function createGoogleSyncService(options = {}) {
     const entity = findEntityInText(normalized, 'interview');
     const inferredCompanyName = extractNewCompanyName(message, text);
     const proposals = [];
+    const processEmail = isJobProcessEmail(message, normalized);
+    if (!processEmail) {
+      return proposals;
+    }
 
     const llmConfig = resolveSyncLlmConfig(settings);
     if (llmConfig && axiosClient) {
@@ -86,20 +97,7 @@ function createGoogleSyncService(options = {}) {
 
         const result = JSON.parse(responseText);
 
-        if (result.isUpdate && result.outcome) {
-            const targetEntityName = entity?.name || result.companyName;
-            if (targetEntityName) {
-                proposals.push(buildProposal({
-                    sourceType: 'gmail',
-                    sourceId: message.id,
-                    actionType: 'updateOpportunity',
-                    label: `Mark ${targetEntityName} ${result.outcome}`,
-                    summary: `Gmail suggests ${targetEntityName} ${result.outcome === 'rejected' ? 'is no longer moving forward' : 'moved forward'}.`,
-                    source: gmailSource(message),
-                    payload: { entityName: targetEntityName, outcome: result.outcome, outcomeReason: message.subject || 'Gmail update', outcomeDate: dateFromMessage(message) }
-                }));
-            }
-        } else if (result.isUpdate && !entity && result.companyName) {
+        if (result.isUpdate && !entity && result.companyName && isUsableCompanyName(result.companyName)) {
             proposals.push(buildProposal({
                 sourceType: 'gmail',
                 sourceId: message.id,
@@ -107,9 +105,19 @@ function createGoogleSyncService(options = {}) {
                 label: `Add ${result.companyName} to Clyde`,
                 summary: `Gmail found a new interview opportunity with ${result.companyName}.`,
                 source: gmailSource(message),
-                payload: { name: result.companyName, company: result.companyName }
+                payload: { name: result.companyName, company: result.companyName, outcome: result.outcome || 'active' }
             }));
-        } else if (result.isUpdate && result.companyName) {
+        } else if (result.isUpdate && result.outcome && entity && shouldSuggestOutcome(entity, result.outcome)) {
+            proposals.push(buildProposal({
+                sourceType: 'gmail',
+                sourceId: message.id,
+                actionType: 'updateOpportunity',
+                label: `Mark ${entity.name} ${result.outcome}`,
+                summary: `Gmail suggests ${entity.name} ${result.outcome === 'rejected' ? 'is no longer moving forward' : 'moved forward'}.`,
+                source: gmailSource(message),
+                payload: { entityName: entity.name, outcome: result.outcome, outcomeReason: message.subject || 'Gmail update', outcomeDate: dateFromMessage(message) }
+            }));
+        } else if (result.isUpdate && !entity && result.companyName) {
            // It's an update, we know the company, but no specific outcome was returned 
            // and the company does not currently exist. Just create it!
            proposals.push(buildProposal({
@@ -128,7 +136,7 @@ function createGoogleSyncService(options = {}) {
       }
     }
 
-    if (entity && /(not moving forward|will not be moving forward|won t be moving forward|no longer moving forward|move forward with other candidates|other candidates|not selected|not proceed|unfortunately|rejected|declined|pass|another candidate)/i.test(normalized)) {
+    if (entity && shouldSuggestOutcome(entity, 'rejected') && /(not moving forward|will not be moving forward|won t be moving forward|no longer moving forward|move forward with other candidates|other candidates|not selected|not proceed|unfortunately|rejected|declined|pass|another candidate)/i.test(normalized)) {
       proposals.push(buildProposal({
         sourceType: 'gmail',
         sourceId: message.id,
@@ -138,7 +146,7 @@ function createGoogleSyncService(options = {}) {
         source: gmailSource(message),
         payload: { entityName: entity.name, outcome: 'rejected', outcomeReason: message.subject || 'Gmail update', outcomeDate: dateFromMessage(message) }
       }));
-    } else if (!entity && inferredCompanyName && /(not moving forward|will not be moving forward|won t be moving forward|no longer moving forward|move forward with other candidates|other candidates|not selected|not proceed|unfortunately|rejected|declined|pass|another candidate)/i.test(normalized)) {
+    } else if (!entity && inferredCompanyName && isUsableCompanyName(inferredCompanyName) && /(not moving forward|will not be moving forward|won t be moving forward|no longer moving forward|move forward with other candidates|other candidates|not selected|not proceed|unfortunately|rejected|declined|pass|another candidate)/i.test(normalized)) {
       proposals.push(buildProposal({
         sourceType: 'gmail',
         sourceId: message.id,
@@ -148,7 +156,7 @@ function createGoogleSyncService(options = {}) {
         source: gmailSource(message),
         payload: { name: inferredCompanyName, company: inferredCompanyName, outcome: 'rejected' }
       }));
-    } else if (entity && /(next round|move forward|moving forward|advance|advanced|onsite|final round|technical screen|confirm|confirmed|scheduled)/i.test(normalized)) {
+    } else if (entity && shouldSuggestOutcome(entity, 'advanced') && /(next round|move forward|moving forward|advance|advanced|onsite|final round|technical screen|confirm|confirmed|scheduled)/i.test(normalized)) {
       proposals.push(buildProposal({
         sourceType: 'gmail',
         sourceId: message.id,
@@ -158,9 +166,32 @@ function createGoogleSyncService(options = {}) {
         source: gmailSource(message),
         payload: { entityName: entity.name, outcome: 'advanced', outcomeReason: message.subject || 'Gmail update', outcomeDate: dateFromMessage(message) }
       }));
+    } else if (!entity && inferredCompanyName && isUsableCompanyName(inferredCompanyName) && /(next round|move forward|moving forward|advance|advanced|onsite|final round|technical screen|confirm|confirmed|scheduled)/i.test(normalized)) {
+      proposals.push(buildProposal({
+        sourceType: 'gmail',
+        sourceId: message.id,
+        actionType: 'createOpportunity',
+        label: `Add ${inferredCompanyName} to Clyde`,
+        summary: `Gmail found a new interview opportunity with ${inferredCompanyName}.`,
+        source: gmailSource(message),
+        payload: { name: inferredCompanyName, company: inferredCompanyName, outcome: 'advanced' }
+      }));
+    }
+
+    if (entity && isInterviewMeetingRequest(normalized)) {
+      const meeting = extractInterviewMeetingRequest(message, text, entity.name, now());
+      proposals.push(buildProposal({
+        sourceType: 'gmail',
+        sourceId: message.id,
+        actionType: 'addInterviewMeetingRequest',
+        label: `Add ${meeting.title} to Clyde calendar`,
+        summary: `Gmail found an interview meeting request for ${entity.name}.`,
+        source: gmailSource(message),
+        payload: meeting
+      }));
     } else if (!entity && /(interview|schedule|next step|video meeting|zoom|google meet|interest in)/i.test(normalized)) {
       const newCompanyName = inferredCompanyName;
-      if (newCompanyName) {
+      if (newCompanyName && isUsableCompanyName(newCompanyName)) {
         proposals.push(buildProposal({
           sourceType: 'gmail',
           sourceId: message.id,
@@ -182,9 +213,16 @@ function createGoogleSyncService(options = {}) {
     }
 
     const normalized = normalizeText(`${event.title || ''} ${event.description || ''} ${event.attendees?.join(' ') || ''}`);
-    const mode = /interview|recruiter|hiring|onsite|screen/.test(normalized) ? 'interview' : 'meeting';
-    const entity = findEntityInText(normalized, mode);
-    let entityName = entity?.name || inferEntityNameFromTitle(event.title, mode);
+    const interviewRelevant = isCalendarInterviewRelevant(normalized);
+    const interviewEntity = findEntityInText(normalized, 'interview');
+    const meetingEntity = findEntityInText(normalized, 'meeting');
+    if (!interviewRelevant && !interviewEntity && !meetingEntity) {
+      return [];
+    }
+
+    const mode = interviewRelevant || interviewEntity ? 'interview' : 'meeting';
+    const entity = mode === 'interview' ? interviewEntity : meetingEntity;
+    let entityName = entity?.name || '';
 
     const llmConfig = resolveSyncLlmConfig(settings);
     if (llmConfig && !entityName && mode === 'interview' && axiosClient) {
@@ -245,7 +283,7 @@ function createGoogleSyncService(options = {}) {
   }
 
   function buildProposal({ sourceType, sourceId, actionType, label, summary, source, payload }) {
-    const dedupeKey = `${sourceType}:${sourceId}:${actionType}`;
+    const dedupeKey = proposalDedupeKey({ sourceType, sourceId, actionType, payload });
     return {
       dedupeKey,
       label,
@@ -265,6 +303,147 @@ function createGoogleSyncService(options = {}) {
       },
       createdAt: now().toISOString()
     };
+  }
+
+  function proposalDedupeKey({ sourceType, sourceId, actionType, payload = {} }) {
+    if (actionType === 'createOpportunity') {
+      const entity = normalizeText(payload.name || payload.entityName || payload.company);
+      if (entity) {
+        return `${sourceType}:create-opportunity:${entity}`;
+      }
+    }
+    if (actionType === 'updateOpportunity') {
+      const entity = normalizeText(payload.entityName || payload.entityId || payload.company || payload.name);
+      const outcome = normalizeText(payload.outcome);
+      if (entity && outcome) {
+        return `${sourceType}:opportunity:${entity}:${outcome}`;
+      }
+    }
+    if (actionType === 'addInterviewMeetingRequest') {
+      const entity = normalizeText(payload.entityName || payload.company);
+      const title = normalizeText(payload.title || payload.name);
+      const date = clean(payload.date || payload.start || payload.startTime).slice(0, 16);
+      if (entity && (date || title)) {
+        return `${sourceType}:interview-meeting-request:${entity}:${date || title}`;
+      }
+    }
+    return `${sourceType}:${sourceId}:${actionType}`;
+  }
+
+  function dedupeGeneratedProposals(proposals = []) {
+    const byKey = new Map();
+    for (const proposal of proposals) {
+      if (!proposal?.dedupeKey) {
+        continue;
+      }
+      if (!byKey.has(proposal.dedupeKey)) {
+        byKey.set(proposal.dedupeKey, proposal);
+      }
+    }
+    return [...byKey.values()];
+  }
+
+  function dismissStalePendingProposals({ scannedSources = [], generated = [] } = {}) {
+    if (!syncStore?.dismissPendingProposals) {
+      return [];
+    }
+    const scanned = new Set(scannedSources.filter(Boolean));
+    const generatedKeys = new Set(generated.map((proposal) => proposal.dedupeKey).filter(Boolean));
+    if (!scanned.size) {
+      return [];
+    }
+    return syncStore.dismissPendingProposals((proposal) => {
+      const proposalSource = sourceKey(proposal.source?.type, proposal.source?.id);
+      return scanned.has(proposalSource) && !generatedKeys.has(proposal.dedupeKey);
+    }, { reason: 'stale-after-rescan' });
+  }
+
+  function isInterviewMeetingRequest(normalizedText) {
+    if (/\b(sent an invite|calendar invite|invitation)\b/.test(normalizedText)) {
+      return false;
+    }
+    const hasInterview = /\b(interview|onsite|technical screen|final round|next round|next step|virtual onsite)\b/.test(normalizedText);
+    const hasScheduling = /\b(availability|available|schedule|scheduling|zoom|google meet|meet with|meeting request)\b/.test(normalizedText);
+    return hasInterview && hasScheduling;
+  }
+
+  function isJobProcessEmail(message = {}, normalizedText = '') {
+    const subject = normalizeText(message.subject || '');
+    const from = normalizeText(message.from || '');
+    const looksBulk = /\b(newsletter|digest|daily update|weekly update|auction|auctions|ending today|new jobs|more jobs|job alert|jobalert|jobs alert|hiring for|promoted|sponsored|unsubscribe|security issues|modern css)\b/.test(normalizedText)
+      || /\b(linkedin|jobalert|job alert|themmbmarket|thembmarket)\b/.test(from);
+    const strongProcessSignal = /\b(your application|application update|thank you for applying|thanks for applying|applied for|applying for|candidate|interview|onsite|technical screen|phone screen|final round|next round|next steps|availability|available|schedule|scheduling|recruiter|hiring manager|offer)\b/.test(normalizedText);
+    const directThreadSignal = /\b(next steps|interview confirmation|invitation|virtual onsite|onsite|technical screen|phone screen)\b/.test(subject);
+    if (looksBulk && !/\b(your application|application update|interview|onsite|technical screen|phone screen|final round|recruiter)\b/.test(normalizedText)) {
+      return false;
+    }
+    return strongProcessSignal || directThreadSignal;
+  }
+
+  function shouldSuggestOutcome(entity = {}, outcome = '') {
+    const current = normalizeOutcome(entity.outcome);
+    const next = normalizeOutcome(outcome);
+    return next && current !== next;
+  }
+
+  function isCalendarInterviewRelevant(normalizedText) {
+    const hasInterview = /\b(interview|onsite|technical screen|phone screen|final round|next round|recruiter|hiring manager|candidate|job)\b/.test(normalizedText);
+    const hasMeetingSignal = /\b(zoom|google meet|teams|meet|meeting|call|screen|interview|onsite)\b/.test(normalizedText);
+    return hasInterview && hasMeetingSignal;
+  }
+
+  function extractInterviewMeetingRequest(message, text, entityName, referenceDate) {
+    const attendee = extractInterviewAttendee(text);
+    const title = clean(message.subject).replace(/^(re|fwd):\s*/ig, '').replace(/^invitation:\s*/i, '') || `${entityName} interview`;
+    return {
+      title,
+      date: extractMeetingDate(text, referenceDate),
+      mode: 'interview',
+      entityName,
+      company: entityName,
+      attendees: attendee ? [attendee] : [],
+      durationMinutes: extractDurationMinutes(text),
+      description: clean([message.body, message.snippet].filter(Boolean).join('\n')),
+      sourceMessageId: clean(message.id)
+    };
+  }
+
+  function extractInterviewAttendee(text) {
+    const withMatch = clean(text).match(/\bwith\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b/);
+    return withMatch ? withMatch[1] : '';
+  }
+
+  function extractDurationMinutes(text) {
+    const match = clean(text).match(/\b(\d{1,3})\s*(?:-| )?\s*minute\b/i);
+    return match ? Number(match[1]) : '';
+  }
+
+  function extractMeetingDate(text, referenceDate) {
+    const value = clean(text);
+    const weekday = value.match(/\b(?:next\s+)?(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\b/i);
+    const time = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\s*(?:EDT|EST|CDT|CST|MDT|MST|PDT|PST)?\b/i);
+    if (!weekday || !time) {
+      return '';
+    }
+    const base = referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime()) ? new Date(referenceDate) : new Date();
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const target = days.indexOf(weekday[1].toLowerCase());
+    let delta = (target - base.getDay() + 7) % 7;
+    if (delta === 0) {
+      delta = 7;
+    }
+    base.setDate(base.getDate() + delta);
+    let hours = Number(time[1]);
+    const minutes = Number(time[2] || 0);
+    const meridiem = time[3].toLowerCase()[0];
+    if (meridiem === 'p' && hours < 12) {
+      hours += 12;
+    }
+    if (meridiem === 'a' && hours === 12) {
+      hours = 0;
+    }
+    base.setHours(hours, minutes, 0, 0);
+    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}T${String(base.getHours()).padStart(2, '0')}:${String(base.getMinutes()).padStart(2, '0')}:00.000`;
   }
 
   function findEntityInText(normalizedText, mode) {
@@ -293,6 +472,11 @@ function createGoogleSyncService(options = {}) {
   }
 
 function extractNewCompanyName(message, text) {
+    const subjectPrefixMatch = clean(message.subject).match(/^(?:(?:re|fwd):\s*)?([A-Z][a-zA-Z0-9&.\- ]{1,60})\s*(?:\||-|:)\s*(?:next steps?|interview|onsite|confirmation|scheduling)\b/i);
+    if (subjectPrefixMatch && subjectPrefixMatch[1]) {
+      return subjectPrefixMatch[1].trim();
+    }
+
     const subjectCompanyMatch = clean(message.subject).match(/^([A-Z][a-zA-Z0-9&.\- ]{1,60})\s+(application|candidate|interview|recruiting|hiring)\s+update\b/i);
     if (subjectCompanyMatch && subjectCompanyMatch[1]) {
       return subjectCompanyMatch[1].trim();
@@ -301,6 +485,14 @@ function extractNewCompanyName(message, text) {
     const appliedAtMatch = text.match(/\b(?:applying for|applied for|position at|role at|job at|opportunity at)\s+([A-Z][a-zA-Z0-9&.\- ]{1,60})\b/);
     if (appliedAtMatch && appliedAtMatch[1]) {
       return appliedAtMatch[1].trim().replace(/[.!,;:]+$/g, '');
+    }
+
+    const interviewWithCompanyMatch = text.match(/\b(?:interview|onsite|screen|round)\b.{0,80}\bwith\s+([A-Z][a-zA-Z0-9&.\- ]{1,60})\b/i);
+    if (interviewWithCompanyMatch && interviewWithCompanyMatch[1]) {
+      const name = interviewWithCompanyMatch[1].trim().replace(/[.!,;:]+$/g, '');
+      if (!/\s/.test(name) || /\b(inc|labs|systems|software|technologies|tech|ai|io|co|corp|group)\b/i.test(name)) {
+        return name;
+      }
     }
 
     const fromMatch = message.from?.match(/@([a-zA-Z0-9-]+)\./);
@@ -360,6 +552,12 @@ function stableHash(value) {
   return Math.abs(hash).toString(16);
 }
 
+function sourceKey(type, id) {
+  const cleanType = clean(type);
+  const cleanId = clean(id);
+  return cleanType && cleanId ? `${cleanType}:${cleanId}` : '';
+}
+
 function normalizeText(value) {
   return clean(value).toLowerCase().replace(/[^a-z0-9#]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -386,6 +584,29 @@ function resolveSyncLlmConfig(settings = {}) {
     };
   }
   return null;
+}
+
+function normalizeOutcome(value) {
+  const normalized = normalizeText(value);
+  if (['active', 'advanced', 'rejected', 'offer'].includes(normalized)) {
+    return normalized;
+  }
+  return '';
+}
+
+function isUsableCompanyName(value) {
+  const name = clean(value);
+  const normalized = normalizeText(name);
+  if (!name || name.length < 2) {
+    return false;
+  }
+  if (/^(hi|hello|jobs?|jobalert|linkedin|newsletter|digest|update|the|your|our|my)$/i.test(name)) {
+    return false;
+  }
+  if (/\b(jobs?|newsletter|digest|daily update|auction|auctions)\b/.test(normalized)) {
+    return false;
+  }
+  return true;
 }
 
 function logSyncLlmFallback(source, error) {

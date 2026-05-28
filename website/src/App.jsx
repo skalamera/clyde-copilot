@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveAvatarSession, SessionEvent } from '@heygen/liveavatar-web-sdk';
 
-const downloadHref = '/downloads/clyde-windows.exe';
+const downloadHref = 'https://storage.googleapis.com/clydeai-live-downloads/clyde-windows.exe';
 
 const tiers = [
   {
@@ -196,6 +196,10 @@ function App() {
       ? <PrivacyPolicyPage />
       : path === '/terms-of-service'
         ? <TermsOfServicePage />
+        : path === '/auth/confirmed'
+          ? <AuthConfirmedPage />
+          : path === '/billing/success'
+            ? <BillingSuccessPage />
     : <LandingPage onDownload={handleDownload} navigate={navigate} />;
 
   return (
@@ -210,34 +214,28 @@ function App() {
 }
 
 function Header({ navigate, onDownload, path }) {
-  const [checkoutStatus, setCheckoutStatus] = useState('');
+  const [upgradeNotice, setUpgradeNotice] = useState('');
 
-  async function startCheckout() {
-    setCheckoutStatus('Opening checkout...');
-    try {
-      const url = await createCheckoutUrl();
-      window.location.href = url;
-    } catch (error) {
-      setCheckoutStatus(error.message);
-    }
+  function showUpgradeNotice() {
+    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.');
   }
 
   return (
     <header className="site-header">
-      <button className="brand-link" type="button" onClick={() => navigate('/')}>
+      <a className="brand-link" href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }}>
         <img src="/clyde-free-logo-textonly.svg" alt="Clyde" />
-      </button>
+      </a>
       <nav aria-label="Primary navigation">
-        <button type="button" onClick={() => navigate('/')} className={path === '/' ? 'active' : ''}>Home</button>
-        <button type="button" onClick={() => navigate('/how-it-works')} className={path === '/how-it-works' ? 'active' : ''}>How it works</button>
-        <button type="button" onClick={() => navigate('/privacy-policy')} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</button>
+        <a href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }} className={path === '/' ? 'active' : ''}>Home</a>
+        <a href="/how-it-works" onClick={(event) => { event.preventDefault(); navigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
+        <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); navigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
         <a href="#faq">FAQ</a>
       </nav>
       <div className="header-actions">
-        <button className="header-cta header-pro-cta" type="button" onClick={startCheckout}>Upgrade to Pro</button>
+        <button className="header-cta header-pro-cta" type="button" onClick={showUpgradeNotice}>Upgrade to Pro</button>
         <a className="header-cta" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
       </div>
-      {checkoutStatus ? <span className="header-checkout-status">{checkoutStatus}</span> : null}
+      {upgradeNotice ? <span className="header-checkout-status">{upgradeNotice}</span> : null}
     </header>
   );
 }
@@ -608,6 +606,132 @@ function PrivacyPolicyPage() {
   );
 }
 
+function AuthConfirmedPage() {
+  const [token, setToken] = useState('');
+  const [form, setForm] = useState({ password: '', confirmPassword: '' });
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    setToken(params.get('access_token') || '');
+  }, []);
+
+  async function completeInvite(event) {
+    event.preventDefault();
+    if (!form.password || form.password !== form.confirmPassword) {
+      setStatus('Enter matching passwords.');
+      return;
+    }
+    setBusy(true);
+    setStatus('');
+    try {
+      const response = await fetch('/api/complete-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: token, password: form.password })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'Password setup failed.');
+      }
+      setStatus('Password saved. Open Clyde desktop and sign in with this email.');
+    } catch (error) {
+      setStatus(error.message || 'Password setup failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-confirmed-page">
+      <section className="subpage-hero policy-hero">
+        <div className="subpage-copy is-visible">
+          <span className="eyebrow">Account</span>
+          <h1>{token ? 'Set your Clyde password' : 'Email confirmed'}</h1>
+          <p>{token ? 'Create the password you will use to sign in to Clyde desktop.' : 'Your Clyde account email is confirmed. You can close this tab, return to the desktop app, and sign in.'}</p>
+          {token ? (
+            <form className="auth-password-form" onSubmit={completeInvite}>
+              <label>Password<input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label>
+              <label>Confirm password<input type="password" value={form.confirmPassword} onChange={(event) => setForm((current) => ({ ...current, confirmPassword: event.target.value }))} /></label>
+              <button className="primary-link" type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save password'}</button>
+              {status ? <p className="auth-status">{status}</p> : null}
+            </form>
+          ) : null}
+          <a className="primary-link" href="/">Back to Clyde</a>
+        </div>
+        <aside className="policy-summary-card is-visible">
+          <h2>Next step</h2>
+          <p>{token ? 'After saving your password, open Clyde and sign in from onboarding or Settings.' : 'Open Clyde, go to Settings, then sign in from the Account tab.'}</p>
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+function BillingSuccessPage() {
+  const [activation, setActivation] = useState({ status: 'working', message: 'Activating your Pro account...' });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id') || '';
+    if (!sessionId) {
+      setActivation({ status: 'error', message: 'Missing Stripe checkout session. Contact support with the email used at checkout.' });
+      return;
+    }
+
+    let cancelled = false;
+    fetch('/api/activate-pro-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId })
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || 'Pro activation failed.');
+        }
+        return payload;
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setActivation({
+          status: 'success',
+          message: `Pro is active for ${payload.email}.`
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setActivation({ status: 'error', message: error.message || 'Pro activation failed.' });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <main className="auth-confirmed-page">
+      <section className="subpage-hero policy-hero">
+        <div className="subpage-copy is-visible">
+          <span className="eyebrow">Billing</span>
+          <h1>Pro checkout complete</h1>
+          <p>{activation.message}</p>
+          <a className="primary-link" href="/">Open Clyde website</a>
+        </div>
+        <aside className="policy-summary-card is-visible">
+          <h2>What to do next</h2>
+          <p>{activation.status === 'working'
+            ? 'This usually takes a few seconds.'
+            : activation.status === 'error'
+              ? 'If this keeps failing, contact support with the Stripe checkout email.'
+              : '1. Check your email for a message from Supabase. 2. Open the confirmation link. 3. Set your Clyde password. 4. Open Clyde desktop and sign in from onboarding or Settings.'}</p>
+        </aside>
+      </section>
+    </main>
+  );
+}
+
 const termsSections = [
   {
     title: 'Using Clyde',
@@ -821,16 +945,10 @@ function WorkflowCard({ body, number, title }) {
 }
 
 function TierSection() {
-  const [checkoutStatus, setCheckoutStatus] = useState('');
+  const [upgradeNotice, setUpgradeNotice] = useState('');
 
-  async function startCheckout() {
-    setCheckoutStatus('Opening checkout...');
-    try {
-      const url = await createCheckoutUrl();
-      window.location.href = url;
-    } catch (error) {
-      setCheckoutStatus(error.message);
-    }
+  function showUpgradeNotice() {
+    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.');
   }
 
   return (
@@ -848,7 +966,7 @@ function TierSection() {
               <img className="tier-logo" src={tier.logo} alt={`Clyde ${tier.name}`} />
               <p>{tier.body}</p>
               {tier.name === 'Pro' ? (
-                <button className="primary-link tier-action" type="button" onClick={startCheckout}>
+                <button className="primary-link tier-action" type="button" onClick={showUpgradeNotice}>
                   Upgrade to Pro
                 </button>
               ) : (
@@ -860,36 +978,9 @@ function TierSection() {
           </article>
         ))}
       </div>
-      {checkoutStatus ? <p className="checkout-status">{checkoutStatus}</p> : null}
+      {upgradeNotice ? <p className="checkout-status">{upgradeNotice}</p> : null}
     </section>
   );
-}
-
-function getOrCreateCheckoutUserId() {
-  const key = 'clyde_checkout_user_id';
-  const existing = window.localStorage.getItem(key);
-  if (existing) {
-    return existing;
-  }
-
-  const next = `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  window.localStorage.setItem(key, next);
-  return next;
-}
-
-async function createCheckoutUrl() {
-  const response = await fetch('/api/create-checkout-session', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      userId: getOrCreateCheckoutUserId()
-    })
-  });
-  const payload = await response.json();
-  if (!response.ok || !payload.url) {
-    throw new Error(payload.error || 'Checkout session could not be created.');
-  }
-  return payload.url;
 }
 
 function MockInterviewSection() {
@@ -1230,16 +1321,16 @@ function Footer({ navigate, onDownload }) {
   return (
     <footer className="site-footer">
       <div>
-        <button className="brand-link" type="button" onClick={() => navigate('/')}>
+        <a className="brand-link" href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }}>
           <img src="/clydefree.svg" alt="" />
           <span>Clyde</span>
-        </button>
+        </a>
         <p>Private AI help for interviews and meetings.</p>
       </div>
       <div className="footer-links">
-        <button type="button" onClick={() => navigate('/how-it-works')}>How it works</button>
-        <button type="button" onClick={() => navigate('/privacy-policy')}>Privacy</button>
-        <button type="button" onClick={() => navigate('/terms-of-service')}>Terms</button>
+        <a href="/how-it-works" onClick={(event) => { event.preventDefault(); navigate('/how-it-works'); }}>How it works</a>
+        <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); navigate('/privacy-policy'); }}>Privacy</a>
+        <a href="/terms-of-service" onClick={(event) => { event.preventDefault(); navigate('/terms-of-service'); }}>Terms</a>
         <a href="#faq">FAQ</a>
         <a href={downloadHref} onClick={onDownload} download>Download Windows</a>
       </div>

@@ -10,15 +10,17 @@
     "renderer:dev": "vite --host 127.0.0.1",
     "audio-engine:build": "node ./scripts/build-audio-engine.js",
     "audio-engine:test": "cargo test --manifest-path ./native/audio-engine/Cargo.toml",
-    "prepack": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build",
+    "electron:native:rebuild": "electron-rebuild -f -w better-sqlite3",
+    "release:check": "npm test && npm run renderer:build && npm run audio-engine:build && npm run pack",
+    "prepack": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build && npm run electron:native:rebuild",
     "whisper": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1",
     "whisper:cpu": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1 -Runtime cpu",
     "audio:check": "node ./scripts/check-audio-sources.js",
     "pretest": "npm rebuild better-sqlite3",
     "test": "node --test",
-    "pack": "electron-builder --dir",
-    "predist": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build",
-    "dist": "electron-builder",
+    "pack": "node ./scripts/build-outside-onedrive.js --dir",
+    "predist": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build && npm run electron:native:rebuild",
+    "dist": "node ./scripts/build-outside-onedrive.js",
     "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [],
@@ -61,13 +63,34 @@
     },
     "artifactName": "${productName} Setup v${version}.${ext}",
     "asar": true,
+    "files": [
+      "main.js",
+      "package.json",
+      "src/**/*.js",
+      "src/renderer-dist/**/*",
+      "clyde*.svg",
+      "clyde_*.svg",
+      "!src/renderer{,/**/*}",
+      "!test{,/**/*}",
+      "!website{,/**/*}",
+      "!dist{,/**/*}",
+      "!dist-pack{,/**/*}",
+      "!native{,/**/*}",
+      "!logs{,/**/*}",
+      "!tmp{,/**/*}",
+      "!run-slate{,/**/*}",
+      "!liveavatar-agent-skills{,/**/*}",
+      "!output*.wav",
+      "!output.html"
+    ],
     "win": {
       "target": "nsis",
       "icon": "icon.png"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true
     },
     "extraResources": [
       {

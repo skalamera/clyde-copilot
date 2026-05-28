@@ -1,5 +1,9 @@
-function startAutoUpdater({ isPackaged, logger, requireAutoUpdater } = {}) {
+function startAutoUpdater({ enabled = true, isPackaged, logger, requireAutoUpdater } = {}) {
   if (!isPackaged) {
+    return null;
+  }
+  if (!enabled) {
+    logger?.info?.('Auto updater disabled.');
     return null;
   }
 
@@ -11,7 +15,18 @@ function startAutoUpdater({ isPackaged, logger, requireAutoUpdater } = {}) {
     autoUpdater.logger.transports.file.level = 'info';
   }
 
-  autoUpdater.checkForUpdatesAndNotify();
+  if (typeof autoUpdater.on === 'function') {
+    autoUpdater.on('error', (error) => {
+      logger?.warn?.(`Auto update check failed: ${error?.message || error}`);
+    });
+  }
+
+  const checkResult = autoUpdater.checkForUpdatesAndNotify();
+  if (checkResult && typeof checkResult.catch === 'function') {
+    checkResult.catch((error) => {
+      logger?.warn?.(`Auto update check failed: ${error?.message || error}`);
+    });
+  }
   return autoUpdater;
 }
 

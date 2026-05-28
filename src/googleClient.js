@@ -16,7 +16,7 @@ function createGoogleClient(options = {}) {
   const openExternal = options.openExternal || (() => Promise.resolve());
   const now = typeof options.now === 'function' ? options.now : () => Date.now();
 
-  async function connect({ clientId, clientSecret, timeoutMs = 120000 } = {}) {
+  async function connect({ clientId, clientSecret, tokenEndpoint, timeoutMs = 120000 } = {}) {
     const cleanClientId = clean(clientId);
     const cleanClientSecret = clean(clientSecret);
     if (!cleanClientId) {
@@ -44,15 +44,14 @@ function createGoogleClient(options = {}) {
       const code = await waitForCode;
       let tokenResponse;
       try {
-        tokenResponse = await axiosClient.post(GOOGLE_TOKEN_URL, oauthParams({
-          client_id: cleanClientId,
-          client_secret: cleanClientSecret,
+        tokenResponse = await exchangeToken({
+          clientId: cleanClientId,
+          clientSecret: cleanClientSecret,
           code,
-          code_verifier: verifier,
-          grant_type: 'authorization_code',
-          redirect_uri: redirectUri
-        }).toString(), {
-          headers: { 'content-type': 'application/x-www-form-urlencoded' }
+          codeVerifier: verifier,
+          grantType: 'authorization_code',
+          redirectUri,
+          tokenEndpoint
         });
       } catch (error) {
         throw new Error(`Google OAuth token exchange failed: ${describeGoogleError(error)}`);
@@ -71,7 +70,7 @@ function createGoogleClient(options = {}) {
     }
   }
 
-  async function refreshAccessToken({ clientId, clientSecret, refreshToken } = {}) {
+  async function refreshAccessToken({ clientId, clientSecret, refreshToken, tokenEndpoint } = {}) {
     const cleanClientId = clean(clientId);
     const cleanClientSecret = clean(clientSecret);
     const cleanRefreshToken = clean(refreshToken);
@@ -81,13 +80,12 @@ function createGoogleClient(options = {}) {
 
     let response;
     try {
-      response = await axiosClient.post(GOOGLE_TOKEN_URL, oauthParams({
-        client_id: cleanClientId,
-        client_secret: cleanClientSecret,
-        refresh_token: cleanRefreshToken,
-        grant_type: 'refresh_token'
-      }).toString(), {
-        headers: { 'content-type': 'application/x-www-form-urlencoded' }
+      response = await exchangeToken({
+        clientId: cleanClientId,
+        clientSecret: cleanClientSecret,
+        refreshToken: cleanRefreshToken,
+        grantType: 'refresh_token',
+        tokenEndpoint
       });
     } catch (error) {
       throw new Error(`Google OAuth token refresh failed: ${describeGoogleError(error)}`);
@@ -104,6 +102,43 @@ function createGoogleClient(options = {}) {
       email: clean(response.data?.email),
       name: clean(response.data?.name)
     };
+  }
+
+  async function exchangeToken({
+    clientId,
+    clientSecret,
+    code,
+    codeVerifier,
+    refreshToken,
+    grantType,
+    redirectUri,
+    tokenEndpoint
+  } = {}) {
+    const cleanTokenEndpoint = clean(tokenEndpoint);
+    if (cleanTokenEndpoint) {
+      return axiosClient.post(cleanTokenEndpoint, {
+        clientId,
+        code,
+        codeVerifier,
+        refreshToken,
+        grantType,
+        redirectUri
+      }, {
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+
+    return axiosClient.post(GOOGLE_TOKEN_URL, oauthParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      code_verifier: codeVerifier,
+      refresh_token: refreshToken,
+      grant_type: grantType,
+      redirect_uri: redirectUri
+    }).toString(), {
+      headers: { 'content-type': 'application/x-www-form-urlencoded' }
+    });
   }
 
   async function listGmailMessages({ accessToken, query = '', maxResults = 10 } = {}) {

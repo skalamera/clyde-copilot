@@ -37,12 +37,24 @@ const {
     buildMeetingPostProcessPrompt,
     normalizeMeetingPostProcessResponse
 } = require('./src/meetingPostProcessing');
+const {
+    buildMeetingPreviewFallback,
+    buildMeetingPreviewPrompt,
+    normalizeMeetingPreviewResponse
+} = require('./src/meetingSessionPreview');
+const { createQuestionBankManager } = require('./src/questionBankManager');
+const {
+    buildQuestionBankExtractionPrompt,
+    normalizeQuestionBankExtractionResponse,
+    questionBankExtractionSchema
+} = require('./src/questionBankExtraction');
 const { startAutoUpdater } = require('./src/autoUpdater');
 const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
 const { buildTrendAnalysisSessionSignature, directAddressFeedback, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
 const { calculateEntityConfidence } = require('./src/confidenceScoring');
-const { fetchEntitlements } = require('./src/billingClient');
+const { createBillingPortalSession, createCheckoutSession, createProSignupCheckout, fetchEntitlements } = require('./src/billingClient');
+const { refreshSession, signIn, signUp } = require('./src/authClient');
 const {
     applyEntitlementsToSettings,
     entitlementsFromSettings,
@@ -72,6 +84,7 @@ let meetingAssistant;
 let interviewManager;
 let sessionManager;
 let knowledgeManager;
+let questionBankManager;
 let mockInterviewManager;
 let calendarStore;
 let agentChat;
@@ -100,6 +113,17 @@ const ACTIVE_CAPTURE_MINIMIZED_MARGIN = 10;
 const APP_WINDOW_MINIMIZED_SIZE = 96;
 const APP_WINDOW_MINIMIZED_MARGIN = 12;
 const CLYDE_UPGRADE_URL = process.env.CLYDE_UPGRADE_URL || 'https://clydeai.live/#pricing';
+const CLYDE_API_BASE_URL = (process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api').replace(/\/$/, '');
+const CLYDE_CHECKOUT_URL = process.env.CLYDE_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-checkout-session`;
+const CLYDE_BILLING_PORTAL_URL = process.env.CLYDE_BILLING_PORTAL_URL || `${CLYDE_API_BASE_URL}/create-billing-portal-session`;
+const CLYDE_ENTITLEMENTS_URL = process.env.CLYDE_ENTITLEMENTS_URL || `${CLYDE_API_BASE_URL}/entitlements`;
+const CLYDE_LIVEAVATAR_TOKEN_URL = process.env.CLYDE_LIVEAVATAR_TOKEN_URL || `${CLYDE_API_BASE_URL}/liveavatar-token`;
+const CLYDE_SIGN_UP_URL = process.env.CLYDE_SIGN_UP_URL || `${CLYDE_API_BASE_URL}/sign-up`;
+const CLYDE_PRO_SIGNUP_CHECKOUT_URL = process.env.CLYDE_PRO_SIGNUP_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-pro-signup-checkout`;
+const CLYDE_GOOGLE_OAUTH_TOKEN_URL = process.env.CLYDE_GOOGLE_OAUTH_TOKEN_URL || `${CLYDE_API_BASE_URL}/google-oauth-token`;
+const CLYDE_GOOGLE_OAUTH_CLIENT_ID = '186934404244-p69m7rbeie0nen66gvomufiodoeviv54.apps.googleusercontent.com';
+const CLYDE_SUPABASE_URL = 'https://ijcoheaovypykliffqwh.supabase.co';
+const CLYDE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlqY29oZWFvdnlweWtsaWZmcXdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2ODY0MjksImV4cCI6MjA5NTI2MjQyOX0.1DNtvogtMr0wVelV9eESF6t0vf7FS94LTveBTrF8by8';
 
 const healthState = {
     audio: { state: 'unknown', label: 'Audio', detail: 'Not checked yet.' },
@@ -117,15 +141,27 @@ function shouldUseRustAudioEngine(settings = loadSettings()) {
 }
 
 function getGoogleOAuthClientId() {
-    const clientId = String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
+    const clientId = String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || CLYDE_GOOGLE_OAUTH_CLIENT_ID).trim();
     if (!clientId) {
         throw new Error('Clyde Google OAuth client ID is not configured.');
     }
     return clientId;
 }
 
+function hasGoogleOAuthClientId() {
+    return Boolean(String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || CLYDE_GOOGLE_OAUTH_CLIENT_ID).trim());
+}
+
 function getGoogleOAuthClientSecret() {
     return String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
+}
+
+function getSupabaseAuthConfig() {
+    return {
+        url: String(process.env.CLYDE_SUPABASE_URL || CLYDE_SUPABASE_URL).trim(),
+        apiKey: String(process.env.CLYDE_SUPABASE_ANON_KEY || process.env.CLYDE_SUPABASE_PUBLISHABLE_KEY || CLYDE_SUPABASE_ANON_KEY).trim(),
+        signUpEndpoint: String(CLYDE_SIGN_UP_URL || '').trim()
+    };
 }
 
 function configureElectronStorage() {
@@ -160,13 +196,17 @@ function loadSettings() {
         pineconeHost: store.get('pineconeHost', ''),
         ragEnabled: store.get('ragEnabled', false),
         userId: store.get('userId', ''),
+        authEmail: store.get('authEmail', ''),
+        authAccessToken: store.get('authAccessToken', ''),
+        authRefreshToken: store.get('authRefreshToken', ''),
+        authExpiresAt: store.get('authExpiresAt', null),
         userTier: store.get('userTier', 'free'),
         subscriptionStatus: store.get('subscriptionStatus', 'free'),
         subscriptionPlan: store.get('subscriptionPlan', ''),
         entitlementFeatures: store.get('entitlementFeatures', []),
         entitlementsExpiresAt: store.get('entitlementsExpiresAt', null),
         entitlementsCheckedAt: store.get('entitlementsCheckedAt', null),
-        entitlementsUrl: store.get('entitlementsUrl', process.env.CLYDE_ENTITLEMENTS_URL || ''),
+        entitlementsUrl: store.get('entitlementsUrl') || CLYDE_ENTITLEMENTS_URL,
         proAgentEnabled: store.get('proAgentEnabled', false),
         proRealtimeModel: store.get('proRealtimeModel', ''),
         embeddingProvider: store.get('embeddingProvider', ''),
@@ -198,11 +238,23 @@ function loadSettings() {
     return demoData.isDemoMode(settings) ? demoData.demoSettings(settings) : settings;
 }
 
-function saveSettings(newSettings) {
+function publicSettings(settings = loadSettings()) {
+    const {
+        authAccessToken: _authAccessToken,
+        authRefreshToken: _authRefreshToken,
+        ...safeSettings
+    } = settings || {};
+    return safeSettings;
+}
+
+function saveSettings(newSettings, options = {}) {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     const openAiApiKey = String(newSettings?.openAiApiKey || '').trim();
-    const currentEntitlements = entitlementsFromSettings(loadSettings());
+    const preserveEntitlements = options.preserveEntitlements !== false;
+    const currentEntitlements = preserveEntitlements
+        ? entitlementsFromSettings(loadSettings())
+        : entitlementsFromSettings(newSettings || {});
     const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = applyEntitlementsToSettings({
         ...(newSettings || {}),
         userTier: currentEntitlements.tier,
@@ -371,14 +423,74 @@ function assertFeature(feature) {
     requireFeature(entitlementsFromSettings(loadSettings()), feature);
 }
 
+function authSessionFromSettings(settings = loadSettings()) {
+    if (!settings.userId || !settings.authAccessToken) {
+        return { signedIn: false, userId: '', email: '' };
+    }
+    return {
+        signedIn: true,
+        userId: settings.userId,
+        email: settings.authEmail || settings.googleAccountEmail || '',
+        expiresAt: settings.authExpiresAt || null
+    };
+}
+
+function saveAuthSession(session) {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+    store.set({
+        userId: session.userId || '',
+        authEmail: session.email || '',
+        authAccessToken: session.accessToken || '',
+        authRefreshToken: session.refreshToken || '',
+        authExpiresAt: session.expiresAt || null
+    });
+}
+
+function clearAuthSession() {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+    for (const key of ['userId', 'authEmail', 'authAccessToken', 'authRefreshToken', 'authExpiresAt']) {
+        store.delete(key);
+    }
+    const nextSettings = applyEntitlementsToSettings(loadSettings(), { tier: 'free', userId: '' });
+    saveSettings(nextSettings, { preserveEntitlements: false });
+    return authSessionFromSettings(loadSettings());
+}
+
+async function getFreshAuthSession() {
+    const settings = loadSettings();
+    if (!settings.userId || !settings.authAccessToken) {
+        return null;
+    }
+    const expiresAt = Number(settings.authExpiresAt || 0);
+    if (expiresAt && expiresAt - Date.now() > 60000) {
+        return {
+            userId: settings.userId,
+            email: settings.authEmail || '',
+            accessToken: settings.authAccessToken,
+            refreshToken: settings.authRefreshToken || '',
+            expiresAt
+        };
+    }
+    const refreshed = await refreshSession({
+        refreshToken: settings.authRefreshToken,
+        config: getSupabaseAuthConfig()
+    });
+    saveAuthSession(refreshed);
+    return refreshed;
+}
+
 async function refreshEntitlements() {
     const settings = loadSettings();
+    const authSession = await getFreshAuthSession();
     const entitlements = await fetchEntitlements({
-        userId: settings.userId,
+        accessToken: authSession?.accessToken || '',
+        userId: authSession?.userId || settings.userId,
         endpoint: settings.entitlementsUrl
     });
     const nextSettings = applyEntitlementsToSettings(settings, entitlements);
-    saveSettings(nextSettings);
+    saveSettings(nextSettings, { preserveEntitlements: false });
     return entitlementsFromSettings(nextSettings);
 }
 
@@ -967,6 +1079,15 @@ function summarizeContextText(content = '', limit = 320) {
 
 function buildAssistantContext(settings = loadSettings()) {
     const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
+    const questionBankContext = questionBankManager && (settings.appMode || 'interview') === 'interview'
+        ? questionBankManager.buildContext({
+            mode: 'interview',
+            entityId: settings.currentCompany || '',
+            tier: settings.userTier === 'pro' ? 'pro' : 'free',
+            includeGlobal: Boolean(settings.includeGlobalQuestionBank),
+            limit: 18
+        })
+        : '';
     return {
         mode: settings.appMode || 'interview',
         jobDescription: activeJd,
@@ -977,7 +1098,8 @@ function buildAssistantContext(settings = loadSettings()) {
         attendees: Array.isArray(settings.meetingAttendees) ? settings.meetingAttendees : [],
         memory: settings.meetingMemory || '',
         pinnedKnowledgeBrief: getPinnedKnowledgeBrief(settings),
-        entityFiles: getActiveEntityFiles(settings)
+        entityFiles: getActiveEntityFiles(settings),
+        questionBankContext
     };
 }
 
@@ -992,11 +1114,24 @@ function buildCallPreflightContext(settings = loadSettings()) {
         color: source.color
     }));
     const entityFiles = Array.isArray(context.entityFiles) ? context.entityFiles : [];
+    const pinnedKnowledgeItems = knowledgeManager
+        ? knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || [])
+        : [];
+    const questionBankActiveCount = questionBankManager && mode === 'interview' && entityId
+        ? questionBankManager.listEntries({ mode: 'interview', entityId, limit: 1000 }).length
+        : 0;
+    const questionBankGlobalCount = questionBankManager && mode === 'interview'
+        ? questionBankManager.listEntries({ mode: 'interview', scopeMode: 'global', limit: 1000 }).length
+        : 0;
 
     return {
         mode,
         entityId,
         entityName: mode === 'meeting' ? context.meetingTitle : context.company,
+        settings: {
+            userTier: settings.userTier || 'free',
+            includeGlobalQuestionBank: Boolean(settings.includeGlobalQuestionBank)
+        },
         health: JSON.parse(JSON.stringify(healthState)),
         models: {
             transcriptionProvider: settings.transcriptionProvider || 'Not selected',
@@ -1037,6 +1172,14 @@ function buildCallPreflightContext(settings = loadSettings()) {
                 chars: String(context.pinnedKnowledgeBrief || '').length,
                 excerpt: summarizeContextText(context.pinnedKnowledgeBrief, 500)
             },
+            pinnedKnowledge: pinnedKnowledgeItems.map((item) => ({
+                id: item.id,
+                filename: item.filename,
+                type: item.type,
+                chars: String(item.content || '').length,
+                proOnly: true,
+                requiresRag: true
+            })),
             entityFiles: entityFiles.map((item) => ({
                 id: item.id,
                 filename: item.filename,
@@ -1044,7 +1187,13 @@ function buildCallPreflightContext(settings = loadSettings()) {
                 chars: String(item.content || '').length,
                 excerpt: summarizeContextText(item.content, 220),
                 included: true
-            }))
+            })),
+            questionBank: {
+                activeCount: questionBankActiveCount,
+                globalCount: questionBankGlobalCount,
+                includeGlobal: Boolean(settings.includeGlobalQuestionBank && settings.userTier === 'pro'),
+                includedCount: questionBankActiveCount + (settings.includeGlobalQuestionBank && settings.userTier === 'pro' ? questionBankGlobalCount : 0)
+            }
         },
         limits: {
             activeEntityFiles: 5,
@@ -1078,6 +1227,7 @@ function getAgentChat() {
     agentChat = createAgentChat({
         settings: loadSettings(),
         knowledgeManager,
+        questionBankManager,
         sessionManager,
         calendarStore,
         actionRegistry,
@@ -1119,6 +1269,7 @@ async function getGoogleAccessToken(settings = loadSettings()) {
     const refreshed = await googleClient.refreshAccessToken({
         clientId: getGoogleOAuthClientId(),
         clientSecret: getGoogleOAuthClientSecret(),
+        tokenEndpoint: CLYDE_GOOGLE_OAUTH_TOKEN_URL,
         refreshToken: tokens.refresh_token
     });
     saveGoogleTokens(refreshed);
@@ -1221,7 +1372,7 @@ function startGoogleSyncTimer(settings = loadSettings()) {
         clearInterval(googleSyncTimer);
         googleSyncTimer = null;
     }
-    if (!settings.googleSyncEnabled) {
+    if (!settings.googleSyncEnabled || !hasGoogleOAuthClientId()) {
         return;
     }
     const minutes = Math.max(1, Number(settings.googleSyncPollMinutes || 15) || 15);
@@ -1238,7 +1389,7 @@ function startGoogleSyncTimer(settings = loadSettings()) {
 }
 
 function startGoogleSyncOnLaunch(settings = loadSettings()) {
-    if (!settings.googleSyncEnabled) {
+    if (!settings.googleSyncEnabled || !hasGoogleOAuthClientId()) {
         return;
     }
     const tokens = getGoogleTokens();
@@ -1807,12 +1958,6 @@ function createWindow () {
   const settings = loadSettings();
   applyCaptureProtection(settings);
 
-  const rendererIndex = path.join(__dirname, 'src', 'renderer-dist', 'index.html');
-  const legacyRendererIndex = path.join(__dirname, 'src', 'index.html');
-  const filePath = fs.existsSync(rendererIndex) ? rendererIndex : legacyRendererIndex;
-  log.info(`📄 Loading renderer from: ${filePath}`);
-  mainWindow.loadFile(filePath);
-
   mainWindow.webContents.on('did-finish-load', () => {
       log.info(`🔄 did-finish-load event. Window visible: ${mainWindow.isVisible()}`);
       if (!mainWindow.isVisible()) {
@@ -1847,6 +1992,11 @@ function createWindow () {
         logger: console
     });
 
+    questionBankManager = createQuestionBankManager({
+        appPath: app.getPath('userData'),
+        logger: console
+    });
+
     mockInterviewManager = createMockInterviewManager({
         appPath: app.getPath('userData'),
         axiosClient: axios,
@@ -1861,6 +2011,9 @@ function createWindow () {
     syncStore = createSyncStore({
         appPath: app.getPath('userData')
     });
+    if (!getGoogleTokens()) {
+        syncStore.clearState();
+    }
 
     googleClient = createGoogleClient({
         axiosClient: axios,
@@ -2012,7 +2165,9 @@ function createWindow () {
           screenshotWarning,
           sources: payload && payload.sources,
           intent: payload && payload.intent,
-          mode: payload && payload.mode
+          mode: payload && payload.mode,
+          transcript: payload && payload.transcript,
+          draftSessionContext: payload && payload.draftSessionContext
       });
   });
 
@@ -2023,11 +2178,45 @@ function createWindow () {
   });
 
   ipcMain.handle('load-settings', (event) => {
-      return loadSettings();
+      return publicSettings();
   });
 
   ipcMain.handle('get-tier-status', () => {
       return getTierStatus();
+  });
+
+  ipcMain.handle('get-auth-session', () => {
+      return authSessionFromSettings();
+  });
+
+  ipcMain.handle('sign-up', async (event, payload = {}) => {
+      const session = await signUp({
+          ...(payload || {}),
+          config: getSupabaseAuthConfig()
+      });
+      saveAuthSession(session);
+      await refreshEntitlements().catch(() => null);
+      return { session: authSessionFromSettings(), settings: publicSettings() };
+  });
+
+  ipcMain.handle('sign-in', async (event, payload = {}) => {
+      const session = await signIn({
+          ...(payload || {}),
+          config: getSupabaseAuthConfig()
+      });
+      saveAuthSession(session);
+      await refreshEntitlements().catch(() => null);
+      return { session: authSessionFromSettings(), settings: publicSettings() };
+  });
+
+  ipcMain.handle('sign-out', () => {
+      const session = clearAuthSession();
+      return { session, settings: publicSettings() };
+  });
+
+  ipcMain.handle('refresh-auth-session', async () => {
+      const session = await getFreshAuthSession();
+      return session ? authSessionFromSettings(loadSettings()) : { signedIn: false, userId: '', email: '' };
   });
 
   ipcMain.handle('refresh-entitlements', async () => {
@@ -2036,6 +2225,45 @@ function createWindow () {
 
   ipcMain.handle('open-upgrade-page', async () => {
       await shell.openExternal(CLYDE_UPGRADE_URL);
+      return true;
+  });
+
+  ipcMain.handle('start-checkout-session', async () => {
+      const authSession = await getFreshAuthSession();
+      const checkout = await createCheckoutSession({
+          accessToken: authSession?.accessToken || '',
+          endpoint: CLYDE_CHECKOUT_URL
+      });
+      if (!checkout.url) {
+          throw new Error('Checkout URL was not returned.');
+      }
+      await shell.openExternal(checkout.url);
+      return true;
+  });
+
+  ipcMain.handle('start-pro-signup-checkout', async (event, payload = {}) => {
+      const checkout = await createProSignupCheckout({
+          email: payload.email,
+          password: payload.password,
+          endpoint: CLYDE_PRO_SIGNUP_CHECKOUT_URL
+      });
+      if (!checkout.url) {
+          throw new Error('Checkout URL was not returned.');
+      }
+      await shell.openExternal(checkout.url);
+      return checkout;
+  });
+
+  ipcMain.handle('open-billing-portal', async () => {
+      const authSession = await getFreshAuthSession();
+      const portal = await createBillingPortalSession({
+          accessToken: authSession?.accessToken || '',
+          endpoint: CLYDE_BILLING_PORTAL_URL
+      });
+      if (!portal.url) {
+          throw new Error('Billing portal URL was not returned.');
+      }
+      await shell.openExternal(portal.url);
       return true;
   });
 
@@ -2109,11 +2337,12 @@ function createWindow () {
       return getAgentChat().confirmAction(payload || {});
   });
 
-  ipcMain.handle('list-agent-sources', async (event, filters = {}) => {
+  ipcMain.handle('list-agent-sources', async (event, requestFilters = {}) => {
+      const sourceFilters = requestFilters && typeof requestFilters === 'object' ? requestFilters : {};
       if (demoData.isDemoMode(loadSettings())) {
-          return demoData.listAgentSources(filters || {});
+          return demoData.listAgentSources(sourceFilters);
       }
-      return getAgentChat().listSources(filters || {});
+      return getAgentChat().listSources(sourceFilters);
   });
 
   ipcMain.handle('load-floating-agent-prefs', () => {
@@ -2144,7 +2373,8 @@ function createWindow () {
       const settings = loadSettings();
       const result = await googleClient.connect({
           clientId: getGoogleOAuthClientId(),
-          clientSecret: getGoogleOAuthClientSecret()
+          clientSecret: getGoogleOAuthClientSecret(),
+          tokenEndpoint: CLYDE_GOOGLE_OAUTH_TOKEN_URL
       });
       saveGoogleTokens(result.tokens);
       const nextSettings = {
@@ -2266,6 +2496,94 @@ function createWindow () {
       return knowledgeManager ? knowledgeManager.listKnowledge(filters || {}) : [];
   });
 
+  ipcMain.handle('preview-meeting-session', async (event, payload = {}) => {
+      const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
+      if (!transcript.length) {
+          return buildMeetingPreviewFallback([], payload.cards || []);
+      }
+      const settings = loadSettings();
+      try {
+          const responseText = await generateChat({
+              provider: settings.llmProvider || 'local',
+              apiKey: settings.llmApiKey || '',
+              model: settings.llmModel || '',
+              temperature: 0,
+              maxTokens: 1600,
+              axiosClient: axios,
+              localUrl: settings.localLlmUrl,
+              messages: [{ role: 'user', content: buildMeetingPreviewPrompt(transcript, payload.attendees || settings.meetingAttendees || []) }],
+              jsonSchema: {
+                  name: 'meeting_session_preview',
+                  schema: {
+                      type: 'object',
+                      properties: {
+                          notes: {
+                              type: 'object',
+                              properties: {
+                                  agenda: { type: 'array', items: { type: 'string' } },
+                                  decisions: { type: 'array', items: { type: 'string' } },
+                                  actionItems: { type: 'array', items: { type: 'string' } },
+                                  blockers: { type: 'array', items: { type: 'string' } },
+                                  followUps: { type: 'array', items: { type: 'string' } },
+                                  openQuestions: { type: 'array', items: { type: 'string' } }
+                              },
+                              required: ['agenda', 'decisions', 'actionItems', 'blockers', 'followUps', 'openQuestions'],
+                              additionalProperties: false
+                          }
+                      },
+                      required: ['notes'],
+                      additionalProperties: false
+                  }
+              }
+          });
+          return normalizeMeetingPreviewResponse(responseText, transcript, payload.cards || []);
+      } catch (error) {
+          console.warn('Meeting preview failed:', error);
+          return buildMeetingPreviewFallback(transcript, payload.cards || []);
+      }
+  });
+
+  ipcMain.handle('list-question-bank', (event, filters = {}) => {
+      return questionBankManager ? questionBankManager.listEntries(filters || {}) : [];
+  });
+
+  ipcMain.handle('get-question-bank-dashboard', (event, filters = {}) => {
+      return questionBankManager ? questionBankManager.getDashboard(filters || {}) : {};
+  });
+
+  ipcMain.handle('save-question-bank-entry', async (event, entry = {}) => {
+      if (!questionBankManager) {
+          throw new Error('Question Bank is not ready.');
+      }
+      const saved = await questionBankManager.upsertEntry(entry || {}, loadSettings());
+      refreshSystemKnowledgeFromState('question-bank-saved');
+      return saved;
+  });
+
+  ipcMain.handle('delete-question-bank-entry', (event, id) => {
+      const deleted = questionBankManager ? questionBankManager.deleteEntry(id) : false;
+      refreshSystemKnowledgeFromState('question-bank-deleted');
+      return deleted;
+  });
+
+  ipcMain.handle('open-question-bank-csv-dialog', async (event, filters = {}) => {
+      if (!questionBankManager) {
+          return [];
+      }
+      const result = await dialog.showOpenDialog(mainWindow, {
+          title: 'Import question bank CSV',
+          properties: ['openFile'],
+          filters: [{ name: 'CSV files', extensions: ['csv'] }]
+      });
+      if (result.canceled || !result.filePaths?.length) {
+          return [];
+      }
+      const csvText = fs.readFileSync(result.filePaths[0], 'utf8');
+      const saved = await questionBankManager.importCsvText(csvText, filters || {}, loadSettings());
+      refreshSystemKnowledgeFromState('question-bank-imported');
+      return saved;
+  });
+
   ipcMain.handle('ingest-knowledge-file', async (event, filePath) => {
       if (!knowledgeManager) {
           throw new Error('Knowledge base is not ready.');
@@ -2287,9 +2605,9 @@ function createWindow () {
         assertFeature('liveavatar_mock_interviews');
         const { opportunity } = payload;
         const settings = loadSettings();
-        const apiKey = String(process.env.CLYDE_LIVEAVATAR_API_KEY || process.env.LIVEAVATAR_API_KEY || '').trim();
-        if (!apiKey) {
-            throw new Error('LiveAvatar API key is not configured on this build.');
+        const authSession = await getFreshAuthSession();
+        if (!authSession?.accessToken) {
+            throw new Error('Sign in before starting a LiveAvatar mock interview.');
         }
         
         const resumeText = settings.resumeText || '';
@@ -2324,42 +2642,32 @@ function createWindow () {
                 new Date().toISOString(),
                 Math.random().toString(16).slice(2, 8)
             ].join(' - ');
-            const contextRes = await axios.post('https://api.liveavatar.com/v1/contexts', {
-                  name: contextName,
-                  opening_text: `Hello there! I'm ready to begin the interview.`,
-                  prompt: [
-                      prompt,
+            const tokenRes = await axios.post(CLYDE_LIVEAVATAR_TOKEN_URL, {
+                contextName,
+                openingText: `Hello there! I'm ready to begin the interview.`,
+                prompt: [
+                    prompt,
                     'Start with a short greeting only after the live audio and video stream is ready. Do not begin mid-sentence.'
-                ].join('\n\n').slice(0, 30000)
+                ].join('\n\n').slice(0, 30000),
+                isSandbox: true
             }, {
                 headers: {
-                    'X-API-KEY': apiKey,
+                    Authorization: `Bearer ${authSession.accessToken}`,
                     'Content-Type': 'application/json'
-                }
-            });
-            const contextId = contextRes.data?.data?.id;
-
-            const sessionRes = await axios.post('https://api.liveavatar.com/v1/sessions/token', {
-                mode: 'FULL',
-                avatar_id: 'dd73ea75-1218-4ef3-92ce-606d5f7fbc0a',
-                is_sandbox: true,
-                avatar_persona: {
-                    context_id: contextId,
-                    language: 'en'
-                }
-            }, {
-                headers: {
-                    'X-API-KEY': apiKey,
-                    'Content-Type': 'application/json'
-                }
+                },
+                timeout: 20000
             });
 
-            return sessionRes.data?.data?.session_token;
+            const sessionToken = tokenRes.data?.sessionToken;
+            if (!sessionToken) {
+                throw new Error('LiveAvatar token endpoint did not return a session token.');
+            }
+            return sessionToken;
         } catch (error) {
             const status = error?.response?.status || error?.status || '';
-            const message = error?.response?.data?.message || error?.message || 'Unknown error';
+            const message = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unknown error';
             console.error('LiveAvatar session creation failed:', { status, message });
-            throw new Error('Failed to start LiveAvatar session');
+            throw new Error(message === 'Unknown error' ? 'Failed to start LiveAvatar session' : message);
         }
     });
 
@@ -2451,7 +2759,8 @@ function createWindow () {
               ...settings,
               appMode: context.mode === 'meeting' ? 'meeting' : 'interview',
               currentCompany: context.mode === 'interview' && context.entityId ? context.entityId : settings.currentCompany,
-              meetingTitle: context.mode === 'meeting' && (context.entityName || context.entityId) ? (context.entityName || context.entityId) : settings.meetingTitle
+              meetingTitle: context.mode === 'meeting' && (context.entityName || context.entityId) ? (context.entityName || context.entityId) : settings.meetingTitle,
+              includeGlobalQuestionBank: context.includeGlobalQuestionBank !== undefined ? Boolean(context.includeGlobalQuestionBank) : Boolean(settings.includeGlobalQuestionBank)
           }
           : settings;
 
@@ -2776,11 +3085,48 @@ function createWindow () {
               await archiveSessionKnowledge(nextRecord, settings);
           }
 
+          processQuestionBankExtractionInBackground(nextRecord, settings).catch(console.error);
           await processSessionGradingInBackground(sessionId, nextRecord, settings);
       } catch (error) {
           console.error("Transcript cleanup failed", error);
+          processQuestionBankExtractionInBackground(record, settings).catch(console.error);
           await processSessionGradingInBackground(sessionId, record, settings);
       }
+  }
+
+  async function processQuestionBankExtractionInBackground(record, settings) {
+      if (!questionBankManager || record?.mode !== 'interview' || !Array.isArray(record.transcript) || !record.transcript.length) {
+          return [];
+      }
+
+      const provider = settings.llmProvider || 'local';
+      const apiKey = settings.llmApiKey || '';
+      const model = settings.llmModel || '';
+      const localUrl = settings.localLlmUrl;
+      const jd = interviewManager?.getCompanyJobDescription?.(record.entity?.id)
+          || interviewManager?.getCompanyJobDescription?.(record.entity?.name)
+          || '';
+      const responseText = await generateChat({
+          provider,
+          apiKey,
+          model,
+          temperature: 0.1,
+          maxTokens: 3000,
+          axiosClient: axios,
+          localUrl,
+          jsonSchema: questionBankExtractionSchema(),
+          messages: [{ role: 'user', content: buildQuestionBankExtractionPrompt(record, jd) }]
+      });
+      const entries = normalizeQuestionBankExtractionResponse(responseText);
+      if (!entries.length) {
+          return [];
+      }
+      const saved = await questionBankManager.extractFromInterviewSession(record, entries, settings);
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(loadSettings()));
+      }
+      notifyDataChanged({ mode: 'interview', entityId: record.entity?.id, reason: 'question-bank-updated' });
+      return saved;
   }
 
   async function processMeetingCleanupAndNotesInBackground(sessionId, record, settings) {
@@ -3365,6 +3711,12 @@ ${jobDescription}`;
       }
   });
 
+  const rendererIndex = path.join(__dirname, 'src', 'renderer-dist', 'index.html');
+  const legacyRendererIndex = path.join(__dirname, 'src', 'index.html');
+  const filePath = fs.existsSync(rendererIndex) ? rendererIndex : legacyRendererIndex;
+  log.info(`📄 Loading renderer from: ${filePath}`);
+  mainWindow.loadFile(filePath);
+
   mainWindow.on('resized', () => {
       if (activeCaptureWindow && !activeCaptureMinimized && !suppressActiveBoundsSave && mainWindow) {
           saveActiveCaptureBounds(mainWindow.getBounds());
@@ -3411,6 +3763,7 @@ app.whenReady().then(() => {
     createWindow();
 
     startAutoUpdater({
+        enabled: process.env.CLYDE_ENABLE_AUTO_UPDATE === '1',
         isPackaged: app.isPackaged,
         logger: log
     });
