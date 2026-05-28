@@ -518,6 +518,7 @@ test('active source menu filters by mode and confirms selections', () => {
 
 test('preflight modal uses compact mockup layout', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
   const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
   const start = appSource.indexOf('function CallPreflightModal');
   const end = appSource.indexOf('function PreflightModel', start);
@@ -541,7 +542,21 @@ test('preflight modal uses compact mockup layout', () => {
   assert.match(preflightSource, /testAudioIconUrl/);
   assert.match(preflightSource, /preflight-rag-chip/);
   assert.doesNotMatch(preflightSource, /activeContext\.resume\?\.excerpt/);
+  assert.match(preflightSource, /transcriptionSelected/);
+  assert.match(preflightSource, /transcriptionState = transcriptionSelected \? \(transcriptionHealth\.state \|\| 'unknown'\) : 'not selected'/);
+  assert.match(preflightSource, /assistantSelected/);
+  assert.match(preflightSource, /assistantState = assistantSelected \? \(assistantHealth\.state \|\| 'unknown'\) : 'not selected'/);
+  assert.match(preflightSource, /<strong>Provider:<\/strong> <span>\{models\.transcriptionProvider \|\| 'Not selected'\}<\/span>/);
+  assert.match(preflightSource, /preflightReady/);
+  assert.match(preflightSource, /preflightPillLabel = preflight \? \(preflightReady \? 'Ready to start\.' : 'Check Connections'\) : status/);
+  assert.match(preflightSource, /captureProtectionLabel/);
+  assert.match(preflightSource, /Screen capture protection enabled/);
+  assert.match(preflightSource, /Screen capture protection disabled/);
+  assert.match(mainSource, /captureProtectionEnabled: settings\.captureProtectionEnabled !== false/);
   assert.match(cssSource, /\.preflight-summary-strip/);
+  assert.match(cssSource, /\.preflight-hero-status/);
+  assert.match(cssSource, /\.preflight-ready-pill\.issue/);
+  assert.match(cssSource, /\.capture-protection-status/);
   assert.match(cssSource, /\.preflight-main-layout/);
   assert.match(cssSource, /\.preflight-connection-card/);
   assert.match(cssSource, /\.preflight-middle-stack/);
@@ -551,6 +566,99 @@ test('preflight modal uses compact mockup layout', () => {
   assert.match(cssSource, /\.preflight-test-button img/);
   assert.match(cssSource, /\.preflight-file-chip\.preflight-rag-chip/);
   assert.match(cssSource, /\.preflight-upload-card|\.preflight-upload-panel/);
+  assert.match(preflightSource, /function refreshPreflight\(includeGlobalOverride\)/);
+  assert.match(preflightSource, /requestPayload\.includeGlobalQuestionBank = Boolean\(includeGlobalOverride\)/);
+  assert.match(preflightSource, /next\?\.settings\?\.includeGlobalQuestionBank/);
+  assert.match(preflightSource, /refreshPreflight\(checked\)/);
+  assert.match(mainSource, /includeGlobalQuestionBank: store\.get\('includeGlobalQuestionBank', false\)/);
+});
+
+test('workspace nav uses dedicated Question Bank icons', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const iconStart = appSource.indexOf('function WorkspaceNavIcon');
+  const iconEnd = appSource.indexOf('function KnowledgeView', iconStart);
+  const iconSource = appSource.slice(iconStart, iconEnd);
+
+  assert.match(appSource, /iconQuestionBankUrl = new URL\('\.\.\/\.\.\/navbar-icons\/Question_Bank\.svg'/);
+  assert.match(appSource, /iconQuestionBankColorUrl = new URL\('\.\.\/\.\.\/navbar-icons\/Question_Bank_color\.svg'/);
+  assert.match(iconSource, /'question-bank': active \? iconQuestionBankColorUrl : iconQuestionBankUrl/);
+  assert.doesNotMatch(iconSource, /'question-bank': active \? iconAssistColorUrl : iconAssistUrl/);
+});
+
+test('question bank table supports bulk selection and edits', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const preloadSource = fs.readFileSync(path.join(repoRoot, 'src', 'preload.js'), 'utf8');
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const viewStart = appSource.indexOf('function QuestionBankView');
+  const viewEnd = appSource.indexOf('function WorkspaceNav', viewStart);
+  const viewSource = appSource.slice(viewStart, viewEnd);
+
+  assert.match(viewSource, /selectedIds/);
+  assert.match(viewSource, /bulkDeleteSelected/);
+  assert.match(viewSource, /bulkLinkSelected/);
+  assert.match(viewSource, /bulkSourceSelected/);
+  assert.match(viewSource, /Select all visible/);
+  assert.match(viewSource, /Delete selected/);
+  assert.match(viewSource, /Link selected/);
+  assert.match(viewSource, /Set source/);
+  assert.match(viewSource, /aria-label="Select all visible question bank entries"/);
+  assert.match(viewSource, /viewRef = useRef\(null\)/);
+  assert.match(viewSource, /editorRef = useRef\(null\)/);
+  assert.match(viewSource, /scrollTo\?\.\(\{ top: 0, behavior: 'smooth' \}\)/);
+  assert.match(viewSource, /querySelector\?\.\('textarea'\)\?\.focus\?\.\(\)/);
+  assert.match(viewSource, /showQuestionBankDialog/);
+  assert.match(viewSource, /Question save failed/);
+  assert.match(viewSource, /Question delete failed/);
+  assert.match(viewSource, /Bulk delete failed/);
+  assert.match(viewSource, /Bulk link update failed/);
+  assert.match(viewSource, /Bulk source update failed/);
+  assert.match(viewSource, /aria-label="Question Bank action message"/);
+  assert.match(viewSource, /settings-message-modal/);
+  assert.match(viewSource, /api\?\.deleteQuestionBankEntries/);
+  assert.match(viewSource, /api\?\.bulkUpdateQuestionBankEntries/);
+  assert.match(preloadSource, /deleteQuestionBankEntries/);
+  assert.match(preloadSource, /bulkUpdateQuestionBankEntries/);
+  assert.match(mainSource, /delete-question-bank-entries/);
+  assert.match(mainSource, /bulk-update-question-bank-entries/);
+  assert.match(cssSource, /\.question-bank-bulk-actions/);
+  assert.match(cssSource, /grid-template-columns: 34px 1\.2fr 1\.8fr 0\.8fr 0\.45fr 150px/);
+});
+
+test('trend analysis chart is titled performance over time', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+
+  assert.match(appSource, /Performance Over Time/);
+  assert.doesNotMatch(appSource, /Transcript Rating Over Time/);
+});
+
+test('trend analysis includes overview dashboard before opportunity selection', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.css'), 'utf8');
+  const trendsStart = appSource.indexOf('function TrendsView');
+  const trendsEnd = appSource.indexOf('function TrendChart', trendsStart);
+  const trendsSource = appSource.slice(trendsStart, trendsEnd);
+
+  assert.match(trendsSource, /TrendOverviewDashboard/);
+  assert.match(trendsSource, /Opportunity comparison/);
+  assert.match(trendsSource, /Overview/);
+  assert.match(trendsSource, /trend-overview-rail-button/);
+  assert.doesNotMatch(trendsSource, /Back to overview/);
+  assert.match(appSource, /function MultiOpportunityTrendChart/);
+  assert.match(appSource, /function buildTrendOverviewRows/);
+  assert.match(cssSource, /\.trends-overview-dashboard/);
+  assert.match(cssSource, /\.trends-comparison-table/);
+});
+
+test('trend analysis loads overview sessions when opened from nav', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const chooseStart = appSource.indexOf('function chooseWorkspaceView');
+  const chooseEnd = appSource.indexOf('async function setActiveMeeting', chooseStart);
+  const chooseSource = appSource.slice(chooseStart, chooseEnd);
+
+  assert.match(chooseSource, /nextView === 'trends'/);
+  assert.match(chooseSource, /setSelectedEntity\(''\)/);
+  assert.match(chooseSource, /api\.getSessions\(\{ mode \}\)/);
 });
 
 test('pro knowledge workspace exposes upload, search, and pinning controls', () => {
@@ -633,8 +741,8 @@ test('timeline replaces the live workspace when opened', () => {
 
   assert.match(renderBlock, /workspace-timeline/);
   assert.ok(renderBlock.indexOf('<BrandMasthead') < renderBlock.indexOf('<WorkspaceNav'));
-  assert.ok(renderBlock.indexOf('<TimelineView') < renderBlock.indexOf('<StatusStrip'));
-  assert.ok(renderBlock.indexOf('<StatusStrip') < renderBlock.indexOf('<ContextPanel'));
+  assert.equal(renderBlock.includes('<StatusStrip'), false);
+  assert.ok(renderBlock.indexOf('<TimelineView') < renderBlock.indexOf('<ContextPanel'));
 });
 
 test('interview timeline shows transcript star ratings', () => {
@@ -791,6 +899,28 @@ test('pre-call prep renders saved AI prep sections with 3 bullets each', () => {
   assert.match(contextSource, /preCallPrep\.questions_to_ask\.map/);
   assert.match(contextSource, /preCallPrep\.cumulative_phase_summary\.map/);
   assert.match(contextSource, /Previous interviewer question patterns/);
+});
+
+test('pre-call prep supports material-based interview prep before completed interviews', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const contextStart = appSource.indexOf('function ContextPanel');
+  const contextEnd = appSource.indexOf('function TimelineView', contextStart);
+  const contextSource = appSource.slice(contextStart, contextEnd);
+
+  assert.match(appSource, /isMaterialPreCallPrepComplete/);
+  assert.match(contextSource, /Generating AI prep from the role materials/);
+  assert.match(contextSource, /Probable questions to expect/);
+  assert.match(contextSource, /Strengths aligned to the role/);
+  assert.match(contextSource, /Questions you can ask/);
+  assert.match(contextSource, /Gaps and mitigation/);
+  assert.match(contextSource, /preCallPrep\.gaps_and_mitigation\.map/);
+  assert.match(contextSource, /preCallPrep\.questions_to_ask\.map/);
+  assert.match(contextSource, /const cachedAnalysis = unwrapTrendAnalysisRecord\(parsed\)/);
+  assert.match(contextSource, /normalized\.length < 2 && isMaterialPreCallPrepComplete\(cachedAnalysis\)/);
+  assert.match(contextSource, /const storedAnalysis = unwrapTrendAnalysisRecord\(stored\)/);
+  assert.match(contextSource, /normalized\.length < 2 && isMaterialPreCallPrepComplete\(storedAnalysis\)/);
+  assert.ok(contextSource.indexOf('Gaps and mitigation') < contextSource.indexOf('Questions you can ask'));
+  assert.doesNotMatch(contextSource, /normalized\.length < 2\)\s*\{\s*setTrendAnalysis\(null\)/);
 });
 
 test('pre-call prep uses compact overview card with session start action', () => {
@@ -1192,6 +1322,20 @@ test('trend analysis view loads saved analysis without auto-regenerating on navi
   assert.match(trendsSource, /Generate Analysis/);
   assert.match(trendsSource, /generateTrendAnalysis\?\.\(selected\.id, \{ force: true \}\)/);
   assert.equal(trendsSource.includes('setAnalysis(null);\n      generateAnalysis();'), false);
+});
+
+test('trend analysis supports one-session baseline analysis', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const trendsStart = appSource.indexOf('function TrendsView');
+  const trendsEnd = appSource.indexOf('function TrendChart', trendsStart);
+  const trendsSource = appSource.slice(trendsStart, trendsEnd);
+  const chartSource = appSource.slice(trendsEnd, appSource.indexOf('const calendarStyles', trendsEnd));
+
+  assert.match(trendsSource, /sessions\.length < 1/);
+  assert.match(trendsSource, /Baseline Analysis/);
+  assert.doesNotMatch(trendsSource, /At least 2 interview sessions are required/);
+  assert.match(chartSource, /validSessions\.length < 1/);
+  assert.match(chartSource, /validSessions\.length === 1/);
 });
 
 test('renderer reloads sessions after background session data changes', () => {

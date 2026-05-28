@@ -84,7 +84,7 @@ function buildTrendAnalysisSessionSignature(sessions = []) {
 }
 
 function isTrendAnalysisComplete(analysis, sessionCount) {
-  if (!analysis || !Number.isInteger(sessionCount) || sessionCount < 2) {
+  if (!analysis || !Number.isInteger(sessionCount) || sessionCount < 1) {
     return false;
   }
 
@@ -94,6 +94,18 @@ function isTrendAnalysisComplete(analysis, sessionCount) {
     && Array.isArray(analysis.key_strengths)
     && Array.isArray(analysis.areas_for_improvement)
     && isPreCallPrepComplete(analysis.pre_call_prep);
+}
+
+function isMaterialPreCallPrepComplete(analysis) {
+  if (!analysis || typeof analysis !== 'object') {
+    return false;
+  }
+
+  return analysis.prep_basis === 'materials'
+    && isPreCallPrepComplete(analysis.pre_call_prep)
+    && Array.isArray(analysis.pre_call_prep.gaps_and_mitigation)
+    && analysis.pre_call_prep.gaps_and_mitigation.length === 3
+    && analysis.pre_call_prep.gaps_and_mitigation.every((item) => cleanText(item));
 }
 
 function normalizePreCallPrep(prep, phaseBreakdown = []) {
@@ -114,6 +126,10 @@ function normalizePreCallPrep(prep, phaseBreakdown = []) {
     questions_to_ask: normalizeBulletList(
       source.questions_to_ask,
       buildFallbackPreCallBullets('questions_to_ask', phaseBreakdown)
+    ),
+    gaps_and_mitigation: normalizeBulletList(
+      source.gaps_and_mitigation,
+      buildFallbackPreCallBullets('gaps_and_mitigation', phaseBreakdown)
     )
   };
 }
@@ -166,6 +182,14 @@ function buildFallbackPreCallBullets(key, phaseBreakdown = []) {
       'Prior question patterns need a fresh AI analysis before reliable themes can be listed.',
       'Review the latest interviewer questions for repeated emphasis across technical, role-fit, and execution topics.',
       'Separate actual repeated themes from one-off questions before planning answers.'
+    ];
+  }
+
+  if (key === 'gaps_and_mitigation') {
+    return [
+      'Identify any role requirement without a clear matching example and prepare one specific story for it.',
+      'If the role needs domain experience you have not shown yet, connect adjacent experience to the same workflow, user, or operating constraint.',
+      'Prepare one concise explanation for any tool, industry, or leadership gap that includes what you have already done to close it.'
     ];
   }
 
@@ -271,6 +295,8 @@ function directAddressFeedback(value) {
     .replace(/\b[Hh]is\b/g, (match) => match[0] === 'H' ? 'Your' : 'your')
     .replace(/\b[Hh]e\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
     .replace(/\b[Hh]im\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
+    .replace(/\b[Ss]he\b/g, (match) => match[0] === 'S' ? 'You' : 'you')
+    .replace(/\b[Hh]er\b/g, (match) => match[0] === 'H' ? 'Your' : 'your')
     .replace(/\b[Yy]ou is\b/g, (match) => match[0] === 'Y' ? 'You are' : 'you are')
     .replace(/\b[Yy]ou was\b/g, (match) => match[0] === 'Y' ? 'You were' : 'you were')
     .replace(/\b[Yy]ou has\b/g, (match) => match[0] === 'Y' ? 'You have' : 'you have')
@@ -351,6 +377,7 @@ function getTranscriptRating(grading) {
 module.exports = {
   buildTrendAnalysisSessionSignature,
   getTranscriptRating,
+  isMaterialPreCallPrepComplete,
   isTrendAnalysisComplete,
   directAddressFeedback,
   getGradePercentage,

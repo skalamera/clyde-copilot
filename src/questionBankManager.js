@@ -61,7 +61,34 @@ function createQuestionBankManager(options = {}) {
       updated_at = excluded.updated_at
   `);
   const getByKeyStatement = db.prepare('SELECT * FROM question_bank WHERE normalized_key = ?');
+  const getByIdStatement = db.prepare('SELECT * FROM question_bank WHERE id = ?');
   const deleteStatement = db.prepare('DELETE FROM question_bank WHERE id = ?');
+  const updateEntryStatement = db.prepare(`
+    UPDATE question_bank SET
+      question = @question,
+      sample_answer = @sample_answer,
+      scope_mode = @scope_mode,
+      entity_id = @entity_id,
+      entity_name = @entity_name,
+      mode = @mode,
+      source = @source,
+      answer_source = @answer_source,
+      tags_json = @tags_json,
+      metadata_json = @metadata_json,
+      updated_at = @updated_at,
+      normalized_key = @normalized_key
+    WHERE id = @id
+  `);
+  const updateBulkStatement = db.prepare(`
+    UPDATE question_bank SET
+      scope_mode = @scope_mode,
+      entity_id = @entity_id,
+      entity_name = @entity_name,
+      source = @source,
+      updated_at = @updated_at,
+      normalized_key = @normalized_key
+    WHERE id = @id
+  `);
 
   async function upsertEntry(entry = {}, settings = {}) {
     const question = clean(entry.question);
@@ -75,7 +102,8 @@ function createQuestionBankManager(options = {}) {
     const entityName = clean(entry.entityName || entry.entity_name || entityId);
     const scopeMode = entityId ? 'entity' : 'global';
     const normalizedKey = buildNormalizedKey({ question, mode, entityId });
-    const existing = getByKeyStatement.get(normalizedKey);
+    const existingById = entry.id ? getByIdStatement.get(clean(entry.id)) : null;
+    const existing = existingById || getByKeyStatement.get(normalizedKey);
     const now = new Date().toISOString();
     const row = {
       id: existing?.id || entry.id || `qb_${hash(normalizedKey).slice(0, 24)}`,
@@ -94,8 +122,12 @@ function createQuestionBankManager(options = {}) {
       normalized_key: normalizedKey
     };
 
-    upsertStatement.run(row);
-    const saved = mapRow(db.prepare('SELECT * FROM question_bank WHERE id = ?').get(row.id));
+    if (existingById) {
+      updateEntryStatement.run(row);
+    } else {
+      upsertStatement.run(row);
+    }
+    const saved = mapRow(getByIdStatement.get(row.id));
     indexEntry(saved, settings).catch((error) => logger.warn?.('Question bank Pinecone index failed:', error));
     return saved;
   }
@@ -239,6 +271,49 @@ function createQuestionBankManager(options = {}) {
     return deleteStatement.run(clean(id)).changes > 0;
   }
 
+  function deleteEntries(ids = []) {
+    const uniqueIds = Array.from(new Set((Array.isArray(ids) ? ids : []).map(clean).filter(Boolean)));
+    let deleted = 0;
+    for (const id of uniqueIds) {
+      deleted += deleteEntry(id) ? 1 : 0;
+    }
+    return deleted;
+  }
+
+  async function bulkUpdateEntries(payload = {}, settings = {}) {
+    const ids = Array.from(new Set((Array.isArray(payload.ids) ? payload.ids : []).map(clean).filter(Boolean)));
+    const patch = payload.patch && typeof payload.patch === 'object' ? payload.patch : {};
+    const hasEntityPatch = Object.prototype.hasOwnProperty.call(patch, 'entityId') || Object.prototype.hasOwnProperty.call(patch, 'entityName');
+    const hasSourcePatch = Object.prototype.hasOwnProperty.call(patch, 'source');
+    const saved = [];
+
+    for (const id of ids) {
+      const current = mapRow(getByIdStatement.get(id));
+      if (!current) {
+        continue;
+      }
+      const nextEntityId = hasEntityPatch ? clean(patch.entityId) : current.entityId;
+      const nextEntityName = hasEntityPatch ? clean(patch.entityName || nextEntityId) : current.entityName;
+      const nextSource = hasSourcePatch ? normalizeSource(patch.source) : current.source;
+      updateBulkStatement.run({
+        id: current.id,
+        scope_mode: nextEntityId ? 'entity' : 'global',
+        entity_id: nextEntityId || null,
+        entity_name: nextEntityName || null,
+        source: nextSource,
+        updated_at: new Date().toISOString(),
+        normalized_key: buildNormalizedKey({ question: current.question, mode: current.mode, entityId: nextEntityId })
+      });
+      const updated = mapRow(getByIdStatement.get(current.id));
+      if (updated) {
+        saved.push(updated);
+        indexEntry(updated, settings).catch((error) => logger.warn?.('Question bank Pinecone index failed:', error));
+      }
+    }
+
+    return saved;
+  }
+
   async function indexEntry(entry, settings = {}) {
     if (!entry || settings.userTier !== 'pro' || !settings.ragEnabled) {
       return null;
@@ -264,7 +339,9 @@ function createQuestionBankManager(options = {}) {
 
   return {
     buildContext,
+    bulkUpdateEntries,
     deleteEntry,
+    deleteEntries,
     extractFromInterviewSession,
     getDashboard,
     importCsvText,

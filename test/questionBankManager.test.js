@@ -40,6 +40,14 @@ class FakeDatabase {
           this.rows = this.rows.filter((row) => row.id !== params);
           return { changes: before - this.rows.length };
         }
+        if (/UPDATE question_bank SET/i.test(normalized)) {
+          const index = this.rows.findIndex((row) => row.id === params.id);
+          if (index < 0) {
+            return { changes: 0 };
+          }
+          this.rows[index] = { ...this.rows[index], ...params };
+          return { changes: 1 };
+        }
         return { changes: 0 };
       },
       get: (param) => {
@@ -87,6 +95,27 @@ test('question bank upserts and deduplicates by normalized question and entity',
   assert.match(manager.buildContext({ entityId: 'apollo', tier: 'free' }), /How do you handle escalations/);
 });
 
+test('question bank edits existing rows by id when the link changes', async () => {
+  const manager = createQuestionBankManager({ appPath: tempDir(), Database: FakeDatabase });
+  const first = await manager.upsertEntry({
+    question: 'How do you handle escalations?',
+    sampleAnswer: 'I triage impact, communicate status, and close the loop.'
+  });
+  const edited = await manager.upsertEntry({
+    id: first.id,
+    question: 'How do you handle escalations?',
+    sampleAnswer: 'I clarify severity, assign ownership, and follow up.',
+    entityId: 'apollo',
+    entityName: 'Apollo',
+    source: 'manual'
+  });
+
+  assert.equal(edited.id, first.id);
+  assert.equal(edited.entityId, 'apollo');
+  assert.equal(edited.sampleAnswer, 'I clarify severity, assign ownership, and follow up.');
+  assert.equal(manager.listEntries({ mode: 'interview' }).length, 1);
+});
+
 test('question bank context entries use request options without global filters state', async () => {
   const manager = createQuestionBankManager({ appPath: tempDir(), Database: FakeDatabase });
   await manager.upsertEntry({
@@ -124,6 +153,33 @@ test('question bank CSV import accepts question, answer, and opportunity columns
   assert.equal(saved.length, 1);
   assert.equal(saved[0].source, 'csv');
   assert.equal(saved[0].entityName, 'Apollo');
+});
+
+test('question bank bulk updates links and sources', async () => {
+  const manager = createQuestionBankManager({ appPath: tempDir(), Database: FakeDatabase });
+  const first = await manager.upsertEntry({
+    question: 'How do you handle escalations?',
+    sampleAnswer: 'I triage impact, communicate status, and close the loop.'
+  });
+  const second = await manager.upsertEntry({
+    question: 'Tell me about yourself.',
+    sampleAnswer: 'I summarize my background against the role.'
+  });
+
+  const linked = await manager.bulkUpdateEntries({
+    ids: [first.id, second.id],
+    patch: { entityId: 'apollo', entityName: 'Apollo' }
+  });
+  const sourced = await manager.bulkUpdateEntries({
+    ids: [first.id],
+    patch: { source: 'clyde' }
+  });
+
+  assert.equal(linked.length, 2);
+  assert.equal(manager.listEntries({ entityId: 'apollo' }).length, 2);
+  assert.equal(sourced[0].source, 'clyde');
+  assert.equal(manager.deleteEntries([first.id, second.id]), 2);
+  assert.equal(manager.listEntries({ mode: 'interview' }).length, 0);
 });
 
 test('question bank extraction keeps generated answers for weak candidate answers', () => {

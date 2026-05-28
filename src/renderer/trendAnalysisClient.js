@@ -45,7 +45,7 @@ export function buildTrendAnalysisSessionSignature(sessions = []) {
 }
 
 export function isTrendAnalysisComplete(analysis, sessionCount) {
-  if (!analysis || !Number.isInteger(sessionCount) || sessionCount < 2) {
+  if (!analysis || !Number.isInteger(sessionCount) || sessionCount < 1) {
     return false;
   }
 
@@ -55,6 +55,18 @@ export function isTrendAnalysisComplete(analysis, sessionCount) {
     && Array.isArray(analysis.key_strengths)
     && Array.isArray(analysis.areas_for_improvement)
     && isPreCallPrepComplete(analysis.pre_call_prep);
+}
+
+export function isMaterialPreCallPrepComplete(analysis) {
+  if (!analysis || typeof analysis !== 'object') {
+    return false;
+  }
+
+  return analysis.prep_basis === 'materials'
+    && isPreCallPrepComplete(analysis.pre_call_prep)
+    && Array.isArray(analysis.pre_call_prep.gaps_and_mitigation)
+    && analysis.pre_call_prep.gaps_and_mitigation.length === 3
+    && analysis.pre_call_prep.gaps_and_mitigation.every((item) => cleanText(item));
 }
 
 export function getTranscriptRating(grading) {

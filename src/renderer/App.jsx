@@ -3,6 +3,7 @@ import { RealtimeInterview } from './RealtimeInterview';
 import {
   buildTrendAnalysisSessionSignature,
   getTranscriptRating,
+  isMaterialPreCallPrepComplete,
   isTrendAnalysisComplete
 } from './trendAnalysisClient.js';
 
@@ -34,6 +35,8 @@ const iconMeetingNotesUrl = new URL('../../navbar-icons/Meeting_Notes.svg', impo
 const iconMeetingNotesColorUrl = new URL('../../navbar-icons/Meeting_Notes_color.svg', import.meta.url).href;
 const iconTrendsUrl = new URL('../../navbar-icons/Trend_Analysis.svg', import.meta.url).href;
 const iconTrendsColorUrl = new URL('../../navbar-icons/Trend_Analysis_color.svg', import.meta.url).href;
+const iconQuestionBankUrl = new URL('../../navbar-icons/Question_Bank.svg', import.meta.url).href;
+const iconQuestionBankColorUrl = new URL('../../navbar-icons/Question_Bank_color.svg', import.meta.url).href;
 const iconKnowledgeUrl = new URL('../../navbar-icons/Knowledge.svg', import.meta.url).href;
 const iconKnowledgeColorUrl = new URL('../../navbar-icons/Knowledge_color.svg', import.meta.url).href;
 const iconCalendarUrl = new URL('../../navbar-icons/Calendar.svg', import.meta.url).href;
@@ -427,6 +430,8 @@ function directAddressFeedback(text) {
     .replace(/\b[Hh]is\b/g, (match) => match[0] === 'H' ? 'Your' : 'your')
     .replace(/\b[Hh]e\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
     .replace(/\b[Hh]im\b/g, (match) => match[0] === 'H' ? 'You' : 'you')
+    .replace(/\b[Ss]he\b/g, (match) => match[0] === 'S' ? 'You' : 'you')
+    .replace(/\b[Hh]er\b/g, (match) => match[0] === 'H' ? 'Your' : 'your')
     .replace(/\b[Yy]ou is\b/g, (match) => match[0] === 'Y' ? 'You are' : 'you are')
     .replace(/\b[Yy]ou was\b/g, (match) => match[0] === 'Y' ? 'You were' : 'you were')
     .replace(/\b[Yy]ou has\b/g, (match) => match[0] === 'Y' ? 'You have' : 'you have')
@@ -1571,7 +1576,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
   const calibrationSummary = useOutcomeCalibrationSummary(api, mode, selected);
 
   useEffect(() => {
-    if (!selected || sessions.length < 2 || !sessionsMatchSelected) {
+    if (!selected || sessions.length < 1 || !sessionsMatchSelected) {
       setAnalysis(null);
       return;
     }
@@ -1719,8 +1724,15 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
   return (
     <section className="timeline-view" data-testid="trendsTimeline" style={{ '--timeline-rail-width': `${railWidth}px` }}>
       <div className="timeline-rail">
-        <div className="timeline-heading">
+        <div className="timeline-heading trend-heading">
           <h2>Trend Analysis</h2>
+          <button
+            type="button"
+            className={`trend-overview-rail-button ${!selected ? 'active' : ''}`}
+            onClick={() => onSelectEntity('')}
+          >
+            Overview
+          </button>
         </div>
         <div className="entity-list">
           {entities.length ? (
@@ -1765,16 +1777,22 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
       <div className="timeline-main" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
         <div className="timeline-title" style={{ flexShrink: 0 }}>
           <div>
-            <h2>{selected?.name ? `${selected.name} Analysis` : 'Select a record'}</h2>
-            <p>{sessions.length} saved sessions</p>
+            <h2>{selected?.name ? `${selected.name} Analysis` : 'Opportunity comparison'}</h2>
+            <p>{selected ? `${sessions.length} saved sessions` : `${entities.length} opportunities tracked`}</p>
             {mode === 'interview' && selected ? <OutcomeCalibrationNote summary={calibrationSummary} /> : null}
           </div>
         </div>
 
-        {selected ? (
-          sessions.length < 2 ? (
+        {!selected ? (
+          <TrendOverviewDashboard
+            entities={entities}
+            sessions={sessions}
+            onSelectEntity={onSelectEntity}
+          />
+        ) : selected ? (
+          sessions.length < 1 ? (
             <div style={{ marginTop: '40px' }}>
-              <EmptyState title="Not enough data" body="At least 2 interview sessions are required to analyze trends." />
+              <EmptyState title="No sessions yet" body="Save at least 1 interview session to analyze this opportunity." />
             </div>
           ) : (
             <div className="trends-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '10px 10px 40px 0', overflowY: 'auto', flex: 1, minHeight: 0 }}>
@@ -1794,20 +1812,20 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
               </div>
 
               <div className="trends-chart-container" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px' }}>
-                <h4 style={{ margin: '0 0 20px 0', color: 'var(--text)', fontWeight: 500 }}>Transcript Rating Over Time</h4>
+                <h4 style={{ margin: '0 0 20px 0', color: 'var(--text)', fontWeight: 500 }}>Performance Over Time</h4>
                 <TrendChart sessions={sortedSessions} />
               </div>
 
               <div className="trends-analysis-section" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                  <h4 style={{ margin: 0, color: 'var(--text)', fontWeight: 500 }}>Deep Dive Analysis</h4>
+                  <h4 style={{ margin: 0, color: 'var(--text)', fontWeight: 500 }}>{sessions.length === 1 ? 'Baseline Analysis' : 'Deep Dive Analysis'}</h4>
                   <button type="button" className="primary-action" onClick={generateAnalysis} disabled={loading} style={{ padding: '8px 16px' }}>
                     {loading ? 'Analyzing...' : (analysis ? 'Regenerate Analysis' : 'Generate Analysis')}
                   </button>
                 </div>
                 
                 {loading ? (
-                  <div className="analysis-loading pulse" style={{ padding: '40px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--cyan)', minHeight: '100px', width: '100%' }}>Reading transcripts and computing trends...</div>
+                  <div className="analysis-loading pulse" style={{ padding: '40px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--cyan)', minHeight: '100px', width: '100%' }}>{sessions.length === 1 ? 'Reading the saved interview and building a baseline assessment...' : 'Reading transcripts and computing trends...'}</div>
                 ) : analysis ? (
                   <div className="analysis-result" style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
                     <div className="analysis-kpi" style={{ marginBottom: '15px', fontSize: '1.1rem' }}>
@@ -1855,7 +1873,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
                   </div>
                 ) : (
                   <div style={{ marginTop: '20px' }}>
-                    <EmptyState title="No AI analysis yet" body="Click Generate Analysis to ask Clyde to review the transcripts and explain the trend." />
+                    <EmptyState title="No AI analysis yet" body={sessions.length === 1 ? 'Click Generate Analysis to ask Clyde for a baseline assessment from this interview.' : 'Click Generate Analysis to ask Clyde to review the transcripts and explain the trend.'} />
                   </div>
                 )}
               </div>
@@ -1871,6 +1889,266 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
   );
 }
 
+const trendChartPalette = ['#4fe7ff', '#9b8cff', '#9cff6a', '#ffcf5a', '#ff7a90', '#5eead4', '#f0abfc', '#60a5fa'];
+
+function buildTrendOverviewRows(entities = [], sessions = []) {
+  const groupedSessions = new Map();
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    const id = session?.entity?.id || session?.entity?.name;
+    if (!id) {
+      continue;
+    }
+    const list = groupedSessions.get(id) || [];
+    list.push(session);
+    groupedSessions.set(id, list);
+  }
+
+  return (Array.isArray(entities) ? entities : []).map((entity) => {
+    const entitySessions = [...(groupedSessions.get(entity.id) || groupedSessions.get(entity.name) || [])]
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    const ratedSessions = entitySessions
+      .map((session) => ({
+        id: session.id,
+        date: session.date,
+        rating: getTranscriptRating(session.grading)
+      }))
+      .filter((item) => item.rating !== null);
+    const firstRating = ratedSessions[0]?.rating ?? null;
+    const latestRating = ratedSessions[ratedSessions.length - 1]?.rating ?? null;
+
+    return {
+      id: entity.id,
+      name: entity.name || entity.id,
+      role: entity.role || entity.kind || '',
+      outcome: normalizeOpportunityOutcome(entity.outcome),
+      confidence: Number(entity.confidence) || 0,
+      trend: entity.trend || 'neutral',
+      sessions: entitySessions,
+      sessionCount: entitySessions.length,
+      ratedSessions,
+      ratedSessionCount: ratedSessions.length,
+      latestRating,
+      ratingDelta: firstRating !== null && latestRating !== null ? latestRating - firstRating : 0,
+      lastSessionDate: entitySessions[entitySessions.length - 1]?.date || ''
+    };
+  });
+}
+
+function average(values = []) {
+  const filtered = values.filter((value) => Number.isFinite(Number(value)));
+  if (!filtered.length) {
+    return 0;
+  }
+  return filtered.reduce((sum, value) => sum + Number(value), 0) / filtered.length;
+}
+
+function formatSigned(value) {
+  const number = Number(value) || 0;
+  return number > 0 ? `+${number}` : String(number);
+}
+
+function TrendOverviewDashboard({ entities = [], sessions = [], onSelectEntity }) {
+  const opportunityRows = useMemo(() => buildTrendOverviewRows(entities, sessions), [entities, sessions]);
+  const activeRows = opportunityRows.filter((row) => ['active', 'advanced'].includes(row.outcome));
+  const ratedRows = activeRows.filter((row) => row.latestRating !== null);
+  const averageConfidence = average(activeRows.map((row) => row.confidence).filter((value) => value > 0));
+  const averageLatestRating = average(ratedRows.map((row) => row.latestRating));
+  const totalAnalyzedSessions = activeRows.reduce((sum, row) => sum + row.ratedSessionCount, 0);
+  const outcomeCounts = ['active', 'advanced', 'offer', 'rejected'].map((outcome) => ({
+    outcome,
+    label: getOutcomeLabel(outcome),
+    count: opportunityRows.filter((row) => row.outcome === outcome).length
+  }));
+  const strongest = [...ratedRows].sort((a, b) => (b.latestRating ?? -1) - (a.latestRating ?? -1))[0];
+  const improving = [...ratedRows].sort((a, b) => b.ratingDelta - a.ratingDelta)[0];
+  const needsAttention = [...ratedRows].sort((a, b) => (a.latestRating ?? 99) - (b.latestRating ?? 99))[0];
+  const mostHistory = [...activeRows].sort((a, b) => b.sessionCount - a.sessionCount)[0];
+
+  return (
+    <div className="trends-overview-dashboard">
+      <div className="trends-overview-hero">
+        <div>
+          <span className="eyebrow">Trend overview</span>
+          <h3>Compare active opportunity performance</h3>
+          <p>Track ratings, confidence, outcomes, and interview history across the pipeline.</p>
+        </div>
+        <div className="trends-overview-orbit" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+
+      <div className="trends-overview-kpis">
+        <TrendOverviewKpi label="Active + advanced" value={activeRows.length} detail="open opportunities" tone="cyan" />
+        <TrendOverviewKpi label="Average confidence" value={`${Math.round(averageConfidence)}%`} detail="open pipeline" tone="green" />
+        <TrendOverviewKpi label="Latest rating avg" value={averageLatestRating ? `${averageLatestRating.toFixed(1)}/5` : '0/5'} detail="rated sessions" tone="amber" />
+        <TrendOverviewKpi label="Analyzed sessions" value={totalAnalyzedSessions} detail="with transcript ratings" tone="violet" />
+      </div>
+
+      <div className="trends-overview-grid">
+        <section className="trends-overview-panel trends-overview-chart-panel">
+          <div className="trends-overview-panel-head">
+            <div>
+              <span className="eyebrow">All active opportunities</span>
+              <h4>Performance Over Time</h4>
+            </div>
+          </div>
+          <MultiOpportunityTrendChart rows={activeRows} />
+        </section>
+
+        <section className="trends-overview-panel">
+          <div className="trends-overview-panel-head">
+            <div>
+              <span className="eyebrow">Pipeline mix</span>
+              <h4>Outcome distribution</h4>
+            </div>
+          </div>
+          <div className="trends-outcome-mix">
+            {outcomeCounts.map((item) => (
+              <div key={item.outcome} className={`trends-outcome-row ${item.outcome}`}>
+                <span>{item.label}</span>
+                <strong>{item.count}</strong>
+                <div>
+                  <i style={{ width: `${opportunityRows.length ? Math.max(8, (item.count / opportunityRows.length) * 100) : 0}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="trends-overview-rankings">
+        <TrendRankingCard title="Strongest latest" row={strongest} metric={strongest?.latestRating !== null ? `${strongest.latestRating}/5` : 'No rating'} onSelectEntity={onSelectEntity} />
+        <TrendRankingCard title="Biggest improvement" row={improving} metric={improving ? `${formatSigned(improving.ratingDelta)} pts` : 'No change'} onSelectEntity={onSelectEntity} />
+        <TrendRankingCard title="Needs attention" row={needsAttention} metric={needsAttention?.latestRating !== null ? `${needsAttention.latestRating}/5` : 'No rating'} onSelectEntity={onSelectEntity} />
+        <TrendRankingCard title="Most history" row={mostHistory} metric={mostHistory ? `${mostHistory.sessionCount} sessions` : 'No sessions'} onSelectEntity={onSelectEntity} />
+      </div>
+
+      <section className="trends-overview-panel">
+        <div className="trends-overview-panel-head">
+          <div>
+            <span className="eyebrow">Opportunity comparison</span>
+            <h4>Pipeline table</h4>
+          </div>
+        </div>
+        <div className="trends-comparison-table">
+          <div className="trends-comparison-row header">
+            <span>Company</span>
+            <span>Outcome</span>
+            <span>Confidence</span>
+            <span>Latest rating</span>
+            <span>Sessions</span>
+            <span>Last session</span>
+          </div>
+          {opportunityRows.length ? opportunityRows.map((row) => (
+            <button key={row.id} type="button" className="trends-comparison-row" onClick={() => onSelectEntity(row.id)}>
+              <span>
+                <strong>{row.name}</strong>
+                <small>{row.role || 'Role not set'}</small>
+              </span>
+              <span><OutcomeBadge outcome={row.outcome} /></span>
+              <span>{row.confidence ? `${row.confidence}%` : 'No score'}</span>
+              <span>{row.latestRating !== null ? `${row.latestRating}/5` : 'Pending'}</span>
+              <span>{row.sessionCount}</span>
+              <span>{row.lastSessionDate ? new Date(row.lastSessionDate).toLocaleDateString() : 'No sessions'}</span>
+            </button>
+          )) : (
+            <EmptyState title="No opportunities yet" body="Save interview sessions to build the overview dashboard." />
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function TrendOverviewKpi({ label, value, detail, tone }) {
+  return (
+    <article className={`trends-overview-kpi ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function TrendRankingCard({ title, row, metric, onSelectEntity }) {
+  return (
+    <button type="button" className="trends-ranking-card" disabled={!row} onClick={() => row && onSelectEntity(row.id)}>
+      <span>{title}</span>
+      <strong>{row?.name || 'No data yet'}</strong>
+      <small>{row?.role || metric}</small>
+      {row ? <em>{metric}</em> : null}
+    </button>
+  );
+}
+
+function MultiOpportunityTrendChart({ rows = [] }) {
+  const width = 760;
+  const height = 260;
+  const padding = { top: 24, right: 28, bottom: 42, left: 34 };
+  const series = rows
+    .map((row, index) => ({
+      ...row,
+      color: trendChartPalette[index % trendChartPalette.length],
+      points: row.ratedSessions
+    }))
+    .filter((row) => row.points.length);
+
+  if (!series.length) {
+    return <div className="chart-empty">No rated interview sessions yet.</div>;
+  }
+
+  const maxSessionCount = Math.max(...series.map((row) => row.points.length), 1);
+  const xFor = (index) => {
+    if (maxSessionCount === 1) {
+      return padding.left;
+    }
+    return padding.left + index * ((width - padding.left - padding.right) / (maxSessionCount - 1));
+  };
+  const yFor = (rating) => height - padding.bottom - ((rating || 0) / 5) * (height - padding.top - padding.bottom);
+
+  return (
+    <div className="trends-multi-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Performance over time across opportunities">
+        {[0, 1, 2, 3, 4, 5].map((rating) => {
+          const y = yFor(rating);
+          return (
+            <g key={rating}>
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} />
+              <text x={8} y={y + 4}>{rating}</text>
+            </g>
+          );
+        })}
+        {series.map((row) => {
+          const points = row.points.map((point, index) => ({
+            x: xFor(index),
+            y: yFor(point.rating),
+            rating: point.rating
+          }));
+          const path = points.length > 1 ? `M ${points.map((point) => `${point.x},${point.y}`).join(' L ')}` : '';
+          return (
+            <g key={row.id}>
+              {path ? <path d={path} stroke={row.color} /> : null}
+              {points.map((point, index) => (
+                <circle key={`${row.id}-${index}`} cx={point.x} cy={point.y} r="5" fill={row.color} />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="trends-chart-legend">
+        {series.map((row) => (
+          <div key={row.id}>
+            <i style={{ background: row.color }} />
+            <span>{row.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TrendChart({ sessions }) {
   const padding = 30;
   const width = 600;
@@ -1882,17 +2160,19 @@ function TrendChart({ sessions }) {
       rating: getTranscriptRating(session.grading)
     }))
     .filter((item) => item.rating !== null)
-    .sort((a, b) => a.session.createdAt - b.session.createdAt);
+    .sort((a, b) => new Date(a.session.date) - new Date(b.session.date));
   
-  if (validSessions.length < 2) {
-    return <div className="chart-empty" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--muted)' }}>Not enough rated sessions to chart.</div>;
+  if (validSessions.length < 1) {
+    return <div className="chart-empty" style={{ padding: '40px 0', textAlign: 'center', color: 'var(--muted)' }}>No rated sessions to chart yet.</div>;
   }
 
   const maxVal = 5;
   const minVal = 0;
   
   const points = validSessions.map(({ session, rating }, i) => {
-    const x = padding + (i * ((width - padding * 2) / (validSessions.length - 1)));
+    const x = validSessions.length === 1
+      ? width / 2
+      : padding + (i * ((width - padding * 2) / (validSessions.length - 1)));
     const y = height - padding - ((rating - minVal) / (maxVal - minVal)) * (height - padding * 2);
     return {
       x,
@@ -1902,7 +2182,7 @@ function TrendChart({ sessions }) {
     };
   });
 
-  const pathD = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
+  const pathD = points.length > 1 ? `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}` : '';
 
   return (
     <div style={{ width: '100%', overflowX: 'auto' }}>
@@ -1912,7 +2192,7 @@ function TrendChart({ sessions }) {
           return <line key={v} x1={padding} y1={y} x2={width - padding} y2={y} stroke="rgba(255,255,255,0.1)" />;
         })}
         
-        <path d={pathD} fill="none" stroke="var(--cyan)" strokeWidth="3" />
+        {pathD ? <path d={pathD} fill="none" stroke="var(--cyan)" strokeWidth="3" /> : null}
         
         {points.map((p, i) => (
           <g key={i}>
@@ -3514,6 +3794,19 @@ function App() {
 
   function chooseWorkspaceView(nextView) {
     setWorkspaceView(nextView);
+    if (nextView === 'trends') {
+      setSelectedEntity('');
+      (async () => {
+        if (!api?.getSessionEntities || !api?.getSessions) {
+          return;
+        }
+        const nextEntities = await api.getSessionEntities(mode);
+        setEntities(nextEntities || []);
+        const nextSessions = await api.getSessions({ mode });
+        setSessions(nextSessions || []);
+      })().catch((error) => setStatus(`Trend analysis failed: ${error.message}`));
+      return;
+    }
     if (nextView === 'timeline' || nextView === 'trends' || nextView === 'calendar') {
       reloadSessions(mode, selectedEntity).catch((error) => setStatus(`Timeline failed: ${error.message}`));
     }
@@ -3927,7 +4220,10 @@ function App() {
             mode={mode}
             onSelectEntity={async (entityId) => {
               setSelectedEntity(entityId);
-              const nextSessions = await api?.getSessions?.({ mode, entityId });
+              const nextSessions = await api?.getSessions?.({
+                mode,
+                entityId: entityId || undefined
+              });
               setSessions(nextSessions || []);
             }}
             selectedEntity={selectedEntity}
@@ -3969,17 +4265,8 @@ function App() {
           <RealtimeInterview api={api} targetEntity={activeInterview} settings={settings} />
         ) : (
           <section className="assist-split-layout">
-            <div className="assist-top-scroll">
-              <StatusStrip
-                health={health}
-                isStreaming={isStreaming}
-                mode={mode}
-                provider={settings.llmProvider}
-                settings={settings}
-                status={status}
-              />
-
-              {setupOpen ? (
+            {setupOpen ? (
+              <div className="assist-top-scroll">
                 <SetupPanel
                   api={api}
                   mode={mode}
@@ -3991,8 +4278,8 @@ function App() {
                   syncAudit={syncAudit}
                   setSyncAudit={setSyncAudit}
                 />
-              ) : null}
-            </div>
+              </div>
+            ) : null}
 
             <div className="assist-bottom-scroll">
               <section className="context-full-width">
@@ -4248,18 +4535,21 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  async function refreshPreflight() {
+  async function refreshPreflight(includeGlobalOverride) {
     setStatus('Running preflight checks...');
     try {
-      const next = await api?.getCallPreflightContext?.({
+      const requestPayload = {
         mode,
         entityId: request.entityId || '',
-        entityName: request.entityName || '',
-        includeGlobalQuestionBank
-      });
+        entityName: request.entityName || ''
+      };
+      if (includeGlobalOverride !== undefined) {
+        requestPayload.includeGlobalQuestionBank = Boolean(includeGlobalOverride);
+      }
+      const next = await api?.getCallPreflightContext?.(requestPayload);
       if (!mountedRef.current) return;
       setPreflight(next || null);
-      setIncludeGlobalQuestionBank(Boolean(next?.activeContext?.questionBank?.includeGlobal));
+      setIncludeGlobalQuestionBank(Boolean(next?.settings?.includeGlobalQuestionBank ?? next?.activeContext?.questionBank?.includeGlobal));
       setStatus('Ready to start.');
     } catch (error) {
       setStatus(`Preflight failed: ${error.message}`);
@@ -4345,7 +4635,7 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
     if (currentSettings) {
       await api?.saveSettings?.({ ...currentSettings, includeGlobalQuestionBank: checked });
     }
-    await refreshPreflight();
+    await refreshPreflight(checked);
   }
 
   const health = preflight?.health || DEFAULT_HEALTH;
@@ -4366,6 +4656,26 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
   const audioHealth = health.audio || DEFAULT_HEALTH.audio;
   const transcriptionHealth = health.whisper || DEFAULT_HEALTH.whisper;
   const assistantHealth = health.lmStudio || DEFAULT_HEALTH.lmStudio;
+  const transcriptionSelected = Boolean(models.transcriptionProvider && models.transcriptionProvider !== 'Not selected');
+  const transcriptionState = transcriptionSelected ? (transcriptionHealth.state || 'unknown') : 'not selected';
+  const transcriptionTone = transcriptionSelected ? statusTone(transcriptionHealth.state) : 'status-bad';
+  const assistantSelected = Boolean(models.assistantProvider && models.assistantProvider !== 'Not selected' && models.assistantModel && models.assistantModel !== 'Not selected' && models.assistantModel !== 'Local model not selected');
+  const assistantState = assistantSelected ? (assistantHealth.state || 'unknown') : 'not selected';
+  const assistantTone = assistantSelected ? statusTone(assistantHealth.state) : 'status-bad';
+  const preflightReady = Boolean(
+    preflight
+    && String(audioHealth.state || '').toLowerCase() === 'ready'
+    && audio.engine === 'rust'
+    && transcriptionSelected
+    && String(transcriptionHealth.state || '').toLowerCase() === 'ready'
+    && assistantSelected
+    && String(assistantHealth.state || '').toLowerCase() === 'ready'
+  );
+  const preflightPillLabel = preflight ? (preflightReady ? 'Ready to start.' : 'Check Connections') : status;
+  const preflightPillTone = preflight ? (preflightReady ? 'ready' : 'issue') : 'checking';
+  const captureProtectionLabel = preflight?.settings?.captureProtectionEnabled !== false
+    ? 'Screen capture protection enabled'
+    : 'Screen capture protection disabled';
   const activeFiles = activeContext.entityFiles || [];
   const pinnedKnowledgeFiles = activeContext.pinnedKnowledge || [];
   const activeFileLimit = preflight?.limits?.activeEntityFiles || 5;
@@ -4385,26 +4695,15 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
             <h2>Start {callLabel}{titleContext ? ` - ${titleContext}` : ''}</h2>
             <p>{entityName}</p>
           </div>
-          <div className={`preflight-ready-pill ${preflight ? 'ready' : 'checking'}`}>{status}</div>
+          <div className="preflight-hero-status">
+            <div className={`preflight-ready-pill ${preflightPillTone}`}>{preflightPillLabel}</div>
+            <small className={preflight?.settings?.captureProtectionEnabled !== false ? 'capture-protection-status enabled' : 'capture-protection-status disabled'}>
+              {captureProtectionLabel}
+            </small>
+          </div>
         </header>
 
         <div className="preflight-body">
-          <section className="preflight-summary-strip" aria-label="Preflight summary">
-            <div>
-              <p><strong>Pro Realtime:</strong> <span className={models.proAgentEnabled ? 'ready-text' : ''}>{proRealtimeSummary}</span></p>
-              <p><strong>RAG / Memory:</strong> <span className={models.ragEnabled && models.pineconeConfigured ? 'ready-text' : ''}>{ragSummary}</span></p>
-            </div>
-            {mode === 'interview' ? (
-              <div>
-                <p><strong>Question Bank:</strong> {questionBankSummary} Q&A Pairs Linked</p>
-                <label className="preflight-inline-toggle">
-                  <strong>Include Global ({questionBank.globalCount || 0} Pairs):</strong>
-                  <input type="checkbox" checked={includeGlobalQuestionBank} onChange={toggleGlobalQuestionBank} disabled={!proTier} />
-                </label>
-              </div>
-            ) : null}
-          </section>
-
           <div className="preflight-main-layout">
             <div className="preflight-left-stack">
               <section className="preflight-panel preflight-checks">
@@ -4419,10 +4718,11 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
                   <p><strong>System audio:</strong> <span>{(audio.sources || [])[1]?.device || 'Default device'}</span></p>
                 </div>
                 <div className="preflight-connection-card">
-                  <p><strong>Transcription:</strong> <span className={statusTone(transcriptionHealth.state)}>{models.transcriptionProvider || 'Not selected'} {transcriptionHealth.state || 'unknown'}</span></p>
+                  <p><strong>Transcription:</strong> <span className={transcriptionTone}>{transcriptionState}</span></p>
+                  <p><strong>Provider:</strong> <span>{models.transcriptionProvider || 'Not selected'}</span></p>
                   <p><strong>Local Server:</strong> <span>{models.transcriptionModel || transcriptionHealth.detail || 'Not selected'}</span></p>
                   <hr />
-                  <p><strong>Assistant LLM:</strong> <span className={statusTone(assistantHealth.state)}>{assistantHealth.state || 'unknown'}</span></p>
+                  <p><strong>Assistant LLM:</strong> <span className={assistantTone}>{assistantState}</span></p>
                   <p><strong>Provider:</strong> <span>{models.assistantProvider || 'Not selected'}</span></p>
                   <p><strong>Model:</strong> <span>{models.assistantModel || 'Not selected'}</span></p>
                 </div>
@@ -4480,6 +4780,22 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
                     </div>
                   ) : <p>No Knowledge page pins.</p>}
                 </div>
+              </section>
+
+              <section className="preflight-panel preflight-summary-strip" aria-label="Preflight summary">
+                <div>
+                  <p><strong>Pro Realtime:</strong> <span className={models.proAgentEnabled ? 'ready-text' : ''}>{proRealtimeSummary}</span></p>
+                  <p><strong>RAG / Memory:</strong> <span className={models.ragEnabled && models.pineconeConfigured ? 'ready-text' : ''}>{ragSummary}</span></p>
+                </div>
+                {mode === 'interview' ? (
+                  <div>
+                    <p><strong>Question Bank:</strong> {questionBankSummary} Q&A Pairs Linked</p>
+                    <label className="preflight-inline-toggle">
+                      <strong>Include Global ({questionBank.globalCount || 0} Pairs):</strong>
+                      <input type="checkbox" checked={includeGlobalQuestionBank} onChange={toggleGlobalQuestionBank} disabled={!proTier} />
+                    </label>
+                  </div>
+                ) : null}
               </section>
             </div>
 
@@ -5839,6 +6155,8 @@ function clampFloatingPrefs(prefs = {}) {
 
 function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entities = [], settings = {}, onSettingsUpdated }) {
   const api = window.electronAPI;
+  const viewRef = useRef(null);
+  const editorRef = useRef(null);
   const [entries, setEntries] = useState([]);
   const [dashboard, setDashboard] = useState({});
   const [query, setQuery] = useState('');
@@ -5846,8 +6164,15 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
   const [entityFilter, setEntityFilter] = useState('');
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkEntityId, setBulkEntityId] = useState('');
+  const [bulkSource, setBulkSource] = useState('');
   const [status, setStatus] = useState('');
+  const [actionDialog, setActionDialog] = useState(null);
   const proTier = settings.userTier === 'pro';
+  const visibleIds = entries.map((entry) => entry.id).filter(Boolean);
+  const selectedVisibleIds = selectedIds.filter((id) => visibleIds.includes(id));
+  const allVisibleSelected = visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length;
 
   async function toggleAlwaysIncludeGlobal(event) {
     const nextSettings = { ...settings, includeGlobalQuestionBank: event.target.checked };
@@ -5871,6 +6196,7 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
       ? rows
       : (Array.isArray(rows) ? rows.filter((entry) => entry.entityId === activeEntityId) : []);
     setEntries(scopedRows || []);
+    setSelectedIds((current) => current.filter((id) => (scopedRows || []).some((entry) => entry.id === id)));
     setDashboard(nextDashboard || {});
   }, [activeEntityId, api, entityFilter, proTier, query, source]);
 
@@ -5885,37 +6211,119 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
       sampleAnswer: entry?.sampleAnswer || '',
       entityId: entry?.entityId || ''
     });
+    if (entry) {
+      requestAnimationFrame(() => {
+        viewRef.current?.scrollTo?.({ top: 0, behavior: 'smooth' });
+        editorRef.current?.querySelector?.('textarea')?.focus?.();
+      });
+    }
+  }
+
+  function showQuestionBankDialog(tone, message) {
+    setStatus(message);
+    setActionDialog({ tone, message });
   }
 
   async function saveEntry(event) {
     event.preventDefault();
     const entity = entities.find((item) => item.id === form.entityId);
-    await api?.saveQuestionBankEntry?.({
-      id: editing?.id,
-      question: form.question,
-      sampleAnswer: form.sampleAnswer,
-      entityId: form.entityId,
-      entityName: entity?.name || (form.entityId ? activeEntityLabel : ''),
-      mode: 'interview',
-      source: editing?.source || 'manual',
-      answerSource: editing?.answerSource || 'candidate'
-    });
-    setStatus(editing ? 'Question updated.' : 'Question added.');
-    setEditing(null);
-    setForm({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
-    await loadQuestionBank();
+    try {
+      await api?.saveQuestionBankEntry?.({
+        id: editing?.id,
+        question: form.question,
+        sampleAnswer: form.sampleAnswer,
+        entityId: form.entityId,
+        entityName: entity?.name || (form.entityId ? activeEntityLabel : ''),
+        mode: 'interview',
+        source: editing?.source || 'manual',
+        answerSource: editing?.answerSource || 'candidate'
+      });
+      const message = editing ? 'Question updated.' : 'Question added.';
+      showQuestionBankDialog('success', message);
+      setEditing(null);
+      setForm({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
+      await loadQuestionBank();
+    } catch (error) {
+      showQuestionBankDialog('error', `Question save failed: ${error.message}`);
+    }
   }
 
   async function importCsv() {
-    const saved = await api?.openQuestionBankCsvDialog?.({ mode: 'interview' });
-    setStatus(saved?.length ? `Imported ${saved.length} questions.` : 'No CSV imported.');
-    await loadQuestionBank();
+    try {
+      const saved = await api?.openQuestionBankCsvDialog?.({ mode: 'interview' });
+      showQuestionBankDialog('success', saved?.length ? `Imported ${saved.length} questions.` : 'No CSV imported.');
+      await loadQuestionBank();
+    } catch (error) {
+      showQuestionBankDialog('error', `CSV import failed: ${error.message}`);
+    }
   }
 
   async function deleteEntry(id) {
-    await api?.deleteQuestionBankEntry?.(id);
-    setStatus('Question deleted.');
-    await loadQuestionBank();
+    try {
+      await api?.deleteQuestionBankEntry?.(id);
+      showQuestionBankDialog('success', 'Question deleted.');
+      await loadQuestionBank();
+    } catch (error) {
+      showQuestionBankDialog('error', `Question delete failed: ${error.message}`);
+    }
+  }
+
+  function toggleRowSelection(id) {
+    setSelectedIds((current) => current.includes(id)
+      ? current.filter((item) => item !== id)
+      : [...current, id]);
+  }
+
+  function toggleSelectAllVisible(event) {
+    setSelectedIds((current) => {
+      const hiddenSelections = current.filter((id) => !visibleIds.includes(id));
+      return event.target.checked ? [...hiddenSelections, ...visibleIds] : hiddenSelections;
+    });
+  }
+
+  async function bulkDeleteSelected() {
+    if (!selectedVisibleIds.length) return;
+    try {
+      const result = await api?.deleteQuestionBankEntries?.(selectedVisibleIds);
+      const count = result?.deleted || selectedVisibleIds.length;
+      setSelectedIds([]);
+      showQuestionBankDialog('success', `Deleted ${count} question${count === 1 ? '' : 's'}.`);
+      await loadQuestionBank();
+    } catch (error) {
+      showQuestionBankDialog('error', `Bulk delete failed: ${error.message}`);
+    }
+  }
+
+  async function bulkLinkSelected() {
+    if (!selectedVisibleIds.length) return;
+    const entity = entities.find((item) => item.id === bulkEntityId);
+    try {
+      await api?.bulkUpdateQuestionBankEntries?.({
+        ids: selectedVisibleIds,
+        patch: {
+          entityId: bulkEntityId,
+          entityName: entity?.name || ''
+        }
+      });
+      showQuestionBankDialog('success', `Updated ${selectedVisibleIds.length} question link${selectedVisibleIds.length === 1 ? '' : 's'}.`);
+      await loadQuestionBank();
+    } catch (error) {
+      showQuestionBankDialog('error', `Bulk link update failed: ${error.message}`);
+    }
+  }
+
+  async function bulkSourceSelected() {
+    if (!selectedVisibleIds.length || !bulkSource) return;
+    try {
+      await api?.bulkUpdateQuestionBankEntries?.({
+        ids: selectedVisibleIds,
+        patch: { source: bulkSource }
+      });
+      showQuestionBankDialog('success', `Updated ${selectedVisibleIds.length} question source${selectedVisibleIds.length === 1 ? '' : 's'}.`);
+      await loadQuestionBank();
+    } catch (error) {
+      showQuestionBankDialog('error', `Bulk source update failed: ${error.message}`);
+    }
   }
 
   const stats = [
@@ -5926,7 +6334,7 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
   ];
 
   return (
-    <section className="question-bank-view">
+    <section className="question-bank-view" ref={viewRef}>
       <div className="question-bank-head">
         <div>
           <h2>Question Bank</h2>
@@ -5961,7 +6369,7 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
         </section>
       </div>
 
-      <form className="question-bank-editor" onSubmit={saveEntry}>
+      <form className="question-bank-editor" ref={editorRef} onSubmit={saveEntry}>
         <label>
           Question
           <textarea value={form.question} onChange={(event) => setForm((current) => ({ ...current, question: event.target.value }))} required />
@@ -5998,10 +6406,37 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
         </select>
       </form>
 
+      <div className="question-bank-bulk-actions" aria-label="Bulk question bank actions">
+        <strong>{selectedVisibleIds.length} selected</strong>
+        <button type="button" className="ghost" onClick={() => setSelectedIds(visibleIds)}>Select all visible</button>
+        <button type="button" className="ghost" onClick={() => setSelectedIds([])} disabled={!selectedIds.length}>Clear</button>
+        <select value={bulkEntityId} onChange={(event) => setBulkEntityId(event.target.value)} disabled={!selectedVisibleIds.length}>
+          <option value="">Global</option>
+          {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+        </select>
+        <button type="button" className="ghost" onClick={bulkLinkSelected} disabled={!selectedVisibleIds.length}>Link selected</button>
+        <select value={bulkSource} onChange={(event) => setBulkSource(event.target.value)} disabled={!selectedVisibleIds.length}>
+          <option value="">Set source...</option>
+          <option value="manual">Manual</option>
+          <option value="csv">CSV</option>
+          <option value="clyde">Clyde</option>
+        </select>
+        <button type="button" className="ghost" onClick={bulkSourceSelected} disabled={!selectedVisibleIds.length || !bulkSource}>Set source</button>
+        <button type="button" className="ghost danger" onClick={bulkDeleteSelected} disabled={!selectedVisibleIds.length}>Delete selected</button>
+      </div>
+
       {status ? <p className="question-bank-status">{status}</p> : null}
 
       <div className="question-bank-table" role="table" aria-label="Question Bank">
         <div className="question-bank-row question-bank-row-head" role="row">
+          <span>
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={toggleSelectAllVisible}
+              aria-label="Select all visible question bank entries"
+            />
+          </span>
           <span>Question</span>
           <span>Sample answer</span>
           <span>Linked opportunity</span>
@@ -6010,6 +6445,14 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
         </div>
         {entries.length ? entries.map((entry) => (
           <div key={entry.id} className="question-bank-row" role="row">
+            <span>
+              <input
+                type="checkbox"
+                checked={selectedIds.includes(entry.id)}
+                onChange={() => toggleRowSelection(entry.id)}
+                aria-label={`Select question: ${entry.question}`}
+              />
+            </span>
             <span>{entry.question}</span>
             <span>{entry.sampleAnswer}</span>
             <span>{entry.entityName || 'Global'}</span>
@@ -6023,6 +6466,15 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
           <div className="question-bank-empty">No questions found.</div>
         )}
       </div>
+      {actionDialog ? (
+        <div className="settings-message-backdrop" role="presentation">
+          <section className={`settings-message-modal ${actionDialog.tone}`} role="alertdialog" aria-modal="true" aria-label="Question Bank action message">
+            <strong>{actionDialog.tone === 'error' ? 'Action needed' : 'Done'}</strong>
+            <p>{actionDialog.message}</p>
+            <button type="button" className="primary-action" onClick={() => setActionDialog(null)}>OK</button>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -6278,7 +6730,7 @@ function WorkspaceNavIcon({ id, active }) {
     trends: active ? iconTrendsColorUrl : iconTrendsUrl,
     knowledge: active ? iconKnowledgeColorUrl : iconKnowledgeUrl,
     calendar: active ? iconCalendarColorUrl : iconCalendarUrl,
-    'question-bank': active ? iconAssistColorUrl : iconAssistUrl,
+    'question-bank': active ? iconQuestionBankColorUrl : iconQuestionBankUrl,
     'mock-interview': active ? iconMockInterviewColorUrl : iconMockInterviewUrl
   };
   
@@ -7543,7 +7995,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
       const normalized = Array.isArray(nextSessions) ? nextSessions : [];
       setActiveSessions(normalized);
 
-      if (mode !== 'interview' || normalized.length < 2) {
+      if (mode !== 'interview') {
         setTrendAnalysis(null);
         return;
       }
@@ -7554,8 +8006,12 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
         const raw = localStorage.getItem(cacheKey);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (isTrendAnalysisRecordFresh(parsed, sessionSignature, normalized.length)) {
-            setTrendAnalysis(unwrapTrendAnalysisRecord(parsed));
+          const cachedAnalysis = unwrapTrendAnalysisRecord(parsed);
+          if (
+            isTrendAnalysisRecordFresh(parsed, sessionSignature, normalized.length)
+            || (normalized.length < 2 && isMaterialPreCallPrepComplete(cachedAnalysis))
+          ) {
+            setTrendAnalysis(cachedAnalysis);
             return;
           }
         }
@@ -7565,9 +8021,12 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
 
       try {
         const stored = await api?.getTrendAnalysis?.(activeId);
-        if (isTrendAnalysisRecordFresh(stored, sessionSignature, normalized.length)) {
-          const nextAnalysis = unwrapTrendAnalysisRecord(stored);
-          setTrendAnalysis(nextAnalysis);
+        const storedAnalysis = unwrapTrendAnalysisRecord(stored);
+        if (
+          isTrendAnalysisRecordFresh(stored, sessionSignature, normalized.length)
+          || (normalized.length < 2 && isMaterialPreCallPrepComplete(storedAnalysis))
+        ) {
+          setTrendAnalysis(storedAnalysis);
           localStorage.setItem(cacheKey, JSON.stringify(stored));
           return;
         }
@@ -7589,7 +8048,8 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
             return;
           }
 
-          if (isTrendAnalysisComplete(generated, normalized.length)) {
+          if (isTrendAnalysisComplete(generated, normalized.length)
+            || (normalized.length < 2 && isMaterialPreCallPrepComplete(generated))) {
             setTrendAnalysis(generated);
             localStorage.setItem(cacheKey, JSON.stringify({
               sessionsSignature: sessionSignature,
@@ -7629,6 +8089,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
   const meetingActionGroups = normalizeActionItemGroups(latestSession?.notes?.actionItems || []);
   const interviewFallbackSummary = latestSession?.notes?.summary || 'No summary available yet.';
   const preCallPrep = trendAnalysis?.pre_call_prep || null;
+  const materialPrep = trendAnalysis?.prep_basis === 'materials';
   const hasPreCallPrep = Boolean(
     preCallPrep
     && ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'questions_to_ask']
@@ -7672,19 +8133,19 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
               </div>
             </div>
 
-            {activeSessions.length >= 2 ? (
+            {activeSessions.length || hasPreCallPrep || loadingTrend ? (
               <>
                 {loadingTrend && !hasPreCallPrep ? (
                   <div className="suggestion-box">
                     <strong>Pre-call analysis</strong>
-                    <p>Generating AI prep from the saved interviews...</p>
+                    <p>{activeSessions.length >= 2 ? 'Generating AI prep from the saved interviews...' : 'Generating AI prep from the role materials...'}</p>
                   </div>
                 ) : null}
 
                 {hasPreCallPrep ? (
                   <>
                     <div className="suggestion-box">
-                      <strong>Phase-by-Phase Breakdown</strong>
+                      <strong>{materialPrep ? 'Useful insights' : 'Phase-by-Phase Breakdown'}</strong>
                       <ul className="action-list">
                         {preCallPrep.cumulative_phase_summary.map((item, index) => (
                           <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
@@ -7693,7 +8154,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
                     </div>
 
                     <div className="suggestion-box">
-                      <strong>Probable focus for next round</strong>
+                      <strong>{materialPrep ? 'Probable questions to expect' : 'Probable focus for next round'}</strong>
                       <ul className="action-list">
                         {preCallPrep.probable_focus.map((item, index) => (
                           <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
@@ -7702,13 +8163,24 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
                     </div>
 
                     <div className="suggestion-box">
-                      <strong>Previous interviewer question patterns</strong>
+                      <strong>{materialPrep ? 'Strengths aligned to the role' : 'Previous interviewer question patterns'}</strong>
                       <ul className="action-list">
                         {preCallPrep.interviewer_question_patterns.map((item, index) => (
                           <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
                         ))}
                       </ul>
                     </div>
+
+                    {materialPrep && Array.isArray(preCallPrep.gaps_and_mitigation) && preCallPrep.gaps_and_mitigation.length ? (
+                      <div className="suggestion-box">
+                        <strong>Gaps and mitigation</strong>
+                        <ul className="action-list">
+                          {preCallPrep.gaps_and_mitigation.map((item, index) => (
+                            <li key={`${item}-${index}`}>{directAddressFeedback(item)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
 
                     <div className="suggestion-box">
                       <strong>Questions you can ask</strong>

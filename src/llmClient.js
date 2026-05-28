@@ -9,8 +9,31 @@ async function generateChat({ provider, apiKey, model, messages, jsonSchema, tem
         return generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions', images });
     } else {
         // default to local (LM Studio / OpenAI compatible)
-        const url = localUrl || process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions';
+        const url = normalizeOpenAIChatUrl(localUrl || process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions');
         return generateOpenAI({ apiKey: apiKey || 'lm-studio', model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images });
+    }
+}
+
+function normalizeOpenAIChatUrl(input) {
+    const raw = String(input || '').trim();
+    if (!raw) {
+        return 'http://localhost:1234/v1/chat/completions';
+    }
+
+    try {
+        const url = new URL(raw);
+        const path = url.pathname.replace(/\/+$/, '');
+
+        if (path.endsWith('/chat/completions')) {
+            return url.toString();
+        }
+
+        url.pathname = path.endsWith('/v1')
+            ? `${path}/chat/completions`
+            : `${path || ''}/v1/chat/completions`;
+        return url.toString();
+    } catch {
+        return raw;
     }
 }
 
@@ -293,6 +316,7 @@ function mapToGeminiSchema(schema) {
 module.exports = {
     buildOpenAIMessageContent,
     generateChat,
+    normalizeOpenAIChatUrl,
     mapToGeminiParts,
     mapToGeminiSchema
 };

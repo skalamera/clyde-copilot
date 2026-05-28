@@ -100,6 +100,39 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
   assert.deepEqual(updates[0].cards[0].bullets, ['A']);
 });
 
+test('normalizes LM Studio base URL before posting chat completions', async () => {
+  const requests = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234',
+      llmModel: 'gemma-4-e4b'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"answers": [{"question":"Why?", "bullets": ["A"]}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 1
+  });
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you walk me through a time when you improved frontline agent efficiency?'
+  });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'http://localhost:1234/v1/chat/completions');
+});
+
 test('interviewer questions request uses the supplied full transcript', async () => {
   const requests = [];
   const assistant = createMeetingAssistant({

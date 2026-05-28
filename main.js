@@ -50,7 +50,7 @@ const {
 } = require('./src/questionBankExtraction');
 const { startAutoUpdater } = require('./src/autoUpdater');
 const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
-const { buildTrendAnalysisSessionSignature, directAddressFeedback, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
+const { buildTrendAnalysisSessionSignature, directAddressFeedback, isMaterialPreCallPrepComplete, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
 const { calculateEntityConfidence } = require('./src/confidenceScoring');
 const { createBillingPortalSession, createCheckoutSession, createProSignupCheckout, fetchEntitlements } = require('./src/billingClient');
@@ -218,6 +218,7 @@ function loadSettings() {
         googleAccountEmail: store.get('googleAccountEmail', ''),
         googleSyncAutoApprove: store.get('googleSyncAutoApprove', false),
         googleSyncPollMinutes: store.get('googleSyncPollMinutes', 15),
+        includeGlobalQuestionBank: store.get('includeGlobalQuestionBank', false),
         demoMode: process.env.CLYDE_DEMO_MODE === '1',
         appMode: store.get('appMode', 'interview'),
         meetingTitle: store.get('meetingTitle', ''),
@@ -1072,6 +1073,18 @@ function summarizePinnedKnowledgeContent(content = '') {
     return text.length > 700 ? `${text.slice(0, 697)}...` : text;
 }
 
+function buildKnowledgeMaterialSection(title, items = [], limit = 1200) {
+    const rows = (Array.isArray(items) ? items : [])
+        .map((item) => {
+            const label = item.filename || item.title || item.id || 'Knowledge file';
+            const excerpt = summarizeContextText(item.content || '', limit);
+            return excerpt ? `- ${label}: ${excerpt}` : '';
+        })
+        .filter(Boolean);
+
+    return rows.length ? `\n${title}:\n${rows.join('\n')}` : '';
+}
+
 function summarizeContextText(content = '', limit = 320) {
     const text = String(content || '').replace(/\s+/g, ' ').trim();
     return text.length > limit ? `${text.slice(0, Math.max(0, limit - 3))}...` : text;
@@ -1130,7 +1143,8 @@ function buildCallPreflightContext(settings = loadSettings()) {
         entityName: mode === 'meeting' ? context.meetingTitle : context.company,
         settings: {
             userTier: settings.userTier || 'free',
-            includeGlobalQuestionBank: Boolean(settings.includeGlobalQuestionBank)
+            includeGlobalQuestionBank: Boolean(settings.includeGlobalQuestionBank),
+            captureProtectionEnabled: settings.captureProtectionEnabled !== false
         },
         health: JSON.parse(JSON.stringify(healthState)),
         models: {
@@ -2566,6 +2580,21 @@ function createWindow () {
       return deleted;
   });
 
+  ipcMain.handle('delete-question-bank-entries', (event, ids = []) => {
+      const deleted = questionBankManager ? questionBankManager.deleteEntries(ids) : 0;
+      refreshSystemKnowledgeFromState('question-bank-bulk-deleted');
+      return { deleted };
+  });
+
+  ipcMain.handle('bulk-update-question-bank-entries', async (event, payload = {}) => {
+      if (!questionBankManager) {
+          throw new Error('Question Bank is not ready.');
+      }
+      const saved = await questionBankManager.bulkUpdateEntries(payload || {}, loadSettings());
+      refreshSystemKnowledgeFromState('question-bank-bulk-updated');
+      return saved;
+  });
+
   ipcMain.handle('open-question-bank-csv-dialog', async (event, filters = {}) => {
       if (!questionBankManager) {
           return [];
@@ -3507,30 +3536,134 @@ function createWindow () {
           return demoData.generateTrendAnalysis(companyId, options || {});
       }
       const allSessions = sessionManager.getSessions({ mode: 'interview', entityId: companyId });
-      if (!allSessions || allSessions.length < 2) {
-          return null;
-      }
-
-      const sortedSessions = [...allSessions].reverse();
+      const sortedSessions = Array.isArray(allSessions) ? [...allSessions].reverse() : [];
       
       const provider = settings.llmProvider || 'local';
       const apiKey = settings.llmApiKey || '';
       const model = settings.llmModel || '';
       const localUrl = settings.localLlmUrl;
 
-      const combinedTranscripts = sortedSessions.map((inv, idx) => `\n--- Interview ${idx + 1} (${inv.title || inv.phase || 'Phase ' + (idx+1)}) ---\n` + (inv.transcript || []).map(t => `${t.speaker}: ${t.text}`).join('\n')).join('\n');
-      const companyName = sortedSessions[0].entity.name || companyId;
-      const roleStr = sortedSessions[0].entity.role ? `\nRole/Job Title: ${sortedSessions[0].entity.role}` : '';
+      const activeEntity = sessionManager.getSessionEntities('interview')
+          .find((entity) => entity.id === companyId || entity.name === companyId);
+      const companyName = sortedSessions[0]?.entity?.name || activeEntity?.name || companyId;
+      const role = sortedSessions[0]?.entity?.role || activeEntity?.role || settings.currentRole || '';
+      const roleStr = role ? `\nRole/Job Title: ${role}` : '';
       const jd = interviewManager.getCompanyJobDescription(companyName) || interviewManager.getCompanyJobDescription(companyId);
       const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+      const resumeStr = settings.resumeText ? `\nResume/Background Context:\n${settings.resumeText}` : '';
+      const opportunityFiles = knowledgeManager?.listEntityKnowledge
+          ? knowledgeManager.listEntityKnowledge({ mode: 'interview', entityId: activeEntity?.id || companyId }).slice(0, 6)
+          : [];
+      const pinnedFiles = knowledgeManager?.getPinnedKnowledge
+          ? knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []).slice(0, 3)
+          : [];
+      const opportunityFilesStr = buildKnowledgeMaterialSection('Opportunity-specific files', opportunityFiles);
+      const pinnedFilesStr = buildKnowledgeMaterialSection('Pinned files', pinnedFiles);
+      const materialSignature = JSON.stringify({
+          companyName,
+          role,
+          jd,
+          resumeText: settings.resumeText || '',
+          opportunityFiles: opportunityFiles.map((item) => [item.id, item.updated_at, item.filename, String(item.content || '').length]),
+          pinnedFiles: pinnedFiles.map((item) => [item.id, item.updated_at, item.filename, String(item.content || '').length])
+      });
       const outcomeCalibrationSection = buildOutcomeCalibrationSection({
           id: companyId,
           name: companyName,
-          role: sortedSessions[0].entity.role || ''
+          role
       });
       const sessionsSignature = buildTrendAnalysisSessionSignature(sortedSessions);
       const persistedAnalysis = loadTrendAnalysis(app.getPath('userData'), companyId);
       const forceRegenerate = Boolean(options && options.force);
+
+      if (sortedSessions.length < 1) {
+          const prepSignature = `${sessionsSignature}::materials::${materialSignature}`;
+          if (
+              !forceRegenerate
+              && persistedAnalysis
+              && persistedAnalysis.sessionsSignature === prepSignature
+              && persistedAnalysis.sessionsCount === sortedSessions.length
+              && isMaterialPreCallPrepComplete(persistedAnalysis.analysis)
+          ) {
+              return persistedAnalysis.analysis;
+          }
+
+          const materialPrompt = `You are an expert technical recruiter preparing the user for an upcoming interview.
+Company: ${companyName}${roleStr}${jdStr}${resumeStr}${opportunityFilesStr}${pinnedFilesStr}
+
+Analyze the available job description, resume/background, and opportunity-specific files. If prior completed interviews are missing, do not invent prior interview patterns.
+
+Return prep_basis as "materials" and pre_call_prep with exactly 3 detailed bullets for each section:
+   - cumulative_phase_summary: other useful insights from the materials, including role priorities and likely evaluation criteria.
+   - probable_focus: probable interview questions or question themes to expect.
+   - interviewer_question_patterns: where your strengths align with the role requirements, using evidence from the materials.
+   - gaps_and_mitigation: where you may fall short and how to mitigate it before or during the call.
+   - questions_to_ask: useful questions you can ask the interviewer.
+Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.`;
+
+          try {
+              const response = await generateChat({
+                  provider,
+                  apiKey,
+                  model,
+                  temperature: 0.2,
+                  maxTokens: 1800,
+                  axiosClient: axios,
+                  localUrl,
+                  jsonSchema: {
+                      name: 'pre_call_material_prep',
+                      schema: {
+                          type: 'object',
+                          properties: {
+                              prep_basis: { type: 'string', enum: ['materials'] },
+                              pre_call_prep: {
+                                  type: 'object',
+                                  properties: {
+                                      cumulative_phase_summary: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      probable_focus: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      interviewer_question_patterns: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      gaps_and_mitigation: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      questions_to_ask: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } }
+                                  },
+                                  required: ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'gaps_and_mitigation', 'questions_to_ask'],
+                                  additionalProperties: false
+                              }
+                          },
+                          required: ['prep_basis', 'pre_call_prep'],
+                          additionalProperties: false
+                      }
+                  },
+                  messages: [{ role: 'user', content: materialPrompt }]
+              });
+
+              let parsed = { prep_basis: 'materials', pre_call_prep: {} };
+              try {
+                  let cleanedText = response.trim();
+                  if (cleanedText.startsWith('\`\`\`json')) cleanedText = cleanedText.replace(/^\`\`\`json/g, '').replace(/\`\`\`$/g, '').trim();
+                  else if (cleanedText.startsWith('\`\`\`')) cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
+                  parsed = JSON.parse(cleanedText);
+              } catch(e) {
+                  console.error("Failed to parse material pre-call prep:", response);
+              }
+
+              const normalized = {
+                  prep_basis: 'materials',
+                  pre_call_prep: normalizeTrendAnalysisResult({ pre_call_prep: parsed.pre_call_prep }, []).pre_call_prep
+              };
+              saveTrendAnalysis(app.getPath('userData'), companyId, {
+                  sessionsCount: sortedSessions.length,
+                  sessionsSignature: prepSignature,
+                  analysis: normalized
+              });
+              return normalized;
+          } catch (err) {
+              console.error("Material pre-call prep error:", err);
+              return null;
+          }
+      }
+
+      const combinedTranscripts = sortedSessions.map((inv, idx) => `\n--- Interview ${idx + 1} (${inv.title || inv.phase || 'Phase ' + (idx+1)}) ---\n` + (inv.transcript || []).map(t => `${t.speaker}: ${t.text}`).join('\n')).join('\n');
+      const hasMultipleSessions = sortedSessions.length > 1;
 
       if (
           !forceRegenerate
@@ -3542,7 +3675,8 @@ function createWindow () {
           return persistedAnalysis.analysis;
       }
 
-      const prompt = `You are an expert technical recruiter analyzing a candidate's performance trend across multiple interview phases.
+      const prompt = hasMultipleSessions
+        ? `You are an expert technical recruiter analyzing a candidate's performance trend across multiple interview phases.
 Company: ${companyName}${roleStr}${jdStr}
 
 Review the transcripts of all their interviews in chronological order.
@@ -3560,6 +3694,25 @@ Real outcome calibration examples are included below when Clyde has labeled loca
 ${outcomeCalibrationSection}
 
 Transcripts:
+${combinedTranscripts}`
+        : `You are an expert technical recruiter analyzing a candidate's baseline interview performance from one saved interview session.
+Company: ${companyName}${roleStr}${jdStr}
+
+Review the transcript and grading evidence for this single interview.
+1. Return trend as "sideways" unless the transcript and grading evidence strongly indicate unusually positive or negative momentum.
+2. Provide a structured baseline analysis explaining what the interview currently proves, what remains unproven, key strengths, and areas for improvement. Cite specific examples.
+3. Return exactly 1 phase breakdown entry for the interview below.
+4. Return pre_call_prep with exactly 3 detailed bullets for each prep section:
+   - cumulative_phase_summary: a baseline summary of the saved interview and where you currently stand.
+   - probable_focus: likely next-round focus areas based on this transcript and the job context.
+   - interviewer_question_patterns: actual patterns/themes from the interviewer questions in this transcript.
+   - questions_to_ask: useful questions you can ask in the next round.
+Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
+Real outcome calibration examples are included below when Clyde has labeled local examples. Use them when judging whether the baseline resembles prior rejected, advanced, or offer outcomes.
+
+${outcomeCalibrationSection}
+
+Transcript:
 ${combinedTranscripts}`;
 
       try {

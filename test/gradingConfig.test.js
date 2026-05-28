@@ -61,6 +61,8 @@ test('trend analysis generation no longer requests per-interview confidence scor
   assert.match(trendBlock, /patterns\/themes/i);
   assert.match(trendBlock, /Address the user directly as "you"/);
   assert.match(trendBlock, /Do not call the user "the candidate"/);
+  assert.match(trendBlock, /baseline interview performance from one saved interview session/);
+  assert.match(trendBlock, /Return exactly 1 phase breakdown entry/);
   assert.match(trendBlock, /required:\s*\['trend', 'executive_summary', 'key_strengths', 'areas_for_improvement', 'phase_breakdown', 'pre_call_prep'\]/);
 });
 

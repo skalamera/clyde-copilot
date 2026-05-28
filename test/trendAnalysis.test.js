@@ -5,6 +5,7 @@ const {
   buildTrendAnalysisSessionSignature,
   directAddressFeedback,
   getTranscriptRating,
+  isMaterialPreCallPrepComplete,
   isTrendAnalysisComplete,
   normalizeTrendAnalysisResult
 } = require('../src/trendAnalysis');
@@ -72,6 +73,46 @@ test('trend analysis normalizes saved pre-call prep into 3 bullets per section',
   assert.equal(normalized.pre_call_prep.interviewer_question_patterns.length, 3);
   assert.equal(normalized.pre_call_prep.questions_to_ask.length, 3);
   assert.equal(isTrendAnalysisComplete(normalized, sessions.length), true);
+});
+
+test('trend analysis complete accepts one saved session', () => {
+  const sessions = [
+    { id: '1', phase: 'Interview #1', grading: { transcriptRating: 4 }, transcript: [{ speaker: 'Interviewer', text: 'Tell me about support operations.' }] }
+  ];
+
+  const normalized = normalizeTrendAnalysisResult({
+    trend: 'sideways',
+    executive_summary: 'Baseline summary',
+    key_strengths: ['Clear support examples'],
+    areas_for_improvement: ['Add more metrics'],
+    phase_breakdown: [
+      { phase: 'Interview #1', observation: 'You gave a clear baseline answer.' }
+    ],
+    pre_call_prep: {
+      cumulative_phase_summary: ['One', 'Two', 'Three'],
+      probable_focus: ['Focus one', 'Focus two', 'Focus three'],
+      interviewer_question_patterns: ['Pattern one', 'Pattern two', 'Pattern three'],
+      questions_to_ask: ['Question one?', 'Question two?', 'Question three?']
+    }
+  }, sessions);
+
+  assert.equal(isTrendAnalysisComplete(normalized, 1), true);
+});
+
+test('material pre-call prep is complete without saved interviews', () => {
+  const analysis = {
+    prep_basis: 'materials',
+    pre_call_prep: {
+      cumulative_phase_summary: ['Role priority', 'Evaluation criteria', 'Prep insight'],
+      probable_focus: ['Question one', 'Question two', 'Question three'],
+      interviewer_question_patterns: ['Strength one', 'Strength two', 'Strength three'],
+      questions_to_ask: ['Question one?', 'Question two?', 'Question three?'],
+      gaps_and_mitigation: ['Gap one and mitigation', 'Gap two and mitigation', 'Gap three and mitigation']
+    }
+  };
+
+  assert.equal(isMaterialPreCallPrepComplete(analysis), true);
+  assert.equal(isTrendAnalysisComplete(analysis, 0), false);
 });
 
 test('trend analysis and pre-call prep address the user directly', () => {
@@ -169,6 +210,8 @@ test('main process reuses persisted trend analysis when the signature matches', 
   const mainSource = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
 
   assert.match(mainSource, /loadTrendAnalysis\(app\.getPath\('userData'\), companyId\)/);
+  assert.doesNotMatch(mainSource, /sortedSessions\.length < 2/);
+  assert.match(mainSource, /sortedSessions\.length < 1/);
   assert.match(mainSource, /isTrendAnalysisComplete\(persistedAnalysis\.analysis, sortedSessions\.length\)/);
   assert.match(mainSource, /return persistedAnalysis\.analysis;/);
 });

@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getQuestionBankDashboard: (filters) => ipcRenderer.invoke('get-question-bank-dashboard', filters),
     saveQuestionBankEntry: (entry) => ipcRenderer.invoke('save-question-bank-entry', entry),
     deleteQuestionBankEntry: (id) => ipcRenderer.invoke('delete-question-bank-entry', id),
+    deleteQuestionBankEntries: (ids) => ipcRenderer.invoke('delete-question-bank-entries', ids),
+    bulkUpdateQuestionBankEntries: (payload) => ipcRenderer.invoke('bulk-update-question-bank-entries', payload),
     openQuestionBankCsvDialog: (filters) => ipcRenderer.invoke('open-question-bank-csv-dialog', filters),
     listKnowledge: (filters) => ipcRenderer.invoke('list-knowledge', filters),
       ingestKnowledgeFile: (filePath) => ipcRenderer.invoke('ingest-knowledge-file', filePath),
