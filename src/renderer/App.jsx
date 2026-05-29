@@ -81,7 +81,6 @@ function isTrendAnalysisRecordFresh(record, sessionSignature, sessionCount) {
     && record.sessionsSignature === sessionSignature
     && record.sessionsCount === sessionCount
     && analysis
-    && isTrendAnalysisComplete(analysis, sessionCount)
   );
 }
 
@@ -132,6 +131,7 @@ const EMPTY_SETTINGS = {
   googleSyncAutoApprove: false,
   googleSyncPollMinutes: 15,
   includeGlobalQuestionBank: false,
+  onboardingGuideDismissed: false,
   demoMode: false,
   captureProtectionEnabled: true,
   uiOpacity: 100
@@ -1629,7 +1629,7 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
     try {
       const result = await api?.generateTrendAnalysis?.(selected.id, { force: true });
       setAnalysis(result);
-      if (result && isTrendAnalysisComplete(result, sessions.length)) {
+      if (result) {
         const cacheKey = `trend-analysis-${selected.id}`;
         localStorage.setItem(cacheKey, JSON.stringify({
           sessionsCount: sessions.length,
@@ -3339,7 +3339,7 @@ function App() {
         setMode(nextSettings.appMode === 'meeting' ? 'meeting' : 'interview');
         setSetupOpen(!nextSettings.currentCompany && !nextSettings.meetingTitle);
         setAppWindowMaximized(Boolean(isMaximized));
-        if (!localStorage.getItem(ONBOARDING_GUIDE_DISMISSED_KEY)) {
+        if (!nextSettings.onboardingGuideDismissed && !localStorage.getItem(ONBOARDING_GUIDE_DISMISSED_KEY)) {
           setOnboardingOpen(true);
         }
       }
@@ -4342,6 +4342,7 @@ function App() {
             onClose={({ dontShowAgain, route } = {}) => {
               if (dontShowAgain) {
                 localStorage.setItem(ONBOARDING_GUIDE_DISMISSED_KEY, 'true');
+                saveSettings({ ...settings, onboardingGuideDismissed: true });
               }
               setOnboardingOpen(false);
               if (route) {
@@ -6169,6 +6170,7 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
   const [bulkSource, setBulkSource] = useState('');
   const [status, setStatus] = useState('');
   const [actionDialog, setActionDialog] = useState(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
   const proTier = settings.userTier === 'pro';
   const visibleIds = entries.map((entry) => entry.id).filter(Boolean);
   const selectedVisibleIds = selectedIds.filter((id) => visibleIds.includes(id));
@@ -6241,6 +6243,7 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
       const message = editing ? 'Question updated.' : 'Question added.';
       showQuestionBankDialog('success', message);
       setEditing(null);
+      setAddModalOpen(false);
       setForm({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
       await loadQuestionBank();
     } catch (error) {
@@ -6340,13 +6343,23 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
           <h2>Question Bank</h2>
           <p>{proTier ? 'Review questions across opportunities.' : 'Free tier shows questions linked to the active opportunity.'}</p>
         </div>
-        {proTier ? (
-          <label className="question-bank-global-toggle">
-            <input type="checkbox" checked={Boolean(settings.includeGlobalQuestionBank)} onChange={toggleAlwaysIncludeGlobal} />
-            Always include Global Q&A in active context
-          </label>
-        ) : null}
-        <button type="button" className="primary-action" onClick={importCsv}>Import CSV</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {proTier ? (
+            <label className="question-bank-global-toggle" style={{ marginRight: '12px' }}>
+              <span className="switch-control">
+                <input 
+                  type="checkbox" 
+                  checked={Boolean(settings.includeGlobalQuestionBank)} 
+                  onChange={toggleAlwaysIncludeGlobal} 
+                />
+                <span className="switch-slider" />
+              </span>
+              <span className="switch-label">Always include Global Q&A in active context</span>
+            </label>
+          ) : null}
+          <button type="button" className="primary-action" onClick={() => setAddModalOpen(true)}>Add Question</button>
+          <button type="button" className="ghost" onClick={importCsv}>Import CSV</button>
+        </div>
       </div>
 
       <div className="question-bank-dashboard">
@@ -6369,30 +6382,8 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
         </section>
       </div>
 
-      <form className="question-bank-editor" ref={editorRef} onSubmit={saveEntry}>
-        <label>
-          Question
-          <textarea value={form.question} onChange={(event) => setForm((current) => ({ ...current, question: event.target.value }))} required />
-        </label>
-        <label>
-          Sample answer
-          <textarea value={form.sampleAnswer} onChange={(event) => setForm((current) => ({ ...current, sampleAnswer: event.target.value }))} required />
-        </label>
-        <label>
-          Linked opportunity
-          <select value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))}>
-            <option value="">Global</option>
-            {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-          </select>
-        </label>
-        <div className="question-bank-editor-actions">
-          <button type="submit" className="primary-action">{editing ? 'Save question' : 'Add question'}</button>
-          {editing ? <button type="button" className="ghost" onClick={() => startEdit(null)}>Cancel</button> : null}
-        </div>
-      </form>
-
       <form className="question-bank-filters" onSubmit={(event) => event.preventDefault()}>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search questions or answers" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search questions or answers..." />
         <select value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)}>
           <option value="">All links</option>
           <option value="global">Global</option>
@@ -6406,24 +6397,26 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
         </select>
       </form>
 
-      <div className="question-bank-bulk-actions" aria-label="Bulk question bank actions">
-        <strong>{selectedVisibleIds.length} selected</strong>
-        <button type="button" className="ghost" onClick={() => setSelectedIds(visibleIds)}>Select all visible</button>
-        <button type="button" className="ghost" onClick={() => setSelectedIds([])} disabled={!selectedIds.length}>Clear</button>
-        <select value={bulkEntityId} onChange={(event) => setBulkEntityId(event.target.value)} disabled={!selectedVisibleIds.length}>
-          <option value="">Global</option>
-          {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-        </select>
-        <button type="button" className="ghost" onClick={bulkLinkSelected} disabled={!selectedVisibleIds.length}>Link selected</button>
-        <select value={bulkSource} onChange={(event) => setBulkSource(event.target.value)} disabled={!selectedVisibleIds.length}>
-          <option value="">Set source...</option>
-          <option value="manual">Manual</option>
-          <option value="csv">CSV</option>
-          <option value="clyde">Clyde</option>
-        </select>
-        <button type="button" className="ghost" onClick={bulkSourceSelected} disabled={!selectedVisibleIds.length || !bulkSource}>Set source</button>
-        <button type="button" className="ghost danger" onClick={bulkDeleteSelected} disabled={!selectedVisibleIds.length}>Delete selected</button>
-      </div>
+      {selectedVisibleIds.length > 1 ? (
+        <div className="question-bank-bulk-actions" aria-label="Bulk question bank actions">
+          <strong>{selectedVisibleIds.length} selected</strong>
+          <button type="button" className="ghost" onClick={() => setSelectedIds(visibleIds)}>Select all visible</button>
+          <button type="button" className="ghost" onClick={() => setSelectedIds([])} disabled={!selectedIds.length}>Clear</button>
+          <select value={bulkEntityId} onChange={(event) => setBulkEntityId(event.target.value)} disabled={!selectedVisibleIds.length}>
+            <option value="">Global</option>
+            {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+          </select>
+          <button type="button" className="ghost" onClick={bulkLinkSelected} disabled={!selectedVisibleIds.length}>Link selected</button>
+          <select value={bulkSource} onChange={(event) => setBulkSource(event.target.value)} disabled={!selectedVisibleIds.length}>
+            <option value="">Set source...</option>
+            <option value="manual">Manual</option>
+            <option value="csv">CSV</option>
+            <option value="clyde">Clyde</option>
+          </select>
+          <button type="button" className="ghost" onClick={bulkSourceSelected} disabled={!selectedVisibleIds.length || !bulkSource}>Set source</button>
+          <button type="button" className="ghost danger" onClick={bulkDeleteSelected} disabled={!selectedVisibleIds.length}>Delete selected</button>
+        </div>
+      ) : null}
 
       {status ? <p className="question-bank-status">{status}</p> : null}
 
@@ -6443,29 +6436,119 @@ function QuestionBankView({ activeEntityId = '', activeEntityLabel = '', entitie
           <span>Source</span>
           <span></span>
         </div>
-        {entries.length ? entries.map((entry) => (
-          <div key={entry.id} className="question-bank-row" role="row">
-            <span>
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(entry.id)}
-                onChange={() => toggleRowSelection(entry.id)}
-                aria-label={`Select question: ${entry.question}`}
-              />
-            </span>
-            <span>{entry.question}</span>
-            <span>{entry.sampleAnswer}</span>
-            <span>{entry.entityName || 'Global'}</span>
-            <span>{entry.source === 'clyde' ? 'Clyde' : entry.source === 'csv' ? 'CSV' : 'Manual'}</span>
-            <span>
-              <button type="button" className="ghost" onClick={() => startEdit(entry)}>Edit</button>
-              <button type="button" className="ghost danger" onClick={() => deleteEntry(entry.id)}>Delete</button>
-            </span>
-          </div>
-        )) : (
+        {entries.length ? entries.map((entry) => {
+          const isCurrentEditing = editing?.id === entry.id;
+          if (isCurrentEditing) {
+            return (
+              <form key={entry.id} className="question-bank-row inline-editing-row" onSubmit={saveEntry} role="row">
+                <span></span>
+                <span>
+                  <textarea
+                    value={form.question}
+                    onChange={(event) => setForm((current) => ({ ...current, question: event.target.value }))}
+                    required
+                    placeholder="Edit question..."
+                  />
+                </span>
+                <span>
+                  <textarea
+                    value={form.sampleAnswer}
+                    onChange={(event) => setForm((current) => ({ ...current, sampleAnswer: event.target.value }))}
+                    required
+                    placeholder="Edit sample answer..."
+                  />
+                </span>
+                <span>
+                  <select value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))}>
+                    <option value="">Global</option>
+                    {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                  </select>
+                </span>
+                <span>{entry.source === 'clyde' ? 'Clyde' : entry.source === 'csv' ? 'CSV' : 'Manual'}</span>
+                <span className="inline-edit-actions">
+                  <button type="submit" className="primary-action inline-save-btn">Save</button>
+                  <button type="button" className="ghost inline-cancel-btn" onClick={() => startEdit(null)}>Cancel</button>
+                </span>
+              </form>
+            );
+          }
+          return (
+            <div key={entry.id} className="question-bank-row" role="row">
+              <span>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(entry.id)}
+                  onChange={() => toggleRowSelection(entry.id)}
+                  aria-label={`Select question: ${entry.question}`}
+                />
+              </span>
+              <span>{entry.question}</span>
+              <span>{entry.sampleAnswer}</span>
+              <span>{entry.entityName || 'Global'}</span>
+              <span>{entry.source === 'clyde' ? 'Clyde' : entry.source === 'csv' ? 'CSV' : 'Manual'}</span>
+              <span>
+                <button type="button" className="ghost" onClick={() => startEdit(entry)}>Edit</button>
+                <button type="button" className="ghost danger" onClick={() => deleteEntry(entry.id)}>Delete</button>
+              </span>
+            </div>
+          );
+        }) : (
           <div className="question-bank-empty">No questions found.</div>
         )}
       </div>
+
+      {addModalOpen && (
+        <div className="question-bank-modal-backdrop" onClick={() => {
+          setAddModalOpen(false);
+          setForm({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
+        }}>
+          <div className="question-bank-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="question-bank-modal-head">
+              <h3>Add a New Question</h3>
+              <button type="button" className="close-btn" onClick={() => {
+                setAddModalOpen(false);
+                setForm({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
+              }} aria-label="Close modal">×</button>
+            </header>
+            <form onSubmit={saveEntry}>
+              <label>
+                Question
+                <textarea
+                  value={form.question}
+                  onChange={(event) => setForm((current) => ({ ...current, question: event.target.value }))}
+                  required
+                  placeholder="What is the interviewer question?"
+                  autoFocus
+                />
+              </label>
+              <label>
+                Sample Answer
+                <textarea
+                  value={form.sampleAnswer}
+                  onChange={(event) => setForm((current) => ({ ...current, sampleAnswer: event.target.value }))}
+                  required
+                  placeholder="What is your best response?"
+                />
+              </label>
+              <label>
+                Linked Opportunity
+                <select value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))}>
+                  <option value="">Global (General)</option>
+                  {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                </select>
+              </label>
+              <div className="question-bank-modal-actions">
+                <button type="submit" className="primary-action">Add Question</button>
+                <button type="button" className="ghost" onClick={() => {
+                  setAddModalOpen(false);
+                  setForm({ question: '', sampleAnswer: '', entityId: activeEntityId || '' });
+                }}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {actionDialog ? (
         <div className="settings-message-backdrop" role="presentation">
           <section className={`settings-message-modal ${actionDialog.tone}`} role="alertdialog" aria-modal="true" aria-label="Question Bank action message">
@@ -8048,8 +8131,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
             return;
           }
 
-          if (isTrendAnalysisComplete(generated, normalized.length)
-            || (normalized.length < 2 && isMaterialPreCallPrepComplete(generated))) {
+          if (generated) {
             setTrendAnalysis(generated);
             localStorage.setItem(cacheKey, JSON.stringify({
               sessionsSignature: sessionSignature,
@@ -9365,7 +9447,23 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
 
           <div className="onboarding-foot">
             <label className="toggle-row">
-              <input type="checkbox" checked={dontShowAgain} onChange={(event) => setDontShowAgain(event.target.checked)} />
+              <input
+                type="checkbox"
+                checked={dontShowAgain}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setDontShowAgain(checked);
+                  if (checked) {
+                    localStorage.setItem(ONBOARDING_GUIDE_DISMISSED_KEY, 'true');
+                  } else {
+                    localStorage.removeItem(ONBOARDING_GUIDE_DISMISSED_KEY);
+                  }
+                  const nextSettings = { ...settings, onboardingGuideDismissed: checked };
+                  api?.saveSettings?.(nextSettings).then(() => {
+                    onSettingsUpdated?.(nextSettings);
+                  }).catch(() => {});
+                }}
+              />
               Do not show this again
             </label>
             <div>

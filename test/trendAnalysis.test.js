@@ -212,6 +212,6 @@ test('main process reuses persisted trend analysis when the signature matches', 
   assert.match(mainSource, /loadTrendAnalysis\(app\.getPath\('userData'\), companyId\)/);
   assert.doesNotMatch(mainSource, /sortedSessions\.length < 2/);
   assert.match(mainSource, /sortedSessions\.length < 1/);
-  assert.match(mainSource, /isTrendAnalysisComplete\(persistedAnalysis\.analysis, sortedSessions\.length\)/);
+  assert.match(mainSource, /persistedAnalysis\.analysis/);
   assert.match(mainSource, /return persistedAnalysis\.analysis;/);
 });

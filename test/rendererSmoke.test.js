@@ -622,7 +622,7 @@ test('question bank table supports bulk selection and edits', () => {
   assert.match(mainSource, /delete-question-bank-entries/);
   assert.match(mainSource, /bulk-update-question-bank-entries/);
   assert.match(cssSource, /\.question-bank-bulk-actions/);
-  assert.match(cssSource, /grid-template-columns: 34px 1\.2fr 1\.8fr 0\.8fr 0\.45fr 150px/);
+  assert.match(cssSource, /grid-template-columns: 40px 1\.2fr 1\.8fr 0\.8fr 0\.45fr 150px/);
 });
 
 test('trend analysis chart is titled performance over time', () => {

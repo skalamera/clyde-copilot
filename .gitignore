@@ -9,3 +9,5 @@ dist-pack/
 release-artifacts/*.zip
 native/audio-engine/target/
 *.exe
+.antigravitycli/
+

@@ -171,6 +171,7 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
       });
       setLibraryTab('scorecard');
     }
+    setTranscriptState([]);
     finalizingRef.current = false;
   }
 
@@ -309,7 +310,7 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
             </div>
             <div className="mock-header-actions">
             <button type="button" className="ghost" onClick={() => setLibraryOpen(true)}>
-              Saved interviews
+              Saved interviews ({savedInterviews.length})
             </button>
             <div className={`mock-status status-${status}`}>
               <span />
@@ -367,27 +368,12 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
               End Interview
             </button>
           )}
-          {transcript.length ? (
-            <button className="ghost" onClick={() => saveCurrentMockInterview()} disabled={!assessment && assessmentStatus.startsWith('Generating')}>
-              Save now
-            </button>
-          ) : null}
           {assessmentStatus ? <small>{assessmentStatus}</small> : null}
           {saveStatus ? <small>{saveStatus}</small> : null}
         </div>
       </section>
 
-      {!libraryOpen ? (
-        <button
-          type="button"
-          className="mock-library-rail"
-          onClick={() => setLibraryOpen(true)}
-          aria-label="Open saved mock interviews"
-        >
-          <span>{savedInterviews.length}</span>
-          Saved
-        </button>
-      ) : null}
+
 
       <aside className={`mock-library-modal ${libraryOpen ? 'open' : 'closed'}`} aria-label="Saved mock interviews">
         <div className="mock-library-head">

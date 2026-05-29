@@ -219,6 +219,7 @@ function loadSettings() {
         googleSyncAutoApprove: store.get('googleSyncAutoApprove', false),
         googleSyncPollMinutes: store.get('googleSyncPollMinutes', 15),
         includeGlobalQuestionBank: store.get('includeGlobalQuestionBank', false),
+        onboardingGuideDismissed: store.get('onboardingGuideDismissed', false),
         demoMode: process.env.CLYDE_DEMO_MODE === '1',
         appMode: store.get('appMode', 'interview'),
         meetingTitle: store.get('meetingTitle', ''),
@@ -3670,7 +3671,7 @@ Address the user directly as "you". Do not call the user "the candidate" or use 
           && persistedAnalysis
           && persistedAnalysis.sessionsSignature === sessionsSignature
           && persistedAnalysis.sessionsCount === sortedSessions.length
-          && isTrendAnalysisComplete(persistedAnalysis.analysis, sortedSessions.length)
+          && persistedAnalysis.analysis
       ) {
           return persistedAnalysis.analysis;
       }
