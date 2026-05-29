@@ -90,7 +90,7 @@ test('main process requests resizing on start-audio-capture', () => {
   assert.match(source, /normalBounds = currentBounds/);
   assert.match(source, /mainWindow\.setBounds\(nextBounds\)/);
   assert.match(source, /mainWindow\.setHasShadow\(false\)/);
-  assert.match(source, /ACTIVE_CAPTURE_DEFAULT_WIDTH = 460/);
+  assert.match(source, /ACTIVE_CAPTURE_DEFAULT_WIDTH = 800/);
   assert.match(source, /screen\.getDisplayMatching\(currentBounds\)/);
   assert.match(source, /saveActiveCaptureBounds\(mainWindow\.getBounds\(\)\)/);
 });

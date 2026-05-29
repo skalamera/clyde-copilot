@@ -57,7 +57,8 @@ function buildAssistantPrompt(options = {}) {
     context.pinnedKnowledgeBrief ? `Pinned Knowledge Brief:\n${context.pinnedKnowledgeBrief}` : '',
     formatEntityFiles(context.entityFiles),
     ragContext ? `Relevant RAG Context:\n${ragContext}` : '',
-    command === 'interviewer_questions' ? 'Generate 5 to 7 thoughtful questions the candidate can ask the interviewer at the end of the interview. Return one answer card with question set to "Questions to ask the interviewer" and the questions as bullets.' : '',
+    command === 'interviewer_questions' ? 'Generate 3 thoughtful questions the candidate can ask the interviewer at the end of the interview. Return one answer card with question set to "Questions to ask the interviewer" and the questions as bullets.' : '',
+    command === 'screen_question' ? 'A desktop screenshot is attached. Analyze the attached screenshot of the user\'s desktop along with the recent transcript turns, and provide a single answer card summarizing your analysis and suggestions.' : '',
     'Use first-person language for suggested responses.',
     'If the question asks about past experience, projects, or background, use only the supplied context for specific project names, metrics, and details.',
     'Never suggest questions for the interviewer to ask unless the current command asks for follow-up questions.',
@@ -159,7 +160,7 @@ function getAssistantSchema(mode = 'interview', command = 'assist') {
     };
   }
 
-  if (command === 'interviewer_questions') {
+  if (command === 'interviewer_questions' || command === 'screen_question') {
     return {
       answers: answerArraySchema()
     };

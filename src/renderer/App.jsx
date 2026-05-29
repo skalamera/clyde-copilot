@@ -25,6 +25,18 @@ const jobDescriptionUrl = new URL('../../Job_Description.svg', import.meta.url).
 const calibrationIconUrl = new URL('../../calibration.svg', import.meta.url).href;
 const testAudioIconUrl = new URL('../../test_audio_icon.svg', import.meta.url).href;
 
+// Redesigned Capture panel SVGs
+const clydeFreeCoinUrl = new URL('../../clyde-free-coin.svg', import.meta.url).href;
+const clydeStopIconUrl = new URL('../../clyde_stop_icon.svg', import.meta.url).href;
+const clydePlayPauseUrl = new URL('../../clyde_play_pause.svg', import.meta.url).href;
+const clydeResetUrl = new URL('../../clyde_reset.svg', import.meta.url).href;
+const clydeScreenshotUrl = new URL('../../clyde_screenshot.svg', import.meta.url).href;
+const clydeSendUrl = new URL('../../clyde_send.svg', import.meta.url).href;
+const clydeMicUrl = new URL('../../clyde_mic.svg', import.meta.url).href;
+const clydeGlassGhostUrl = new URL('../../cylde_glass_ghost.svg', import.meta.url).href;
+const clydeOpacityIconUrl = new URL('../../clyde_opacity_icon.svg', import.meta.url).href;
+const clydeQuestionsUrl = new URL('../../clyde_questions.svg', import.meta.url).href;
+
 const iconHomeUrl = new URL('../../navbar-icons/Home.svg', import.meta.url).href;
 const iconHomeColorUrl = new URL('../../navbar-icons/Home_color.svg', import.meta.url).href;
 const iconAssistUrl = new URL('../../navbar-icons/Pre-call_Prep.svg', import.meta.url).href;
@@ -3768,7 +3780,9 @@ function App() {
       groupId: `asking-${Date.now()}`,
       type: 'note',
       title: 'Asking Clyde...',
-      body: payload.prompt ? 'Reading the screen and recent call context.' : 'Reading the screen and preparing live help.'
+      body: payload.includeScreenshot
+        ? (payload.prompt ? 'Reading the screen and recent call context.' : 'Reading the screen and preparing live help.')
+        : (payload.prompt ? 'Reading the recent transcript and context.' : 'Reading the recent transcript and preparing live help.')
     };
     setAssistantCards((current) => prependAssistantCards([temporaryCard], current));
 
@@ -7385,15 +7399,28 @@ function ActiveCaptureView({
   const [videoActive, setVideoActive] = useState(false);
   const [showMeters, setShowMeters] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [showOpacitySlider, setShowOpacitySlider] = useState(false);
   const panelRef = useRef(null);
   const chatEndRef = useRef(null);
   const controlBarDragRef = useRef({ moved: false });
   const suppressControlBarClickRef = useRef(false);
+  const opacityRef = useRef(null);
   const [sources, setSources] = useState(() => getDefaultActiveSources(settings, mode));
 
   useEffect(() => {
     setSources((current) => normalizeActiveSourcesForMode(current, settings, mode));
   }, [mode, settings?.ragEnabled]);
+
+  useEffect(() => {
+    if (!showOpacitySlider) return;
+    const handleOutsideClick = (e) => {
+      if (opacityRef.current && !opacityRef.current.contains(e.target)) {
+        setShowOpacitySlider(false);
+      }
+    };
+    document.addEventListener('pointerdown', handleOutsideClick);
+    return () => document.removeEventListener('pointerdown', handleOutsideClick);
+  }, [showOpacitySlider]);
 
   useEffect(() => {
     if (hidden) {
@@ -7433,10 +7460,24 @@ function ActiveCaptureView({
           return Math.max(bottom, rect.top - panelRect.top + visibleStackHeight + 10);
         }, 0);
         
+        let maxChildBottom = 0;
+        children.forEach((child) => {
+          const style = window.getComputedStyle(child);
+          if (style.position === 'absolute' && !child.classList.contains('active-control-stack')) {
+            return;
+          }
+          const rect = child.getBoundingClientRect();
+          const bottom = rect.bottom - panelRect.top;
+          if (bottom > maxChildBottom) {
+            maxChildBottom = bottom;
+          }
+        });
+
         const contentHeight = Math.max(panel.scrollHeight, contentBounds.bottom, scrollContentBottom);
+        const realContentHeight = Math.max(maxChildBottom, scrollContentBottom);
         const contentWidth = Math.max(panel.scrollWidth, contentBounds.right - contentBounds.left);
-        const width = Math.ceil(Math.max(640, contentWidth + 24));
-        const height = Math.ceil(Math.max(420, contentHeight + 16));
+        const width = Math.ceil(Math.max(800, contentWidth + 24));
+        const height = Math.ceil(Math.max(420, realContentHeight + 16));
 
         window.electronAPI?.resizeActiveCaptureWindow?.({ width, height });
       });
@@ -7513,7 +7554,7 @@ function ActiveCaptureView({
   function handleFollowUpQuestions() {
     onAsk({
       prompt: 'Based on the full transcript of this interview so far, the job description, and all active opportunity context, please suggest 3 tailored follow-up questions I can ask the interviewer.',
-      intent: 'custom_prompt',
+      intent: 'interviewer_questions',
       includeScreenshot: false,
       sources: sources,
       mode
@@ -7724,7 +7765,7 @@ function ActiveCaptureView({
           className="active-assistant-panel"
           ref={panelRef}
           style={{
-            '--active-capture-opacity': (settings.activeCaptureOpacity ?? 88) / 100
+            '--active-capture-opacity': (settings.uiOpacity ?? 100) / 100
           }}
         >
           {sourceMenuOpen ? (
@@ -7742,63 +7783,52 @@ function ActiveCaptureView({
           {/* Floating Pill Top Control Panel */}
           <div className="active-control-stack">
             <div
-              className="active-capture-drag-tab"
-              onClickCapture={handleControlBarClickCapture}
-              onPointerDown={handleControlBarPointerDown}
-              aria-hidden="true"
-            >
-              <span></span>
-              <span></span>
-            </div>
-            <div
               className="active-capture-bar"
               onClickCapture={handleControlBarClickCapture}
               onPointerDownCapture={handleControlBarPointerDown}
             >
-              {/* Clickable Ghost logo for screen capture protection toggle */}
+              {/* Minimize Clyde (Ghost logo) */}
               <button 
                 type="button" 
-                className={`active-icon-btn ghost-logo-btn ${captureProtectionEnabled ? 'active' : ''}`}
-                onClick={onToggleCaptureProtection}
-                title={captureProtectionEnabled ? "Disable screen capture protection" : "Enable screen capture protection"}
-                aria-label="Toggle screen capture protection"
+                className="active-icon-btn minimize-btn" 
+                onClick={onHide} 
+                aria-label="Minimize Clyde" 
+                title="Minimize Clyde"
               >
-                👻
+                <img src={clydeFreeCoinUrl} alt="Minimize" style={{width: '24px', height: '24px'}} />
               </button>
-              
-              {/* Vertical Voice Level Meters */}
-              <div className="mini-audio-meters">
-                {(Array.isArray(liveLevels) && liveLevels.length ? liveLevels : [{ id: 1, rms: 4, speaking: false }, { id: 2, rms: 4, speaking: false }]).map((source, idx) => {
-                  const barHeight = Math.max(4, Math.min(22, (source.rms || 0) * 0.35));
-                  return (
-                    <span 
-                      key={source.id || idx} 
-                      className={`mini-meter-bar ${source.speaking ? 'speaking' : ''}`}
-                      style={{ height: `${barHeight}px` }}
-                    />
-                  );
-                })}
-              </div>
+
+              {/* Stop Session (Square icon) */}
+              <button 
+                type="button" 
+                className="active-icon-btn stop-btn" 
+                onClick={onStop} 
+                aria-label="End session" 
+                title="End Session"
+              >
+                <img src={clydeStopIconUrl} alt="End Session" style={{width: '32px', height: '32px'}} />
+              </button>
+
+              {/* Pause/Resume Capture */}
+              <button 
+                type="button" 
+                className={`active-icon-btn pause-btn ${isPaused ? 'active' : ''}`} 
+                onClick={onPauseToggle} 
+                aria-label={isPaused ? "Resume capture" : "Pause capture"} 
+                title={isPaused ? "Resume Capture" : "Pause Capture"}
+              >
+                <img src={clydePlayPauseUrl} alt={isPaused ? "Resume" : "Pause"} style={{width: '32px', height: '32px'}} />
+              </button>
 
               {/* Reset Session */}
-              <button type="button" className="active-icon-btn reset-btn" onClick={onReset} aria-label="Reset session" title="Reset Session">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '18px', height: '18px'}}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-              </button>
-
-              {/* Follow-up Questions */}
               <button 
                 type="button" 
-                className="active-icon-btn follow-up-btn" 
-                onClick={handleFollowUpQuestions} 
-                aria-label="Follow-up Questions" 
-                title="Prompt Follow-up Questions"
+                className="active-icon-btn reset-btn" 
+                onClick={onReset} 
+                aria-label="Reset session" 
+                title="Reset Session"
               >
-                ❔
-              </button>
-
-              {/* Minimize Clyde */}
-              <button type="button" className="active-icon-btn minimize-btn" onClick={onHide} aria-label="Minimize Clyde" title="Minimize Clyde">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M7 12h10"></path></svg>
+                <img src={clydeResetUrl} alt="Reset" style={{width: '32px', height: '32px'}} />
               </button>
             </div>
           </div>
@@ -7880,11 +7910,20 @@ function ActiveCaptureView({
 
           {/* Bottom Chat Input Pill Form */}
           <form className="active-capture-input-pill" onSubmit={submitAsk}>
+            <button 
+              type="button" 
+              className="composer-action-btn camera-btn" 
+              onClick={handleCameraClick}
+              title="Screenshot desktop & ask Clyde in 1-click"
+              style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '0 8px 0 0', display: 'flex', alignItems: 'center' }}
+            >
+              <img src={clydeScreenshotUrl} alt="Screenshot" style={{ width: '22px', height: '22px' }} />
+            </button>
             <input 
               type="text" 
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Ask about your screen or conversation with Custom Prompt"
+              placeholder="Ask about your screen or conversation with Custom Prompt..."
               disabled={isAsking}
             />
 
@@ -7893,26 +7932,19 @@ function ActiveCaptureView({
               className="composer-send-btn"
               disabled={isAsking || !prompt.trim()}
               aria-label="Send"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               {isAsking ? (
                 <span className="btn-spinner"></span>
               ) : (
-                '➔'
+                <img src={clydeSendUrl} alt="Send" style={{ width: '16px', height: '16px' }} />
               )}
             </button>
           </form>
 
-          {/* Composer Addons Row (Screenshot & Camera) */}
-          <div className="composer-options-row">
-            <button 
-              type="button" 
-              className="composer-action-btn camera-btn" 
-              onClick={handleCameraClick}
-              title="Screenshot desktop & ask Clyde in 1-click"
-            >
-              📷
-            </button>
-            <div className="composer-screenshot-toggle">
+          {/* Composer Addons Row (Screenshot) */}
+          <div className="composer-options-row" style={{ display: 'flex', justifyContent: 'flex-start', margin: '0 24px 12px' }}>
+            <div className="composer-screenshot-toggle" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <label className="toggle-switch">
                 <input 
                   type="checkbox" 
@@ -7921,40 +7953,104 @@ function ActiveCaptureView({
                 />
                 <span className="toggle-slider"></span>
               </label>
-              <span className="toggle-label">Toggle ON to include screenshot</span>
+              <span className="toggle-label" style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Include Screenshot</span>
             </div>
           </div>
 
-          {/* Bottom window control bar (mute, pause, end) */}
+          {/* Bottom window control bar (Capture protection, Opacity, Glowing mic, Interview questions) */}
           <div className="active-capture-bottom-bar">
-            <button 
-              type="button" 
-              className={`bottom-bar-action-btn mic-btn ${isPaused ? 'paused' : 'active'}`}
-              onClick={onPauseToggle}
-            >
-              🎙️ {isPaused ? 'UNMUTE' : 'MUTE'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Toggle Screen Capture Protection */}
+              <button 
+                type="button" 
+                className={`bottom-bar-action-btn capture-protect-btn ${captureProtectionEnabled ? 'active' : ''}`}
+                onClick={onToggleCaptureProtection}
+                title={captureProtectionEnabled ? "Disable screen capture protection" : "Enable screen capture protection"}
+                aria-label="Toggle screen capture protection"
+                style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                <img src={clydeGlassGhostUrl} alt="Capture Protect" style={{ width: '30px', height: '30px' }} />
+              </button>
+
+              {/* Opacity Setting Slider Toggle */}
+              <div ref={opacityRef} className="opacity-control-wrapper" style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                <button 
+                  type="button" 
+                  className={`bottom-bar-action-btn opacity-toggle-btn ${showOpacitySlider ? 'active' : ''}`}
+                  onClick={() => setShowOpacitySlider(!showOpacitySlider)}
+                  title="Adjust window background transparency"
+                  aria-label="Adjust window background transparency"
+                  style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <img src={clydeOpacityIconUrl} alt="Opacity" style={{ width: '30px', height: '30px' }} />
+                </button>
+                {showOpacitySlider && (
+                  <div className="opacity-slider-popover" style={{
+                    position: 'absolute',
+                    bottom: '48px',
+                    left: '0',
+                    background: 'rgba(15, 20, 28, 0.95)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    zIndex: 2000,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                  }}>
+                    <input 
+                      type="range" 
+                      min="35" 
+                      max="100" 
+                      value={settings?.uiOpacity ?? 100}
+                      onChange={(e) => onUpdateSetting?.('uiOpacity', Number(e.target.value))}
+                      style={{ width: '100px', cursor: 'pointer', accentColor: 'var(--cyan)' }}
+                    />
+                    <span style={{ fontSize: '0.8rem', color: '#fff', minWidth: '32px', textAlign: 'right' }}>
+                      {settings?.uiOpacity ?? 100}%
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
             
+            {/* Glowing mic indicator (mute/unmute button) */}
             <button 
-              type="button" 
-              className={`bottom-bar-action-btn pause-btn ${isPaused ? 'paused' : 'active'}`}
+              type="button"
+              className={`bottom-mic-glow-indicator ${(!isPaused && Array.isArray(liveLevels) && liveLevels.length && liveLevels.some(l => l.speaking)) ? 'speaking' : ''} ${isPaused ? 'paused' : ''}`}
               onClick={onPauseToggle}
+              title={isPaused ? "Unmute microphone" : "Mute microphone"}
+              aria-label={isPaused ? "Unmute microphone" : "Mute microphone"}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              ⏸️ {isPaused ? 'Resume' : 'Pause'}
+              <img 
+                src={clydeMicUrl} 
+                alt="Microphone" 
+                style={{ 
+                  width: '32px', 
+                  height: '32px', 
+                  filter: isPaused ? 'grayscale(1) opacity(0.5)' : 'none' 
+                }} 
+              />
             </button>
 
+            {/* Follow-up / Suggested Questions */}
             <button 
               type="button" 
-              data-testid="stopBtn"
-              className="bottom-bar-action-btn end-btn"
-              onClick={onStop}
+              className="bottom-bar-action-btn questions-btn" 
+              onClick={handleFollowUpQuestions} 
+              aria-label="Suggested Questions" 
+              title="Suggested Questions"
+              style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
             >
-              End
+              <img src={clydeQuestionsUrl} alt="Questions" style={{ width: '30px', height: '30px' }} />
             </button>
           </div>
 
           {/* Test compatibility block */}
           <div style={{ display: 'none' }}>
+            <button type="button" data-testid="stopBtn" onClick={onStop}></button>
             <button type="button" className="active-icon-btn active-source-button"></button>
             <button type="button" className="active-icon-btn ghost-toggle">
               <span className="active-capture-icon ghost-emoji-icon">👻</span>

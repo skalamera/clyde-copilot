@@ -101,7 +101,7 @@ let healthCheckTimer;
 
 let fullSessionTranscript = [];
 
-const ACTIVE_CAPTURE_DEFAULT_WIDTH = 460;
+const ACTIVE_CAPTURE_DEFAULT_WIDTH = 800;
 const ACTIVE_CAPTURE_MAX_HEIGHT = 760;
 const ACTIVE_CAPTURE_MARGIN = 20;
 const ACTIVE_CAPTURE_MIN_WIDTH = 72;
@@ -528,12 +528,12 @@ function clampBoundsToDisplay(bounds, display) {
         Math.min(Math.round(bounds.height), workArea.height)
     );
     const x = Math.max(
-        workArea.x,
-        Math.min(Math.round(bounds.x), workArea.x + workArea.width - width)
+        workArea.x - width + 100,
+        Math.min(Math.round(bounds.x), workArea.x + workArea.width - 100)
     );
     const y = Math.max(
         workArea.y,
-        Math.min(Math.round(bounds.y), workArea.y + workArea.height - height)
+        Math.min(Math.round(bounds.y), workArea.y + workArea.height - 40)
     );
 
     return { x, y, width, height };

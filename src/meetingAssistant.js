@@ -127,7 +127,28 @@ function createMeetingAssistant(options = {}) {
     const isManualQuestion = !isSayNextRequest && Boolean(manualPrompt || screenshot || screenshotWarning);
     const proCandidate = shouldUseProAgent(settings, { screenshot });
 
-    if (!proCandidate && !model && provider === 'local') {
+    let requestProvider = provider;
+    let requestApiKey = apiKey;
+    let requestModel = model;
+    let requestLocalUrl = localUrl;
+
+    if (settings.userTier === 'pro') {
+      if (!proCandidate) {
+        if (provider === 'local' || provider === 'openai') {
+          requestProvider = 'openai';
+          requestApiKey = settings.transcriptionApiKey || settings.openAiApiKey || process.env.OPENAI_API_KEY || apiKey;
+          requestModel = settings.llmModel || 'gpt-4o';
+        }
+      } else if (!requestApiKey) {
+        requestApiKey = settings.transcriptionApiKey || settings.openAiApiKey || process.env.OPENAI_API_KEY;
+        if (requestProvider === 'local') {
+          requestProvider = 'openai';
+          requestModel = settings.llmModel || 'gpt-4o';
+        }
+      }
+    }
+
+    if (!proCandidate && !requestModel && requestProvider === 'local') {
       return { ok: true, skipped: 'not-configured' };
     }
 
@@ -271,13 +292,13 @@ function createMeetingAssistant(options = {}) {
         command
       });
       const request = {
-        provider,
-        apiKey,
-        model,
+        provider: requestProvider,
+        apiKey: requestApiKey,
+        model: requestModel,
         temperature: 0.2,
         maxTokens,
         axiosClient,
-        localUrl,
+        localUrl: requestLocalUrl,
         jsonSchema: {
           name: 'assistant_cards',
           schema: {
@@ -388,7 +409,10 @@ function createMeetingAssistant(options = {}) {
               })
             : null;
           const finalProResult = enrichedResult || proResult;
-          const proCards = Array.isArray(finalProResult?.cards) ? finalProResult.cards.filter((card) => card.type !== 'memory') : [];
+          let proCards = Array.isArray(finalProResult?.cards) ? finalProResult.cards.filter((card) => card.type !== 'memory') : [];
+          if (mode === 'interview' && (isSayNextRequest || isScreenQuestionRequest)) {
+            proCards = proCards.slice(0, 1);
+          }
 
           if ((finalProResult?.toolCalls || memorySearchStarted) && allowMemorySearch) {
             lastProMemorySearchAt = now;
@@ -426,7 +450,7 @@ function createMeetingAssistant(options = {}) {
         }
       }
 
-      if (!isFreeAssistantConfigured({ provider, model, localUrl, apiKey })) {
+      if (!isFreeAssistantConfigured({ provider: requestProvider, model: requestModel, localUrl: requestLocalUrl, apiKey: requestApiKey })) {
         sendStatus({ state: 'warning', message: 'Local assistant fallback is not configured.' });
         return { ok: false, message: 'Local assistant fallback is not configured.' };
       }
@@ -457,11 +481,14 @@ function createMeetingAssistant(options = {}) {
 
       const text = extractAssistantText(responseText);
       const parsedCards = parseAssistantCards(text);
-      const cards = command === 'assist' && mode === 'interview'
+      let cards = command === 'assist' && mode === 'interview'
         ? condenseAutomaticInterviewCards(parsedCards, targetQuestion)
         : command === 'manual_question'
           ? normalizeManualQuestionCards(parsedCards)
           : parsedCards;
+      if (mode === 'interview' && (isSayNextRequest || isScreenQuestionRequest)) {
+        cards = cards.slice(0, 1);
+      }
       const renderedCards = addWarningToCards(cards, screenshotWarning || imageFallbackWarning);
 
       if (renderedCards.length) {
@@ -788,6 +815,10 @@ function resolveAssistantCommand({
     return 'interviewer_questions';
   }
 
+  if (isScreenQuestionRequest) {
+    return 'screen_question';
+  }
+
   return isSayNextRequest ? 'suggestion' : (isManualQuestion ? 'manual_question' : (isSuggestionRequest ? 'suggestion' : 'assist'));
 }
 
@@ -1070,9 +1101,15 @@ function buildUserPrompt({ digest, manualPrompt, screenshot, screenshotWarning, 
       lines.push('A current desktop screenshot is attached because the user selected Include screenshot.');
     }
     lines.push('Follow the custom prompt exactly. Use the selected sources listed above when relevant.');
+  } else if (command === 'screen_question') {
+    if (screenshot) {
+      lines.push('A current desktop screenshot is attached. Analyze the attached screenshot of the user\'s desktop along with the recent transcript turns, and provide a single answer card summarizing your analysis and suggestions.');
+    } else {
+      lines.push('Analyze the desktop screen context along with the recent transcript turns, and provide a single answer card summarizing your analysis and suggestions.');
+    }
   } else {
     if (command === 'interviewer_questions') {
-      lines.push('Generate 5 to 7 concise questions the candidate can ask the interviewer now. Use the full transcript and active context. Prioritize questions that show preparation, clarify expectations, team needs, success measures, risks, and next steps. Return one answer card with the question field set to "Questions to ask the interviewer" and each suggested question as a bullet.');
+      lines.push('Generate 3 concise questions the candidate can ask the interviewer now. Use the full transcript and active context. Prioritize questions that show preparation, clarify expectations, team needs, success measures, risks, and next steps. Return one answer card with the question field set to "Questions to ask the interviewer" and each suggested question as a bullet.');
     }
 
     if (manualPrompt) {
