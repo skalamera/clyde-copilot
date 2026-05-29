@@ -8,7 +8,7 @@ const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_TOKENS = 800;
 const DEFAULT_UTTERANCE_SETTLE_MS = 0;
-const DEFAULT_INCOMPLETE_UTTERANCE_SETTLE_MS = 2400;
+const DEFAULT_INCOMPLETE_UTTERANCE_SETTLE_MS = 1400;
 
 function createMeetingAssistant(options = {}) {
   const settings = options.settings || {};
