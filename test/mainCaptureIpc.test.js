@@ -320,11 +320,24 @@ test('main process archives sessions into the pro knowledge base', () => {
   assert.match(source, /backfillKnowledgeFromSessions/);
 });
 
-test('main process forwards partial transcripts without saving or sending them to assistant context', () => {
+test('main process forwards partial transcripts without saving and sends them to the realtime question gate', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
 
   assert.match(source, /if \(transcript && transcript\.partial\)/);
-  assert.match(source, /mainWindow\.webContents\.send\('transcript-update', transcript\);\s*return;/);
+  assert.match(source, /mainWindow\.webContents\.send\('transcript-update', transcript\);\s*getMeetingAssistant\(\)\.addPartialTranscript\?\.\(transcript\);\s*return;/);
+});
+
+test('main process writes a single session debug trace for capture diagnostics', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+
+  assert.match(source, /createSessionDebugTrace/);
+  assert.match(source, /function startSessionTrace/);
+  assert.match(source, /function writeSessionTrace/);
+  assert.match(source, /writeSessionTrace\('transcript\.partial'/);
+  assert.match(source, /writeSessionTrace\('transcript\.final'/);
+  assert.match(source, /writeSessionTrace\('assistant\.update'/);
+  assert.match(source, /startSessionTrace\(settings\)/);
+  assert.match(source, /stopSessionTrace\(\)/);
 });
 
 test('main process closes transcription processors when capture stops', () => {
@@ -369,4 +382,3 @@ test('main process forwards captured audio chunks to meetingAssistant if active'
   assert.match(source, /if \(meetingAssistant && typeof meetingAssistant\.appendAudioChunk === 'function'\)/);
   assert.match(source, /meetingAssistant\.appendAudioChunk\(chunk\.toString\('base64'\)\)/);
 });
-

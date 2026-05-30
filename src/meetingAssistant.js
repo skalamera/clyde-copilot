@@ -9,6 +9,7 @@ const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_TOKENS = 800;
 const DEFAULT_UTTERANCE_SETTLE_MS = 0;
 const DEFAULT_INCOMPLETE_UTTERANCE_SETTLE_MS = 1400;
+const PRO_INTERVIEWER_PROMPT_GAP_MS = 10000;
 
 function createMeetingAssistant(options = {}) {
   const settings = options.settings || {};
@@ -21,6 +22,7 @@ function createMeetingAssistant(options = {}) {
   const logger = options.logger || console;
   const sendUpdate = options.sendUpdate || (() => {});
   const sendStatus = options.sendStatus || (() => {});
+  const debugTrace = typeof options.debugTrace === 'function' ? options.debugTrace : () => {};
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
@@ -38,6 +40,7 @@ function createMeetingAssistant(options = {}) {
     logger,
     sendStatus,
     sendUpdate,
+    debugTrace,
     timeoutMs: options.proAgentTimeoutMs || timeout
   });
 
@@ -54,6 +57,13 @@ function createMeetingAssistant(options = {}) {
   let lastDigest = '';
   let currentContext = {};
   let newlyAccumulatedTurns = 0;
+  let queuedForcedRun = null;
+  const partialQuestionGate = new Map();
+  const partialQuestionTimers = new Map();
+  const latestProRunTextByGroup = new Map();
+  const displayedProRunTextByGroup = new Map();
+  let proInterviewerPromptHistory = [];
+  let lastProInterviewerPromptAt = 0;
 
   function setContext(context) {
     if (context) {
@@ -71,6 +81,20 @@ function createMeetingAssistant(options = {}) {
 
     const speaker = turn.speaker || 'Unknown';
     const text = String(turn.text).trim();
+    trace('assistant.transcript.final.received', {
+      speaker,
+      text,
+      itemId: turn.itemId || '',
+      provider: turn.provider || ''
+    });
+
+    if (shouldUseProAgent(settings, {}) && !options.testProIntent) {
+      const finalGateResult = handleProFinalTranscriptGate({ ...turn, speaker, text });
+      if (finalGateResult?.handled) {
+        trace('assistant.transcript.final.handled_by_pro_gate', finalGateResult);
+        return finalGateResult;
+      }
+    }
 
     // Smart merge: if the last turn was the same speaker, merge the text instead of creating a new line
     if (transcriptTurns.length > 0 && transcriptTurns[transcriptTurns.length - 1].speaker === speaker) {
@@ -99,6 +123,7 @@ function createMeetingAssistant(options = {}) {
     if (shouldUseProAgent(settings, {}) && !options.testProIntent) {
       // For Pro, we let the server-side VAD on the audio stream trigger automatic responses.
       // We do not run client-side text/intent triggers on incoming transcription turns.
+      trace('assistant.transcript.final.skip', { reason: 'pro-server-side' });
       return { ok: true, skipped: 'pro-server-side' };
     }
 
@@ -171,33 +196,71 @@ function createMeetingAssistant(options = {}) {
     }
 
     if (inFlight) {
+      if (force && requestOptions.draftCardId) {
+        if (isDuplicateDisplayedProRun(requestOptions)) {
+          trace('assistant.run.skip_duplicate_forced', {
+            draftCardId: requestOptions.draftCardId,
+            groupId: requestOptions.groupId,
+            targetQuestion: requestOptions.targetQuestion || '',
+            displayedQuestion: displayedProRunTextByGroup.get(requestOptions.groupId) || ''
+          });
+          return { ok: true, skipped: 'duplicate-forced-run' };
+        }
+
+        const nextQueuedRun = {
+          isSuggestionRequest,
+          requestOptions
+        };
+        if (!queuedForcedRun || shouldReplaceQueuedForcedRun(queuedForcedRun.requestOptions, requestOptions)) {
+          queuedForcedRun = nextQueuedRun;
+        }
+        trace('assistant.run.queued_forced', {
+          draftCardId: requestOptions.draftCardId,
+          groupId: requestOptions.groupId,
+          targetQuestion: requestOptions.targetQuestion || '',
+          replacedQueuedRun: queuedForcedRun === nextQueuedRun
+        });
+      }
+
       if (!force && !isSuggestionRequest) {
         rerunAfterInFlight = true;
       }
 
+      trace('assistant.run.skip', { reason: 'in-flight' });
       return { ok: true, skipped: 'in-flight' };
     }
 
     const now = Date.now();
 
     if (!proCandidate && !force && now - lastRunAt < intervalMs) {
+      trace('assistant.run.skip', { reason: 'rate-limited', intervalMs, elapsedMs: now - lastRunAt });
       return { ok: true, skipped: 'rate-limited' };
     }
 
     const suppliedTranscriptDigest = transcriptDigest(requestOptions.transcript);
-    const digest = isInterviewerQuestionsRequest && suppliedTranscriptDigest
+    const digest = suppliedTranscriptDigest
       ? suppliedTranscriptDigest
       : isSuggestionRequest
-        ? recentHistory.slice(-6).map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
-        : intentTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
+          ? recentHistory.slice(-6).map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
+          : intentTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
     const digestMaxIntentTurnId = getMaxIntentTurnId(intentTurns);
 
     // Only check for unchanged if it's NOT a forced suggestion request
     if (!isSuggestionRequest && (!digest || digest === lastDigest)) {
+      trace('assistant.run.skip', { reason: 'unchanged', digest });
       return { ok: true, skipped: 'unchanged' };
     }
 
     inFlight = true;
+    trace('assistant.run.start', {
+      force,
+      isSuggestionRequest,
+      mode,
+      commandPreview: requestIntent,
+      digest,
+      manualPrompt,
+      selectedSources
+    });
 
     try {
       let ragContext = '';
@@ -233,8 +296,9 @@ function createMeetingAssistant(options = {}) {
         }
 
         if (proCandidate && isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion)) {
-          targetQuestion = localInterviewQuestion || extractLatestInterviewerPrompt(digest);
+          targetQuestion = cleanText(requestOptions.targetQuestion) || localInterviewQuestion || extractLatestInterviewerPrompt(digest);
           logger.log(`[Intent] Sending complete interviewer prompt directly to Clyde Pro: "${targetQuestion.slice(0, 240)}"`);
+          trace('assistant.intent.target_question', { targetQuestion, source: 'pro-local-complete-prompt' });
         } else {
           try {
             const extractedQuestion = await detectResumeQuestion(digest);
@@ -366,9 +430,10 @@ function createMeetingAssistant(options = {}) {
 
       if (proCandidate) {
         try {
-          const proGroupId = `pro-${now}-${Math.random().toString(16).slice(2)}`;
-          const proDraftCardId = `${proGroupId}-draft`;
+          const proGroupId = requestOptions.groupId || `pro-${now}-${Math.random().toString(16).slice(2)}`;
+          const proDraftCardId = requestOptions.draftCardId || `${proGroupId}-draft`;
           let proDraftShown = false;
+          let shownDraftCards = [];
           pendingDraftCardId = proDraftCardId;
           pendingDraftGroupId = proGroupId;
           const proResult = await proAgent.run({
@@ -385,12 +450,25 @@ function createMeetingAssistant(options = {}) {
             groupId: proGroupId,
             draftCardId: proDraftCardId,
             onDraft: (draft) => {
+              const latestTargetQuestion = latestProRunTextByGroup.get(proGroupId) || '';
+              if (isStaleProRun(latestTargetQuestion, targetQuestion)) {
+                trace('assistant.pro.skip_stale_draft', {
+                  groupId: proGroupId,
+                  draftCardId: proDraftCardId,
+                  targetQuestion,
+                  latestTargetQuestion
+                });
+                return;
+              }
+
               const draftCards = Array.isArray(draft?.cards) ? draft.cards : [];
               if (!draftCards.length) {
                 return;
               }
 
               proDraftShown = true;
+              shownDraftCards = draftCards;
+              rememberDisplayedProRun(proGroupId, targetQuestion);
               sendUpdate({
                 title: 'Draft answer',
                 text: draft.text || '',
@@ -400,6 +478,17 @@ function createMeetingAssistant(options = {}) {
               });
             }
           });
+          const latestTargetQuestion = latestProRunTextByGroup.get(proGroupId) || '';
+          if (isStaleProRun(latestTargetQuestion, targetQuestion)) {
+            trace('assistant.pro.skip_stale_result', {
+              groupId: proGroupId,
+              draftCardId: proDraftCardId,
+              targetQuestion,
+              latestTargetQuestion
+            });
+            return { ok: true, skipped: 'stale-pro-run' };
+          }
+
           const quickMemory = await waitForMemoryResult(memorySearchPromise, proFinalMemoryWaitMs);
           const enrichedResult = quickMemory?.contextText
             ? await runMemoryEnrichedFinal({
@@ -420,8 +509,43 @@ function createMeetingAssistant(options = {}) {
             : null;
           const finalProResult = enrichedResult || proResult;
           let proCards = Array.isArray(finalProResult?.cards) ? finalProResult.cards.filter((card) => card.type !== 'memory') : [];
+          trace('assistant.pro.result', {
+            text: finalProResult?.text || '',
+            cardCount: proCards.length,
+            cards: proCards,
+            groupId: finalProResult?.groupId || proGroupId,
+            draftCardId: finalProResult?.draftCardId || proDraftCardId,
+            toolCalls: finalProResult?.toolCalls || 0
+          });
           if (mode === 'interview' && (isSayNextRequest || isScreenQuestionRequest)) {
             proCards = proCards.slice(0, 1);
+          }
+
+          if (proDraftShown) {
+            const reconciledCards = reconcileDraftAndFinalCards(shownDraftCards, proCards);
+            if (!reconciledCards.length) {
+              trace('assistant.pro.skip_final_replace', {
+                reason: 'final-too-similar-to-draft',
+                groupId: finalProResult?.groupId || proGroupId,
+                draftCardId: finalProResult?.draftCardId || proDraftCardId
+              });
+              if (quickMemory?.cards?.length) {
+                sendMemoryUpdate(quickMemory.cards);
+              } else if (memorySearchPromise) {
+                memorySearchPromise.then((memoryResult) => {
+                  if (memoryResult?.cards?.length) {
+                    sendMemoryUpdate(memoryResult.cards);
+                  }
+                }).catch((error) => logger.warn?.('Deferred memory update failed:', describeAssistantError(error)));
+              }
+              transcriptTurns = [];
+              intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
+              lastDigest = '';
+              newlyAccumulatedTurns = 0;
+              sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
+              return { ok: true, text: finalProResult.text || '', cards: shownDraftCards };
+            }
+            proCards = reconciledCards;
           }
 
           if ((finalProResult?.toolCalls || memorySearchStarted) && allowMemorySearch) {
@@ -429,6 +553,8 @@ function createMeetingAssistant(options = {}) {
           }
 
           if (proCards.length) {
+            trace('assistant.pro.send_cards', { cards: proCards, groupId: finalProResult.groupId || proGroupId });
+            rememberDisplayedProRun(finalProResult.groupId || proGroupId, targetQuestion);
             sendUpdate({
               title: 'Live help',
               text: finalProResult.text || '',
@@ -456,6 +582,7 @@ function createMeetingAssistant(options = {}) {
           }
         } catch (error) {
           logger.error('Clyde Pro agent failed:', describeAssistantError(error));
+          trace('assistant.pro.error', { message: describeAssistantError(error) });
           sendStatus({ state: 'warning', message: 'Pro agent unavailable; using local assistant fallback.' });
         }
       }
@@ -502,6 +629,7 @@ function createMeetingAssistant(options = {}) {
       const renderedCards = addWarningToCards(cards, screenshotWarning || imageFallbackWarning);
 
       if (renderedCards.length) {
+        trace('assistant.fallback.send_cards', { cards: renderedCards });
         sendUpdate({
           title: 'Live help',
           text,
@@ -535,11 +663,31 @@ function createMeetingAssistant(options = {}) {
     } catch (error) {
       const message = describeAssistantError(error);
       logger.error('Meeting assistant failed:', message);
+      trace('assistant.run.error', { message });
       sendStatus({ state: 'warning', message });
 
       return { ok: false, message, error };
     } finally {
       inFlight = false;
+
+      if (queuedForcedRun) {
+        const queued = queuedForcedRun;
+        queuedForcedRun = null;
+        if (isDuplicateDisplayedProRun(queued.requestOptions)) {
+          trace('assistant.run.skip_queued_forced_duplicate', {
+            draftCardId: queued.requestOptions?.draftCardId || '',
+            groupId: queued.requestOptions?.groupId || '',
+            targetQuestion: queued.requestOptions?.targetQuestion || '',
+            displayedQuestion: displayedProRunTextByGroup.get(queued.requestOptions?.groupId) || ''
+          });
+        } else {
+          setTimeout(() => {
+            maybeRun(true, queued.isSuggestionRequest, queued.requestOptions).catch((error) => {
+              logger.error('Queued forced meeting assistant run failed:', describeAssistantError(error));
+            });
+          }, 0);
+        }
+      }
 
       if (rerunAfterInFlight) {
         rerunAfterInFlight = false;
@@ -554,6 +702,330 @@ function createMeetingAssistant(options = {}) {
 
   function requestSuggestion(options = {}) {
     return maybeRun(true, true, options);
+  }
+
+  function addPartialTranscript(turn) {
+    if (!turn || !turn.partial || !turn.text || !shouldUseProAgent(settings, {}) || options.testProIntent) {
+      trace('assistant.transcript.partial.skip', {
+        reason: 'partial-ignored',
+        hasText: Boolean(turn?.text),
+        partial: Boolean(turn?.partial)
+      });
+      return { ok: true, skipped: 'partial-ignored' };
+    }
+
+    const mode = normalizeMode(currentContext.mode || settings.appMode || settings.mode || 'interview');
+    if (mode !== 'interview' || isUserSpeaker(turn.speaker)) {
+      trace('assistant.transcript.partial.skip', {
+        reason: 'partial-not-interviewer',
+        mode,
+        speaker: turn.speaker || ''
+      });
+      return { ok: true, skipped: 'partial-not-interviewer' };
+    }
+
+    const itemId = cleanText(turn.itemId) || `partial-${Date.now()}`;
+    const text = cleanText(turn.text);
+    resetStaleProPromptHistory();
+    const resolvedText = resolveProGateQuestion(text);
+    const promptCompletion = classifyProGatePrompt(resolvedText);
+    if (!resolvedText || !promptCompletion.complete) {
+      const priorTimer = partialQuestionTimers.get(itemId);
+      if (priorTimer) {
+        clearTimeout(priorTimer);
+        partialQuestionTimers.delete(itemId);
+      }
+
+      trace('assistant.pro_gate.partial.waiting', {
+        speaker: turn.speaker || '',
+        itemId: turn.itemId || '',
+        text,
+        resolvedText,
+        hasCompletePrompt: Boolean(promptCompletion.complete),
+        reason: promptCompletion.reason
+      });
+      return { ok: true, skipped: 'partial-waiting-for-question' };
+    }
+
+    const existing = partialQuestionGate.get(itemId) || {
+      itemId,
+      groupId: `pro-partial-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      draftCardId: '',
+      lastText: '',
+      triggered: false
+    };
+    existing.draftCardId = existing.draftCardId || `${existing.groupId}-draft`;
+    existing.speaker = turn.speaker || 'Interviewer';
+    existing.text = resolvedText;
+    partialQuestionGate.set(itemId, existing);
+
+    if (resolvedText === existing.lastText && existing.triggered) {
+      return { ok: true, skipped: 'partial-unchanged' };
+    }
+
+    const priorTimer = partialQuestionTimers.get(itemId);
+    if (priorTimer) {
+      clearTimeout(priorTimer);
+    }
+
+    const queueDelayMs = promptCompletion.hasStrongTerminal ? 180 : 1200;
+    const timer = setTimeout(() => {
+      partialQuestionTimers.delete(itemId);
+      trace('assistant.pro_gate.partial.fire', {
+        itemId,
+        text: existing.text,
+        groupId: existing.groupId,
+        draftCardId: existing.draftCardId
+      });
+      runProPartialGate(existing, false).catch((error) => {
+        logger.error('Partial Pro question gate failed:', describeAssistantError(error));
+      });
+    }, queueDelayMs);
+    partialQuestionTimers.set(itemId, timer);
+
+    trace('assistant.pro_gate.partial.queued', {
+      itemId,
+      text,
+      resolvedText,
+      groupId: existing.groupId,
+      draftCardId: existing.draftCardId,
+      queueDelayMs,
+      reason: promptCompletion.reason
+    });
+    return { ok: true, queued: 'partial-question-gate' };
+  }
+
+  function handleProFinalTranscriptGate(turn) {
+    const itemId = cleanText(turn.itemId);
+    const gate = itemId ? partialQuestionGate.get(itemId) : null;
+    const finalText = cleanText(turn.text);
+    if (!finalText) {
+      return null;
+    }
+
+    if (isUserSpeaker(turn.speaker)) {
+      if (!isTinyUserFiller(finalText)) {
+        clearProPromptHistory();
+      }
+      trace('assistant.pro_gate.final.received', {
+        itemId,
+        speaker: turn.speaker || '',
+        finalText,
+        resolvedFinalText: '',
+        hasGate: Boolean(gate),
+        skipped: 'user-speaker'
+      });
+      return null;
+    }
+
+    resetStaleProPromptHistory();
+    const resolvedFinalText = resolveProGateQuestion(finalText);
+    const promptCompletion = classifyProGatePrompt(resolvedFinalText);
+    appendProInterviewerPrompt(turn.speaker, finalText);
+    trace('assistant.pro_gate.final.received', {
+      itemId,
+      speaker: turn.speaker || '',
+      finalText,
+      resolvedFinalText,
+      hasGate: Boolean(gate),
+      hasCompletePrompt: Boolean(promptCompletion.complete),
+      reason: promptCompletion.reason
+    });
+
+    if (!gate) {
+      if (!resolvedFinalText || !promptCompletion.complete) {
+        return null;
+      }
+
+      const finalGate = {
+        itemId: itemId || `final-${Date.now()}`,
+        groupId: `pro-final-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        draftCardId: '',
+        speaker: turn.speaker || 'Interviewer',
+        text: resolvedFinalText,
+        lastText: '',
+        triggered: false
+      };
+      finalGate.draftCardId = `${finalGate.groupId}-draft`;
+      runProPartialGate(finalGate, true).catch((error) => {
+        logger.error('Final Pro question gate failed:', describeAssistantError(error));
+      });
+      trace('assistant.pro_gate.final.queued', {
+        itemId: finalGate.itemId,
+        text: finalGate.text,
+        groupId: finalGate.groupId,
+        draftCardId: finalGate.draftCardId
+      });
+      return { ok: true, handled: true, queued: 'pro-final-question-gate' };
+    }
+
+    const timer = partialQuestionTimers.get(itemId);
+    if (timer) {
+      clearTimeout(timer);
+      partialQuestionTimers.delete(itemId);
+    }
+
+    partialQuestionGate.delete(itemId);
+
+    if (resolvedFinalText !== gate.lastText && promptCompletion.complete) {
+      gate.text = resolvedFinalText;
+      runProPartialGate(gate, true).catch((error) => {
+        logger.error('Final Pro question gate failed:', describeAssistantError(error));
+      });
+      trace('assistant.pro_gate.final.queued', {
+        itemId,
+        text: gate.text,
+        groupId: gate.groupId,
+        draftCardId: gate.draftCardId
+      });
+      return { ok: true, handled: true, queued: 'pro-final-question-gate' };
+    }
+
+    return null;
+  }
+
+  async function runProPartialGate(gate, forceFinal) {
+    const text = cleanProTargetQuestion(gate.text);
+    if (!text || (!forceFinal && text === gate.lastText && gate.triggered)) {
+      return { ok: true, skipped: 'partial-unchanged' };
+    }
+
+    const latestText = latestProRunTextByGroup.get(gate.groupId) || '';
+    if (isStaleProRun(latestText, text)) {
+      trace('assistant.pro_gate.skip_stale_run', {
+        forceFinal,
+        text,
+        latestText,
+        groupId: gate.groupId,
+        draftCardId: gate.draftCardId
+      });
+      return { ok: true, skipped: 'stale-pro-run' };
+    }
+
+    gate.lastText = text;
+    gate.triggered = true;
+    if (shouldReplaceLatestProRunText(latestText, text)) {
+      latestProRunTextByGroup.set(gate.groupId, text);
+    }
+    trace('assistant.pro_gate.run', {
+      forceFinal,
+      text,
+      groupId: gate.groupId,
+      draftCardId: gate.draftCardId
+    });
+
+    const result = await maybeRun(true, false, {
+      mode: 'interview',
+      transcript: [{ speaker: gate.speaker || 'Interviewer', text }],
+      targetQuestion: text,
+      groupId: gate.groupId,
+      draftCardId: gate.draftCardId
+    });
+    clearProPromptHistoryIfUnchanged(text);
+    return result;
+  }
+
+  function resolveProGateQuestion(text) {
+    const current = stripTrailingAcknowledgement(cleanText(text));
+    if (!current) {
+      return '';
+    }
+
+    const previous = getRecentProInterviewerPrompt();
+
+    if (!isShortFollowUpPrompt(current)) {
+      return shouldMergeIntoPriorProPrompt(previous, current)
+        ? mergeUtteranceText(previous, current)
+        : current;
+    }
+
+    if (!previous || normalizeUtteranceText(previous).toLowerCase() === normalizeUtteranceText(current).toLowerCase()) {
+      return current;
+    }
+
+    return mergeUtteranceText(previous, current);
+  }
+
+  function appendProInterviewerPrompt(speaker, text) {
+    resetStaleProPromptHistory();
+    const value = cleanText(text);
+    if (!value || isUserSpeaker(speaker)) {
+      return;
+    }
+
+    const previous = proInterviewerPromptHistory[proInterviewerPromptHistory.length - 1] || '';
+    const next = shouldMergeIntoPriorProPrompt(previous, value)
+      ? mergeUtteranceText(previous, value)
+      : value;
+
+    if (next === previous) {
+      return;
+    }
+
+    if (shouldMergeIntoPriorProPrompt(previous, value)) {
+      proInterviewerPromptHistory = [...proInterviewerPromptHistory.slice(0, -1), next].slice(-4);
+    } else {
+      proInterviewerPromptHistory = [...proInterviewerPromptHistory, next].slice(-4);
+    }
+    lastProInterviewerPromptAt = Date.now();
+  }
+
+  function getRecentProInterviewerPrompt() {
+    return proInterviewerPromptHistory[proInterviewerPromptHistory.length - 1] || '';
+  }
+
+  function clearProPromptHistory() {
+    proInterviewerPromptHistory = [];
+    lastProInterviewerPromptAt = 0;
+  }
+
+  function clearProPromptHistoryIfUnchanged(completedText) {
+    const latest = getRecentProInterviewerPrompt();
+    const normalizedLatest = normalizeUtteranceText(latest).toLowerCase();
+    const normalizedCompleted = normalizeUtteranceText(completedText).toLowerCase();
+    if (!latest
+      || normalizedLatest === normalizedCompleted
+      || normalizedCompleted.startsWith(`${normalizedLatest} `)
+      || textSimilarity(latest, completedText) >= 0.72) {
+      clearProPromptHistory();
+      return;
+    }
+
+    trace('assistant.pro_gate.keep_pending_history', {
+      completedText,
+      pendingText: latest
+    });
+  }
+
+  function rememberDisplayedProRun(groupId, targetQuestion) {
+    const normalizedGroupId = cleanText(groupId);
+    const normalizedQuestion = normalizeUtteranceText(targetQuestion);
+    if (!normalizedGroupId || !normalizedQuestion) {
+      return;
+    }
+
+    displayedProRunTextByGroup.set(normalizedGroupId, normalizedQuestion);
+  }
+
+  function isDuplicateDisplayedProRun(requestOptions = {}) {
+    const groupId = cleanText(requestOptions.groupId);
+    const targetQuestion = normalizeUtteranceText(requestOptions.targetQuestion);
+    const displayedQuestion = normalizeUtteranceText(displayedProRunTextByGroup.get(groupId));
+    if (!groupId || !targetQuestion || !displayedQuestion) {
+      return false;
+    }
+
+    return isSameOrNearDuplicateQuestion(displayedQuestion, targetQuestion);
+  }
+
+  function resetStaleProPromptHistory() {
+    if (lastProInterviewerPromptAt && Date.now() - lastProInterviewerPromptAt > PRO_INTERVIEWER_PROMPT_GAP_MS) {
+      clearProPromptHistory();
+    }
+  }
+
+  function trace(event, data = {}) {
+    debugTrace(event, data);
   }
 
   async function startProMemorySearch(payload = {}) {
@@ -625,6 +1097,14 @@ function createMeetingAssistant(options = {}) {
   function resetTranscript() {
     transcriptTurns = [];
     intentTurns = [];
+    partialQuestionGate.clear();
+    latestProRunTextByGroup.clear();
+    displayedProRunTextByGroup.clear();
+    clearProPromptHistory();
+    for (const timer of partialQuestionTimers.values()) {
+      clearTimeout(timer);
+    }
+    partialQuestionTimers.clear();
     clearPendingIntentUtterance();
     rerunAfterInFlight = false;
     lastRunAt = 0;
@@ -634,13 +1114,14 @@ function createMeetingAssistant(options = {}) {
   }
 
   function appendAudioChunk(base64Audio) {
-    if (shouldUseProAgent(settings, {}) && proAgent && typeof proAgent.appendAudioChunk === 'function') {
+    if (shouldUseProAgent(settings, {}) && settings.proAgentRawAudioVAD === true && proAgent && typeof proAgent.appendAudioChunk === 'function') {
       proAgent.appendAudioChunk(base64Audio);
     }
   }
 
   return {
     addTranscript,
+    addPartialTranscript,
     maybeRun,
     requestSuggestion,
     warmup,
@@ -1259,32 +1740,377 @@ function isAutomaticInterviewAssist(mode, isSuggestionRequest = false, isManualQ
 }
 
 function hasLikelyCompleteInterviewerPrompt(text) {
-  const lastSpeakerText = extractLatestInterviewerPrompt(text);
-
-  if (!lastSpeakerText) {
-    return false;
-  }
-
-  const hasQuestionCue = hasInterviewPromptCue(lastSpeakerText);
-  const hasTerminalPunctuation = /[?.!]\s*$/.test(lastSpeakerText) || lastSpeakerText.includes('?');
-  const isCommandRequest = /\b(tell me|walk me|talk me|describe|explain|share|give me|show me)\b/i.test(lastSpeakerText);
-  const startsWithQuestionWord = /^(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|have you|has he|has she|had they|will you)\b/i.test(lastSpeakerText);
-  const endsWithFragment = /\b(and|or|but|if|than|because|unless|although|between|with|from|to|for|in|of|on|at|by|about|through|the|a|an|difference|different)\s*$/i.test(lastSpeakerText);
-
-  if (hasQuestionCue) {
-    if (hasTerminalPunctuation) {
-      return true;
-    }
-    if (isCommandRequest && !startsWithQuestionWord && !endsWithFragment) {
-      return true;
-    }
-  }
-
-  return false;
+  return classifyProGatePrompt(extractLatestInterviewerPrompt(text)).complete;
 }
 
 function hasInterviewPromptCue(text) {
   return /\b(can|could|would|what|why|how|when|where|who|which|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there|describe a|tell me about)\b/i.test(text);
+}
+
+function isInterviewerSetupChatter(text) {
+  const value = normalizeUtteranceText(text).toLowerCase();
+  return /\bi have some questions\b/.test(value)
+    || /\bquestions\b.*\btell me about a time\b.*\btype questions\b/.test(value)
+    || /\bi'?m looking for\b.*\bspecific examples\b/.test(value)
+    || /\bwhat exactly you did versus the team\b/.test(value)
+    || /\bwhat the impact was\b.*\bthings like that\b/.test(value);
+}
+
+function isTinyUserFiller(text) {
+  const value = normalizeUtteranceText(text).toLowerCase().replace(/[^\w\s']/g, '');
+  if (!value) {
+    return true;
+  }
+
+  const words = value.split(/\s+/).filter(Boolean);
+  return words.length <= 3
+    && /^(just|yeah|yep|yes|right|okay|ok|cool|sure|mm|mhm|uh huh|got it|thanks|thank you|one sec|one second)$/i.test(value);
+}
+
+function isShortFollowUpPrompt(text) {
+  const value = normalizeUtteranceText(text);
+  if (!value) {
+    return false;
+  }
+
+  const words = value.split(/\s+/).filter(Boolean);
+  return words.length <= 8
+    && /^(and\s+)?(what happened|what was the outcome|what did you do|how did you handle it|how did it go|why was that hard|what made it hard|what was difficult|what came next)\??$/i.test(value);
+}
+
+function hasCompleteProGatePrompt(text) {
+  return classifyProGatePrompt(text).complete;
+}
+
+function cleanProTargetQuestion(text) {
+  return repairMalformedQuestionLead(stripLeadingQuestionFiller(cleanText(text)))
+    .replace(/\bwe['’]?ll have downstream effects\b/gi, 'will have downstream effects')
+    .replace(/\b(customer experience platform)\s+i'?m not an internal system\b/gi, '$1 and another internal system')
+    .replace(/\b(customer experience platform)\s+another internal system\b/gi, '$1 and another internal system')
+    .replace(/\b(other systems or teams)\s+me through your process\b/gi, '$1 Walk me through your process')
+    .replace(/\bfunc\b/gi, 'function')
+    .replace(/\bAline\b/g, 'align')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function repairMalformedQuestionLead(text) {
+  const value = normalizeUtteranceText(text);
+  const malformedLead = /^(?:are|is|was|were)\s+((?:the|a|an)\s+.+?\b(?:when|where|while|after|before|once)\b.+?)\s+(?:and\s+)?((?:what|how|why|when|where|who|which|do|does|did|can|could|would|is|are|was|were|have|has)\b.+)$/i;
+  const match = value.match(malformedLead);
+  if (!match) {
+    return value;
+  }
+
+  const lead = match[1].trim();
+  const followUp = match[2].trim().replace(/^[A-Z]/, (letter) => letter.toLowerCase());
+  return `What was ${lead} and ${followUp}`;
+}
+
+function stripLeadingQuestionFiller(text) {
+  let value = normalizeUtteranceText(text);
+  let changed = true;
+  while (changed) {
+    const next = value
+      .replace(/^(?:um|uh|okay|ok|right|cool|hey|so|let'?s see|let me just look at this real quick)[,.\s]+/i, '')
+      .replace(/^(and then\s+)?(?:um|uh|okay|ok|right|cool|hey|so|let'?s see)[,.\s]+/i, '$1');
+    changed = next !== value;
+    value = next;
+  }
+  return value.trim();
+}
+
+function isStaleProRun(latest, targetQuestion) {
+  const current = normalizeUtteranceText(targetQuestion);
+  if (!latest || !current || latest === current) {
+    return false;
+  }
+
+  const latestWords = latest.split(/\s+/).filter(Boolean);
+  const currentWords = current.split(/\s+/).filter(Boolean);
+  return latestWords.length >= currentWords.length + 4
+    && (latest.toLowerCase().startsWith(current.toLowerCase()) || textSimilarity(latest, current) >= 0.72);
+}
+
+function shouldReplaceLatestProRunText(latest, next) {
+  const current = normalizeUtteranceText(next);
+  if (!latest || !current) {
+    return Boolean(current);
+  }
+
+  const latestWords = latest.split(/\s+/).filter(Boolean);
+  const currentWords = current.split(/\s+/).filter(Boolean);
+  return currentWords.length >= latestWords.length
+    || current.toLowerCase().startsWith(latest.toLowerCase());
+}
+
+function shouldReplaceQueuedForcedRun(previousOptions = {}, nextOptions = {}) {
+  const previousQuestion = normalizeUtteranceText(previousOptions.targetQuestion);
+  const nextQuestion = normalizeUtteranceText(nextOptions.targetQuestion);
+  if (!previousQuestion || !nextQuestion) {
+    return Boolean(nextQuestion);
+  }
+
+  const previousWords = previousQuestion.split(/\s+/).filter(Boolean);
+  const nextWords = nextQuestion.split(/\s+/).filter(Boolean);
+  return nextWords.length >= previousWords.length
+    || nextQuestion.toLowerCase().startsWith(previousQuestion.toLowerCase());
+}
+
+function isSameOrNearDuplicateQuestion(left, right) {
+  const normalizedLeft = normalizeUtteranceText(left);
+  const normalizedRight = normalizeUtteranceText(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  const leftLower = normalizedLeft.toLowerCase();
+  const rightLower = normalizedRight.toLowerCase();
+  if (leftLower === rightLower) {
+    return true;
+  }
+
+  const leftWords = leftLower.split(/\s+/).filter(Boolean);
+  const rightWords = rightLower.split(/\s+/).filter(Boolean);
+  const wordDelta = Math.abs(leftWords.length - rightWords.length);
+  const shorter = leftLower.length <= rightLower.length ? leftLower : rightLower;
+  const longer = leftLower.length > rightLower.length ? leftLower : rightLower;
+
+  return (wordDelta <= 3 && longer.startsWith(`${shorter} `))
+    || textSimilarity(normalizedLeft, normalizedRight) >= 0.9;
+}
+
+function classifyProGatePrompt(text) {
+  const value = stripTrailingAcknowledgement(stripLeadingQuestionFiller(normalizeUtteranceText(text)));
+  const prompt = stripTrailingAcknowledgement(extractLatestInterviewerPrompt(value));
+
+  if (!prompt) {
+    return { complete: false, hasStrongTerminal: false, reason: 'empty' };
+  }
+
+  if (isInterviewerSetupChatter(prompt)) {
+    return { complete: false, hasStrongTerminal: false, reason: 'setup-chatter' };
+  }
+
+  if (!hasInterviewPromptCue(prompt)) {
+    return { complete: false, hasStrongTerminal: false, reason: 'no-prompt-cue' };
+  }
+
+  const hasStrongTerminal = /[?.!]\s*$/.test(prompt) || prompt.includes('?');
+  const words = prompt.split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+
+  if (hasLikelyTerminalCommandPhrase(prompt) && wordCount >= 7) {
+    return { complete: true, hasStrongTerminal, reason: 'terminal-command-phrase' };
+  }
+
+  if (isDanglingPromptFragment(prompt)) {
+    return { complete: false, hasStrongTerminal, reason: 'dangling-fragment' };
+  }
+
+  if (hasStrongTerminal) {
+    return { complete: true, hasStrongTerminal, reason: 'terminal-punctuation' };
+  }
+
+  const startsWithQuestionWord = /^(?:and\s+then\s+)?(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|have|has|had|will|should)\b/i.test(prompt);
+  const hasCommandRequest = /\b(tell me|walk me|talk me|describe|explain|share|give me|show me)\b/i.test(prompt);
+  const hasFollowUpRequest = /\b(another example|go(?:ing)? deeper|more detail|what happened|what was the outcome|what came next)\b/i.test(prompt);
+
+  if ((startsWithQuestionWord || hasCommandRequest || hasFollowUpRequest) && wordCount >= 10) {
+    return { complete: true, hasStrongTerminal, reason: 'stable-question-shape' };
+  }
+
+  return { complete: false, hasStrongTerminal, reason: 'too-short-or-unclear' };
+}
+
+function hasLikelyTerminalCommandPhrase(text) {
+  return /\bwalk me through (?:your|the|that|this)?\s*process\s*$/i.test(text)
+    || /\bwhat happened\s*$/i.test(text)
+    || /\bwhat was the outcome\s*$/i.test(text)
+    || /\bwhat came next\s*$/i.test(text)
+    || /\bunder pressure to meet tight deadlines\s*$/i.test(text)
+    || /\bgo(?:ing)? deeper into that(?: one)?\s*$/i.test(text);
+}
+
+function isDanglingPromptFragment(text) {
+  const value = normalizeUtteranceText(text);
+  if (!value) {
+    return true;
+  }
+
+  if (/[?.!]\s*$/.test(value)) {
+    return false;
+  }
+
+  if (hasOpenPurposeClause(value)) {
+    return true;
+  }
+
+  if (hasOpenVerbFragment(value)) {
+    return true;
+  }
+
+  if (/\ba time\s*$/i.test(value)
+    || /\byou (?:audited|designed|maintained|managed|handled|built|created|led|owned|improved)\s*$/i.test(value)
+    || /\byou had(?:\s+to)?\s*$/i.test(value)
+    || /\byou had to \w+\s*$/i.test(value)
+    || /\bacross\s+\w+\s*$/i.test(value)
+    || (/\bunder pressure to meet(?:\s+\w+){0,2}\s*$/i.test(value) && !/\bunder pressure to meet tight deadlines\s*$/i.test(value))
+    || /\bhigh ticket count(?:\s+but\s+you\s+notice(?:\s+\w+){0,3})?\s*$/i.test(value)
+    || /\bhow do you typically go about managing that or turning\s*$/i.test(value)
+    || /\bcritical tasks(?:\s+maintain)?\s*$/i.test(value)
+    || /\bsupport func(?:tion)?(?:\s+i benchmark(?:\s+\w+){0,4})?\s*$/i.test(value)
+    || /\bas\s+(?:an?|the)\s+\w+\s*$/i.test(value)
+    || /\blike\s+[A-Z][\w-]*\s*$/.test(value)
+    || /\b(?:api[-\s]?based\s+)?integration\s*$/i.test(value)
+    || /\bif\s+you\s+do\s+have(?:\s+\w+){0,2}\s*$/i.test(value)
+    || /\bbetween\b(?!.*\b(?:and|another|other|internal|external)\b)/i.test(value)
+    || /^how\s+do\s+you\s+evaluate\s+whether\b(?!.*\bwalk\s+me\s+through\b)/i.test(value)) {
+    return true;
+  }
+
+  return /\b(and|or|but|if|than|because|unless|although|between|with|from|to|for|in|of|on|at|by|about|through|into|using|via|across|under|over|around|before|after|while|where|when|whether|the|a|an|difference|different|versus|vs)\s*$/i.test(value)
+    || /\b(who|what|when|where|why|how|which|that|they|you|we|it)\s*$/i.test(value)
+    || /\b(a|an|the|this|that|those|these|your|their|our|its)\s*$/i.test(value);
+}
+
+function hasOpenPurposeClause(text) {
+  const value = normalizeUtteranceText(text);
+  const lower = value.toLowerCase();
+  const purposeMatch = lower.match(/\bto\s+([a-z]+)(?:\s+[a-z0-9'-]+){1,6}$/);
+  if (!purposeMatch) {
+    return false;
+  }
+
+  if (/\b(when|while|where|if|unless|until|because|so that|in case|under|during)\b/.test(lower.slice(purposeMatch.index))) {
+    return false;
+  }
+
+  return /^(how\s+(?:would|do|did|will|can|could|should)\s+you|what\s+would\s+you\s+do)\b/.test(lower);
+}
+
+function hasOpenVerbFragment(text) {
+  const value = normalizeUtteranceText(text).toLowerCase();
+  const words = value.split(/\s+/).filter(Boolean);
+  if (words.length < 5) {
+    return false;
+  }
+
+  const last = words[words.length - 1];
+  const previous = words[words.length - 2];
+  const bareVerbs = new Set([
+    'add', 'address', 'adjust', 'align', 'answer', 'balance', 'build', 'change', 'coach', 'communicate',
+    'create', 'define', 'deliver', 'drive', 'evaluate', 'fix', 'handle', 'improve', 'keep', 'lead',
+    'maintain', 'make', 'manage', 'measure', 'prioritize', 'reduce', 'resolve', 'scale', 'set',
+    'structure', 'support', 'turn', 'use'
+  ]);
+  const openConnectors = new Set(['and', 'or', 'to', 'then', 'also']);
+
+  return bareVerbs.has(last) && openConnectors.has(previous);
+}
+
+function shouldMergeIntoPriorProPrompt(previous, current) {
+  const left = stripTrailingAcknowledgement(normalizeUtteranceText(previous));
+  const right = normalizeUtteranceText(current);
+
+  if (!left || !right) {
+    return false;
+  }
+
+  if (isShortFollowUpPrompt(right)) {
+    return true;
+  }
+
+  if (/[?.!]\s*$/.test(left)) {
+    return false;
+  }
+
+  if (hasInterviewPromptCue(left) && !hasLikelyCompleteInterviewerPrompt(left)) {
+    return true;
+  }
+
+  return !/^(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|tell|walk|describe|explain|share|give)\b/i.test(right);
+}
+
+function reconcileDraftAndFinalCards(draftCards = [], finalCards = []) {
+  const draft = Array.isArray(draftCards) ? draftCards.find((card) => card?.type === 'answer') : null;
+  const final = Array.isArray(finalCards) ? finalCards.find((card) => card?.type === 'answer') : null;
+
+  if (!draft || !final) {
+    return finalCards;
+  }
+
+  const draftBullets = Array.isArray(draft.bullets) ? draft.bullets.map(cleanText).filter(Boolean).slice(0, 3) : [];
+  const finalBullets = Array.isArray(final.bullets) ? final.bullets.map(cleanText).filter(Boolean) : [];
+  if (draftBullets.length !== 3 || !finalBullets.length) {
+    return finalCards;
+  }
+
+  const additionalBullets = finalBullets.slice(draftBullets.length).filter((bullet) => (
+    !draftBullets.some((draftBullet) => textSimilarity(draftBullet, bullet) >= 0.55)
+  ));
+
+  const finalQuestion = cleanText(final.question);
+  const draftQuestion = cleanText(draft.question);
+  const questionChanged = finalQuestion && draftQuestion && textSimilarity(finalQuestion, draftQuestion) < 0.72;
+
+  if (!additionalBullets.length && !questionChanged) {
+    return [];
+  }
+
+  const detailBullets = [
+    ...(Array.isArray(draft.detailBullets) ? draft.detailBullets.map(cleanText).filter(Boolean) : []),
+    ...additionalBullets.map((bullet) => boilDownDetailBullet(bullet, draftBullets))
+  ].filter(Boolean);
+
+  return [{
+    ...draft,
+    question: questionChanged ? finalQuestion : draft.question,
+    bullets: draftBullets,
+    detail: cleanText(draft.detail),
+    detailBullets
+  }];
+}
+
+function boilDownDetailBullet(value, existingBullets = []) {
+  let text = cleanText(value)
+    .replace(/^(also|additionally|additional context|context)\s*[:,-]?\s*/i, '')
+    .replace(/\s+/g, ' ');
+  for (const existing of existingBullets) {
+    const existingText = cleanText(existing);
+    if (existingText && text.toLowerCase().startsWith(existingText.toLowerCase())) {
+      text = cleanText(text.slice(existingText.length));
+    }
+  }
+  return text;
+}
+
+function textSimilarity(left, right) {
+  const leftTokens = tokenSet(left);
+  const rightTokens = tokenSet(right);
+  if (!leftTokens.size || !rightTokens.size) {
+    return 0;
+  }
+
+  let overlap = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      overlap += 1;
+    }
+  }
+
+  return overlap / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function tokenSet(value) {
+  const stopWords = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'by', 'for', 'i', 'in', 'it', 'of', 'on', 'or', 'so', 'the', 'to', 'with']);
+  return new Set(
+    normalizeUtteranceText(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((token) => token && !stopWords.has(token))
+  );
 }
 
 function extractLatestInterviewerPrompt(text) {
@@ -1330,7 +2156,7 @@ function parseSpeakerLine(line = '') {
 }
 
 function mergeUtteranceText(left, right) {
-  const cleanLeft = normalizeUtteranceText(left);
+  const cleanLeft = stripTrailingAcknowledgement(normalizeUtteranceText(left));
   const cleanRight = normalizeUtteranceText(right);
 
   if (!cleanLeft) {
@@ -1366,6 +2192,12 @@ function mergeUtteranceText(left, right) {
 
 function normalizeUtteranceText(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function stripTrailingAcknowledgement(value) {
+  return normalizeUtteranceText(value)
+    .replace(/([?.!])\s+(yeah|yep|right|cool|okay|ok)\.?$/i, '$1')
+    .replace(/\s+(yeah|yep)\.?$/i, '');
 }
 
 function describeAssistantError(error) {

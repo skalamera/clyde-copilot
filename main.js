@@ -28,6 +28,7 @@ const { createGoogleClient } = require('./src/googleClient');
 const { createGoogleSyncService } = require('./src/googleSyncService');
 const { createSyncStore } = require('./src/syncStore');
 const { refreshSystemKnowledge } = require('./src/systemKnowledge');
+const { createSessionDebugTrace } = require('./src/sessionDebugTrace');
 const { generateChat } = require('./src/llmClient');
 const {
     buildTranscriptCleanupPrompt,
@@ -99,6 +100,7 @@ let liveAudioLevels;
 let audioEngineSidecar;
 let rustAudioLevelTestLevels;
 let healthCheckTimer;
+let sessionDebugTrace;
 
 let fullSessionTranscript = [];
 
@@ -228,7 +230,8 @@ function loadSettings() {
         meetingMemory: store.get('meetingMemory', ''),
         captureProtectionEnabled: store.get('captureProtectionEnabled', true),
         uiOpacity: store.get('uiOpacity', 100),
-        activeCaptureBounds: store.get('activeCaptureBounds', null)
+        activeCaptureBounds: store.get('activeCaptureBounds', null),
+        debugTraceEnabled: store.get('debugTraceEnabled', process.env.CLYDE_DISABLE_SESSION_TRACE !== '1')
     };
 
     // Inject back into process.env so existing modules (like pineconeClient.js) can read them
@@ -304,7 +307,8 @@ function saveSettings(newSettings, options = {}) {
             logger: console,
             knowledgeManager,
             sendStatus: sendAudioStatus,
-            sendUpdate: sendAssistantUpdate
+            sendUpdate: sendAssistantUpdate,
+            debugTrace: writeSessionTrace
         });
         meetingAssistant.setContext(buildAssistantContext(settingsToStore));
     }
@@ -1571,7 +1575,9 @@ function sendTranscriptUpdate(transcript) {
     }
 
     if (transcript && transcript.partial) {
+        writeSessionTrace('transcript.partial', transcript);
         mainWindow.webContents.send('transcript-update', transcript);
+        getMeetingAssistant().addPartialTranscript?.(transcript);
         return;
     }
 
@@ -1590,6 +1596,7 @@ function sendTranscriptUpdate(transcript) {
         }
     }
 
+    writeSessionTrace('transcript.final', transcript);
     mainWindow.webContents.send('transcript-update', transcript);
     getMeetingAssistant().addTranscript(transcript);
 }
@@ -1601,7 +1608,49 @@ function sendAssistantUpdate(update) {
 
     const cards = Array.isArray(update?.cards) ? update.cards : [];
     log.info(`Assistant update: ${cards.length} cards`);
+    writeSessionTrace('assistant.update', {
+        title: update?.title,
+        text: update?.text,
+        replaceCardId: update?.replaceCardId,
+        groupId: update?.groupId,
+        cards
+    });
     mainWindow.webContents.send('assistant-update', update);
+}
+
+function writeSessionTrace(event, data = {}) {
+    sessionDebugTrace?.write?.(event, data);
+}
+
+function startSessionTrace(settings = loadSettings()) {
+    stopSessionTrace();
+    sessionDebugTrace = createSessionDebugTrace({
+        enabled: Boolean(settings.debugTraceEnabled),
+        appPath: app.getPath('userData'),
+        logger: log
+    });
+    if (sessionDebugTrace.enabled) {
+        log.info(`Clyde session debug trace: ${sessionDebugTrace.filePath}`);
+        sendAudioStatus({ state: 'capturing', message: `Debug trace: ${sessionDebugTrace.filePath}` });
+    }
+    writeSessionTrace('capture.start', {
+        appMode: settings.appMode,
+        transcriptionProvider: settings.transcriptionProvider,
+        llmProvider: settings.llmProvider,
+        llmModel: settings.llmModel,
+        proAgentEnabled: settings.proAgentEnabled,
+        proRealtimeModel: settings.proRealtimeModel,
+        userTier: settings.userTier,
+        ragEnabled: settings.ragEnabled
+    });
+}
+
+function stopSessionTrace() {
+    if (sessionDebugTrace) {
+        writeSessionTrace('capture.stop', {});
+        sessionDebugTrace.close?.();
+        sessionDebugTrace = null;
+    }
 }
 
 function sendAudioLevelUpdate(update) {
@@ -1654,7 +1703,8 @@ function getMeetingAssistant() {
         logger: console,
         knowledgeManager,
         sendStatus: sendAudioStatus,
-        sendUpdate: sendAssistantUpdate
+        sendUpdate: sendAssistantUpdate,
+        debugTrace: writeSessionTrace
     });
     
     meetingAssistant.setContext(buildAssistantContext(settings));
@@ -2075,10 +2125,12 @@ function createWindow () {
 
       fullSessionTranscript = []; // Reset full session transcript on new start
       capturePaused = false;
+      const settings = loadSettings();
+      startSessionTrace(settings);
       getMeetingAssistant().warmup?.().catch((error) => {
+          writeSessionTrace('pro.warmup.error', { message: error.message });
           log.warn(`Clyde Pro warmup failed: ${error.message}`);
       });
-      const settings = loadSettings();
       startLiveAudioLevels();
       const failed = shouldUseRustAudioEngine(settings)
           ? await startRustAudioEngineCapture(settings).then((result) => result.ok ? null : result)
@@ -2104,6 +2156,7 @@ function createWindow () {
   });
 
   ipcMain.on('stop-audio-capture', () => {
+      writeSessionTrace('capture.stop.requested', {});
       capturePaused = false;
       audioCaptureRunning = false;
       if (audioCaptures) {
@@ -2111,10 +2164,12 @@ function createWindow () {
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
           restoreNormalWindowBounds();
           updateHealth('capture', { state: 'idle', detail: 'Stopped.' });
+          stopSessionTrace();
       } else {
           stopLiveAudioLevels();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
           restoreNormalWindowBounds();
+          stopSessionTrace();
       }
   });
 
@@ -2148,6 +2203,7 @@ function createWindow () {
 
   ipcMain.on('reset-session', () => {
       fullSessionTranscript = [];
+      writeSessionTrace('capture.reset');
       closeTranscriptionProcessors();
       transcriptionProcessors = null;
       if (meetingAssistant) {

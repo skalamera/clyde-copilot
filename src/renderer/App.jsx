@@ -8078,6 +8078,11 @@ function ActiveCaptureView({
                               {card.bullets.map((bullet, bIdx) => <li key={bIdx}>{bullet}</li>)}
                             </ul>
                           )}
+                          {Array.isArray(card.detailBullets) && card.detailBullets.length > 0 && (
+                            <ul className="card-bullets-list card-detail-bullets-list">
+                              {card.detailBullets.map((bullet, bIdx) => <li key={bIdx}>{bullet}</li>)}
+                            </ul>
+                          )}
                           {card.detail && <small className="card-detail-text">{card.detail}</small>}
                         </div>
                       </div>
@@ -11461,6 +11466,7 @@ function normalizeCardForRender(card) {
     body: card.body || card.text || '',
     question: card.question || '',
     bullets: Array.isArray(card.bullets) ? card.bullets : [],
+    detailBullets: Array.isArray(card.detailBullets) ? card.detailBullets : [],
     detail: card.detail || card.why || '',
     agentic: Boolean(card.agentic),
     draft: Boolean(card.draft),

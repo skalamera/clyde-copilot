@@ -47,6 +47,7 @@ async function waitFor(predicate, timeoutMs = 500) {
 test('pro realtime agent executes memory tool calls and returns normalized cards', async () => {
   FakeWebSocket.instances = [];
   const toolQueries = [];
+  const traceEvents = [];
   const agent = createProRealtimeAgent({
     WebSocketImpl: FakeWebSocket,
     timeoutMs: 1000,
@@ -69,7 +70,8 @@ test('pro realtime agent executes memory tool calls and returns normalized cards
           knowledgeId: 'session:interview:cody:1'
         }];
       }
-    }
+    },
+    debugTrace: (event, data) => traceEvents.push({ event, data })
   });
 
   const run = agent.run({
@@ -117,7 +119,14 @@ test('pro realtime agent executes memory tool calls and returns normalized cards
         content: [{
           type: 'output_text',
           text: JSON.stringify({
-            answers: [{ question: 'What did Cody say?', bullets: ['Mention Lambda migration.'] }],
+            answers: [{
+              question: 'What did Cody say?',
+              bullets: [
+                'Mention Lambda migration.',
+                'Connect it to the team timeline.',
+                'Keep the answer focused on the Cody context.'
+              ]
+            }],
             memory_cards: [{
               fact: 'Cody mentioned AWS Lambda next quarter.',
               source: 'Interview_with_Cody_2026-04.txt'
@@ -132,6 +141,9 @@ test('pro realtime agent executes memory tool calls and returns normalized cards
   assert.equal(result.ok, true);
   assert.equal(result.cards.map((card) => card.type).join(','), 'answer,memory');
   assert.equal(result.cards[1].agentic, true);
+  assert.ok(traceEvents.some((row) => row.event === 'pro.user_message'));
+  assert.ok(traceEvents.some((row) => row.event === 'pro.response.done'));
+  assert.ok(traceEvents.some((row) => row.event === 'pro.cards.processed'));
   assert.equal(ws.closed, undefined);
   agent.close();
   assert.equal(ws.closed, true);
@@ -201,7 +213,14 @@ test('pro realtime agent scopes memory search to the active entity context', asy
         content: [{
           type: 'output_text',
           text: JSON.stringify({
-            answers: [{ question: 'Apollo?', bullets: ['Use Apollo context.'] }],
+            answers: [{
+              question: 'Apollo?',
+              bullets: [
+                'Use Apollo context.',
+                'Tie the answer to onboarding.',
+                'Keep the response specific to this active entity.'
+              ]
+            }],
             memory_cards: []
           })
         }]
@@ -260,7 +279,7 @@ test('pro realtime agent reuses the websocket across sequential runs', async () 
     response: {
       output: [{
         type: 'message',
-        content: [{ type: 'output_text', text: '{"answers":[{"question":"First?","bullets":["A"]}]}' }]
+        content: [{ type: 'output_text', text: '{"answers":[{"question":"First?","bullets":["A","B","C"]}]}' }]
       }]
     }
   });
@@ -276,7 +295,7 @@ test('pro realtime agent reuses the websocket across sequential runs', async () 
     response: {
       output: [{
         type: 'message',
-        content: [{ type: 'output_text', text: '{"answers":[{"question":"Second?","bullets":["B"]}]}' }]
+        content: [{ type: 'output_text', text: '{"answers":[{"question":"Second?","bullets":["A","B","C"]}]}' }]
       }]
     }
   });
@@ -314,20 +333,24 @@ test('pro realtime agent emits draft cards from text deltas', async () => {
 
   emitJson(ws, {
     type: 'response.output_text.delta',
-    delta: '{"answers":[{"question":"Tell me about support?","bullets":["Lead with scale and ownership"'
+    delta: '{"answers":[{"question":"Tell me about support?","bullets":["Lead with scale and ownership","Name the operating metric","Close with the business result"'
   });
 
   await waitFor(() => drafts.length === 1);
   assert.equal(drafts[0].cards[0].id, 'draft-card');
   assert.equal(drafts[0].cards[0].draft, true);
-  assert.deepEqual(drafts[0].cards[0].bullets, ['Lead with scale and ownership']);
+  assert.deepEqual(drafts[0].cards[0].bullets, [
+    'Lead with scale and ownership',
+    'Name the operating metric',
+    'Close with the business result'
+  ]);
 
   emitJson(ws, {
     type: 'response.done',
     response: {
       output: [{
         type: 'message',
-        content: [{ type: 'output_text', text: '{"answers":[{"question":"Tell me about support?","bullets":["Final answer"]}]}' }]
+        content: [{ type: 'output_text', text: '{"answers":[{"question":"Tell me about support?","bullets":["Final answer","Add one metric","End with impact"]}]}' }]
       }]
     }
   });
@@ -428,5 +451,3 @@ test('pro realtime agent condenses multiple suggestions into one card in intervi
 
   agent.close();
 });
-
-

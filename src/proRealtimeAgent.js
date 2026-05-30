@@ -17,6 +17,7 @@ function createProRealtimeAgent(options = {}) {
   const logger = options.logger || console;
   const sendStatus = options.sendStatus || (() => {});
   const sendUpdate = options.sendUpdate || (() => {});
+  const debugTrace = typeof options.debugTrace === 'function' ? options.debugTrace : () => {};
   const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const eagerToolOutputs = Boolean(options.eagerToolOutputs || WebSocketImpl !== WebSocket);
   const openReadyState = WebSocketImpl.OPEN ?? WebSocket.OPEN ?? 1;
@@ -52,6 +53,17 @@ function createProRealtimeAgent(options = {}) {
 
     const model = getModel();
     const ws = await ensureSocket(apiKey, model, true);
+    trace('pro.run.start', {
+      model,
+      mode: payload.mode,
+      command: payload.command,
+      digest: payload.digest || '',
+      targetQuestion: payload.targetQuestion || '',
+      manualPrompt: payload.manualPrompt || '',
+      groupId: payload.groupId || '',
+      draftCardId: payload.draftCardId || '',
+      toolsEnabled: payload.toolsEnabled !== false
+    });
 
     if (activeRun) {
       const prevRun = activeRun;
@@ -102,6 +114,13 @@ function createProRealtimeAgent(options = {}) {
         session: buildRealtimeSessionConfig(payload)
       });
 
+      const userMessage = buildProAgentUserMessage(payload);
+      trace('pro.user_message', {
+        runId,
+        groupId,
+        draftCardId,
+        userMessage
+      });
       sendJson(ws, {
         type: 'conversation.item.create',
         item: {
@@ -110,7 +129,7 @@ function createProRealtimeAgent(options = {}) {
           role: 'user',
           content: [{
             type: 'input_text',
-            text: buildProAgentUserMessage(payload)
+            text: userMessage
           }]
         }
       });
@@ -232,6 +251,7 @@ function createProRealtimeAgent(options = {}) {
 
     intentionallyClosing = false;
     logger.info?.(`Clyde Pro realtime agent connecting to model: ${model}...`);
+    trace('pro.socket.connecting', { model });
     socket = new WebSocketImpl(`wss://api.openai.com/v1/realtime?model=${model}`, {
       headers: {
         Authorization: `Bearer ${apiKey}`
@@ -244,6 +264,7 @@ function createProRealtimeAgent(options = {}) {
       socket.on('open', () => {
         opened = true;
         logger.info?.('Clyde Pro realtime agent socket successfully connected.');
+        trace('pro.socket.open', { model });
         if (!isRun) {
           setTimeout(() => {
             if (socket && socket.readyState === openReadyState) {
@@ -269,6 +290,7 @@ function createProRealtimeAgent(options = {}) {
 
       socket.on('error', (error) => {
         logger.error?.('Clyde Pro realtime agent socket error:', error);
+        trace('pro.socket.error', { message: error.message || String(error) });
         if (!opened) {
           reject(error);
         }
@@ -277,6 +299,7 @@ function createProRealtimeAgent(options = {}) {
 
       socket.on('close', (code, reason) => {
         logger.info?.(`Clyde Pro realtime agent socket closed. Code: ${code}, Reason: ${reason}`);
+        trace('pro.socket.close', { code, reason: String(reason || '') });
         if (!opened && !intentionallyClosing) {
           reject(new Error(`Clyde Pro realtime agent disconnected before it was ready. Code: ${code}`));
         }
@@ -311,6 +334,7 @@ function createProRealtimeAgent(options = {}) {
 
     if (event.type === 'response.created') {
       responseActive = true;
+      trace('pro.response.created', { activeRun: Boolean(activeRun) });
     }
 
     if (event.type === 'response.done') {
@@ -323,6 +347,7 @@ function createProRealtimeAgent(options = {}) {
 
     if (event.type === 'error') {
       const errMsg = event.error?.message || '';
+      trace('pro.response.error', { message: errMsg, code: event.error?.code || '' });
       if (errMsg.includes('Cancellation failed') || event.error?.code === 'cancellation_failed') {
         logger.log?.('Safe to ignore cancellation error:', errMsg);
         return;
@@ -353,37 +378,14 @@ function createProRealtimeAgent(options = {}) {
       }
     }
 
-    if (event.type === 'response.created' && !activeRun) {
-      const runId = 'pro-vad-' + Date.now();
-      const draftCardId = runId + '-draft';
-      activeRun = {
-        payload: {
-          mode: settings.appMode || 'interview',
-          context: activeContext,
-          onDraft: (draft) => {
-            sendUpdate({
-              title: 'Draft answer',
-              text: draft.text || '',
-              cards: draft.cards || [],
-              replaceCardId: draftCardId,
-              groupId: runId
-            });
-          }
-        },
-        resolve: () => {},
-        reject: () => {},
-        toolCalls: 0,
-        text: '',
-        lastDraftSignature: '',
-        lastDraftAt: 0,
-        draftCardId,
-        groupId: runId
-      };
-    }
-
     const delta = extractRealtimeDelta(event);
     if (delta && activeRun) {
       activeRun.text += delta;
+      trace('pro.response.delta', {
+        groupId: activeRun.groupId,
+        draftCardId: activeRun.draftCardId,
+        delta
+      });
       emitDraft(activeRun);
       return;
     }
@@ -458,11 +460,24 @@ function createProRealtimeAgent(options = {}) {
     const text = extractRealtimeText(output) || run.text;
     const cards = parseAgentCards(text);
     const filteredCards = cards.filter((card) => card.type !== 'memory');
+    trace('pro.response.done', {
+      groupId: run.groupId,
+      draftCardId: run.draftCardId,
+      text,
+      parsedCards: cards,
+      filteredCards
+    });
 
     const payloadMode = run.payload.mode || settings.appMode || 'interview';
     const processedFiltered = payloadMode === 'interview'
       ? condenseProInterviewCards(filteredCards)
       : filteredCards;
+    trace('pro.cards.processed', {
+      groupId: run.groupId,
+      mode: payloadMode,
+      processedCards: processedFiltered,
+      rejectedByFormat: filteredCards.length > 0 && processedFiltered.length === 0
+    });
 
     const signature = getCardSignature(processedFiltered);
 
@@ -541,6 +556,11 @@ function createProRealtimeAgent(options = {}) {
 
     const card = parseDraftAgentCard(run.text, run.payload, run.draftCardId);
     if (!card) {
+      trace('pro.draft.rejected', {
+        groupId: run.groupId,
+        draftCardId: run.draftCardId,
+        text: run.text
+      });
       return;
     }
 
@@ -551,6 +571,11 @@ function createProRealtimeAgent(options = {}) {
 
     run.lastDraftAt = now;
     run.lastDraftSignature = signature;
+    trace('pro.draft.emit', {
+      groupId: run.groupId,
+      draftCardId: run.draftCardId,
+      card
+    });
     run.payload.onDraft({
       text: run.text,
       cards: [card],
@@ -575,7 +600,9 @@ function createProRealtimeAgent(options = {}) {
 
       sendStatus({ state: 'processing', message: 'Searching memory...' });
       const query = clean(args.query || payload.digest || '');
+      trace('pro.tool.searchPastMeetings', { query, mode: payload.mode });
       const results = await searchMemory(query, payload.context || {}, payload.mode);
+      trace('pro.tool.searchPastMeetings.result', { query, count: results.length, results });
       return { results };
     }
 
@@ -667,6 +694,10 @@ function createProRealtimeAgent(options = {}) {
     };
   }
 
+  function trace(event, data = {}) {
+    debugTrace(event, data);
+  }
+
   return {
     run,
     warmup,
@@ -727,8 +758,15 @@ function extractRealtimeDelta(event = {}) {
 function parseDraftAgentCard(text, payload = {}, draftCardId = '') {
   const parsedCards = parseAgentCards(text).filter((card) => card.type === 'answer' || card.type === 'suggestion');
   if (parsedCards.length) {
+    const normalized = (payload.mode || 'interview') === 'interview'
+      ? condenseProInterviewCards(parsedCards)[0]
+      : parsedCards[0];
+    if (!normalized) {
+      return null;
+    }
+
     return {
-      ...parsedCards[0],
+      ...normalized,
       id: draftCardId,
       title: 'Draft answer',
       draft: true,
@@ -737,8 +775,12 @@ function parseDraftAgentCard(text, payload = {}, draftCardId = '') {
   }
 
   const question = extractJsonStringValue(text, 'question') || clean(payload.targetQuestion);
-  const bullets = extractJsonArrayStrings(text, 'bullets').slice(0, 4);
+  const bullets = extractJsonArrayStrings(text, 'bullets').slice(0, 3);
   const body = extractJsonStringValue(text, 'answer') || extractJsonStringValue(text, 'text') || extractJsonStringValue(text, 'body');
+
+  if ((payload.mode || 'interview') === 'interview' && (!question || bullets.length !== 3)) {
+    return null;
+  }
 
   if (!body && !bullets.length) {
     return null;
@@ -990,9 +1032,9 @@ function condenseProInterviewCards(cards) {
     })
     .map((b) => String(b || '').trim())
     .filter(Boolean)
-    .slice(0, 4);
+    .slice(0, 3);
 
-  if (!question && !bullets.length) {
+  if (!question || bullets.length !== 3) {
     return [];
   }
 
