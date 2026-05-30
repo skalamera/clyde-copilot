@@ -351,3 +351,82 @@ test('pro realtime agent reports websocket errors', async () => {
 
   await assert.rejects(run, /socket dropped/);
 });
+
+test('pro realtime agent appends raw audio chunks to websocket', async () => {
+  FakeWebSocket.instances = [];
+  const agent = createProRealtimeAgent({
+    WebSocketImpl: FakeWebSocket,
+    timeoutMs: 1000,
+    settings: { transcriptionApiKey: 'openai-key', llmApiKey: 'openai-key' }
+  });
+
+  // Start agent to open socket
+  const run = agent.run({ digest: 'System Audio: Hello', mode: 'meeting', command: 'assist' }).catch(() => {});
+  const ws = FakeWebSocket.instances[0];
+  ws.emit('open');
+
+  agent.appendAudioChunk('UGFja2V0'); // Base64 of 'Packet'
+  await waitFor(() => ws.sent.length >= 4);
+
+  const appendEvent = ws.sent.find((item) => item.type === 'input_audio_buffer.append');
+  assert.ok(appendEvent);
+  assert.equal(appendEvent.audio, 'UGFja2V0');
+
+  agent.close();
+});
+
+test('pro realtime agent configures session on socket open if not run (e.g. warmup or appendAudioChunk)', async () => {
+  FakeWebSocket.instances = [];
+  const agent = createProRealtimeAgent({
+    WebSocketImpl: FakeWebSocket,
+    timeoutMs: 1000,
+    settings: { transcriptionApiKey: 'openai-key', llmApiKey: 'openai-key' }
+  });
+
+  // Call appendAudioChunk directly while no socket is open to force ensureSocket(..., false)
+  agent.appendAudioChunk('UGFja2V0');
+  const ws = FakeWebSocket.instances[0];
+  assert.ok(ws);
+  ws.emit('open');
+
+  await waitFor(() => ws.sent.length >= 2);
+  const sessionUpdateEvent = ws.sent.find((item) => item.type === 'session.update');
+  assert.ok(sessionUpdateEvent);
+  assert.equal(sessionUpdateEvent.session.output_modalities[0], 'text');
+
+  agent.close();
+});
+
+test('pro realtime agent condenses multiple suggestions into one card in interview mode', async () => {
+  FakeWebSocket.instances = [];
+  const agent = createProRealtimeAgent({
+    WebSocketImpl: FakeWebSocket,
+    timeoutMs: 1000,
+    settings: { transcriptionApiKey: 'openai-key', llmApiKey: 'openai-key', appMode: 'interview' }
+  });
+
+  const run = agent.run({ digest: 'System Audio: Hello', mode: 'interview', command: 'assist' });
+  const ws = FakeWebSocket.instances[0];
+  ws.emit('open');
+
+  await waitFor(() => ws.sent.length >= 3);
+
+  emitJson(ws, {
+    type: 'response.done',
+    response: {
+      output: [{
+        type: 'message',
+        content: [{ type: 'output_text', text: '{"suggestions":[{"question":"What is your experience?","bullets":["Sig 1","Sig 2"]},{"question":"Other turn","bullets":["Sig 3"]}]}' }]
+      }]
+    }
+  });
+
+  const result = await run;
+  assert.equal(result.cards.length, 1);
+  assert.equal(result.cards[0].question, 'What is your experience?');
+  assert.deepEqual(result.cards[0].bullets, ['Sig 1', 'Sig 2', 'Sig 3']);
+
+  agent.close();
+});
+
+

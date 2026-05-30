@@ -212,7 +212,8 @@ function createGoogleSyncService(options = {}) {
       return [];
     }
 
-    const normalized = normalizeText(`${event.title || ''} ${event.description || ''} ${event.attendees?.join(' ') || ''}`);
+    const cleanDescription = stripHtml(event.description);
+    const normalized = normalizeText(`${event.title || ''} ${cleanDescription} ${event.attendees?.join(' ') || ''}`);
     const interviewRelevant = isCalendarInterviewRelevant(normalized);
     const interviewEntity = findEntityInText(normalized, 'interview');
     const meetingEntity = findEntityInText(normalized, 'meeting');
@@ -237,7 +238,7 @@ function createGoogleSyncService(options = {}) {
             },
             {
               role: 'user',
-              content: `Title: ${event.title || ''}\nDescription: ${event.description || ''}`
+              content: `Title: ${event.title || ''}\nDescription: ${cleanDescription}`
             }
           ],
           jsonSchema: {
@@ -277,7 +278,8 @@ function createGoogleSyncService(options = {}) {
         mode,
         entityName,
         meetingName: mode === 'meeting' ? entityName : '',
-        description: [event.description, event.location].filter(Boolean).join('\n')
+        description: [cleanDescription, event.location].filter(Boolean).join('\n'),
+        meetingUrl: extractMeetingUrl(event)
       }
     })];
   }
@@ -628,6 +630,59 @@ function isLocalConnectionRefused(error) {
 
 function clean(value) {
   return String(value || '').trim();
+}
+
+function stripHtml(html = '') {
+  if (!html) return '';
+  return String(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<\/td>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n\s*\n+/g, '\n\n')
+    .trim();
+}
+
+function extractMeetingUrl(event = {}) {
+  if (event.hangoutLink) {
+    return clean(event.hangoutLink);
+  }
+  
+  const location = String(event.location || '');
+  if (location.includes('http://') || location.includes('https://')) {
+    const urls = location.match(/https?:\/\/[^\s]+/gi);
+    if (urls && urls.length > 0) {
+      return clean(urls[0]);
+    }
+  }
+  
+  const description = String(event.description || '');
+  if (description.includes('http://') || description.includes('https://')) {
+    const urls = description.match(/https?:\/\/[^\s]+/gi);
+    if (urls) {
+      const meetingUrl = urls.find(url => 
+        url.includes('zoom.us') || 
+        url.includes('meet.google.com') || 
+        url.includes('teams.live.com') || 
+        url.includes('teams.microsoft.com') || 
+        url.includes('webex.com')
+      );
+      if (meetingUrl) {
+        return clean(meetingUrl);
+      }
+      return clean(urls[0]);
+    }
+  }
+  
+  return '';
 }
 
 module.exports = {

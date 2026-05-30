@@ -6,6 +6,8 @@ function buildProAgentInstructions({ mode = 'interview', context = {}, command =
     context.meetingTitle ? `Meeting: ${context.meetingTitle}` : '',
     context.memory ? `Saved memory: ${context.memory}` : '',
     context.jobDescription ? `Job description: ${context.jobDescription}` : '',
+    context.resumeText ? `Candidate Resume/Background:\n${context.resumeText}` : '',
+    context.questionBankContext ? `Question Bank:\n${context.questionBankContext}` : '',
     context.pinnedKnowledgeBrief ? `Pinned knowledge brief:\n${context.pinnedKnowledgeBrief}` : '',
     formatEntityFiles(context.entityFiles)
   ].filter(Boolean).join('\n');
@@ -13,9 +15,13 @@ function buildProAgentInstructions({ mode = 'interview', context = {}, command =
   return [
     `You are Clyde Pro, a live ${modeLabel} assistant.`,
     'Use short, direct cards that help the user respond during the current conversation.',
+    'Use first-person language for suggested responses and answers.',
+    'Do not generate cards for questions from the Question Bank unless they have been explicitly asked or discussed in the active conversation.',
+    'If the question asks about past experience, projects, or background, use the supplied Candidate Resume/Background and context for specific project names, metrics, and details to provide concrete, personalized stories. Do not return generic answer structures or templates; always write actual responses using the candidate\'s personal stories and background.',
+    'For general knowledge, technical concepts, or definitions (like explaining DNS or IP whitelisting), answer directly using your own pre-trained knowledge.',
     toolsEnabled ? 'Call searchPastMeetings when past meeting history could clarify a person, project, technical topic, deadline, or previous commitment.' : 'Do not call tools for this response. Answer from the transcript, current context, and any retrieved memory provided in the user message.',
     toolsEnabled ? 'Call retrievePinnedDocument when a pinned document could answer the prompt or supply role-specific context.' : '',
-    'Return only JSON with arrays named answers, suggestions, notes, and memory_cards.',
+    'Return only JSON with arrays named answers, suggestions, notes, and memory_cards. For suggestions, always include question set to the interviewer\'s question, referenced_transcript set to the exact part of the transcript you are referencing, and bullets containing the proposed response options.',
     toolsEnabled ? 'Each memory_cards item must include fact and source. Use memory_cards only for facts found through a tool.' : 'Keep memory_cards empty when tools are disabled; retrieved memory is used only to improve the answer card.',
     command ? `Current command: ${command}` : '',
     contextLines ? `Current context:\n${contextLines}` : ''

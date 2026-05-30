@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const { generateChat: defaultGenerateChat } = require('./llmClient');
 const defaultPineconeClient = require('./pineconeClient');
@@ -5,6 +7,39 @@ const {
   CALENDAR_EVENTS_ID,
   OPPORTUNITIES_STATUS_ID
 } = require('./systemKnowledge');
+
+let app;
+try {
+  const electron = require('electron');
+  app = electron.app;
+} catch (e) {
+  // outside electron context (e.g. testing)
+}
+
+function getSoulPath() {
+  const p1 = path.join(process.cwd(), 'soul.md');
+  try {
+    fs.accessSync(process.cwd(), fs.constants.W_OK);
+    return p1;
+  } catch (e) {
+    if (app && typeof app.getPath === 'function') {
+      return path.join(app.getPath('userData'), 'soul.md');
+    }
+    return p1;
+  }
+}
+
+function loadSoulContent() {
+  try {
+    const soulPath = getSoulPath();
+    if (fs.existsSync(soulPath)) {
+      return fs.readFileSync(soulPath, 'utf8');
+    }
+  } catch (e) {
+    console.warn('Failed to load soul.md in agentChat:', e);
+  }
+  return '';
+}
 
 const MAX_HISTORY_MESSAGES = 8;
 
@@ -33,9 +68,10 @@ const MAX_HISTORY_MESSAGES = 8;
       };
     }
 
-    const effectiveSettings = { ...settings, ...(payload.settings || {}) };
+        const effectiveSettings = { ...settings, ...(payload.settings || {}) };
     const sources = await retrieveSources({ ...payload, message: messageText, settings: effectiveSettings });
     const history = histories.get(sessionId) || [];
+    const soulContent = loadSoulContent();
     const responseText = await generateChat({
       provider: effectiveSettings.llmProvider || 'local',
       apiKey: effectiveSettings.llmApiKey || '',
@@ -48,7 +84,12 @@ const MAX_HISTORY_MESSAGES = 8;
       messages: [
         {
           role: 'system',
-          content: buildSystemPrompt({ sources, mode: payload.mode, calendarEvents: calendarStore?.listEvents?.() || [] })
+          content: buildSystemPrompt({
+            sources,
+            mode: payload.mode,
+            calendarEvents: calendarStore?.listEvents?.() || [],
+            soul: soulContent
+          })
         },
         ...history,
         { role: 'user', content: messageText }
@@ -336,7 +377,7 @@ const MAX_HISTORY_MESSAGES = 8;
   };
 }
 
-function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = [] } = {}) {
+function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = [], soul = '' } = {}) {
   const sourceText = sources.length
     ? sources.map((source, index) => `[${index + 1}] ${source.label}\n${source.text}`).join('\n\n')
     : 'No sources found.';
@@ -346,7 +387,10 @@ function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = 
 
   return [
     `You are Clyde, an agentic ${mode === 'meeting' ? 'meeting' : 'interview'} assistant.`,
+    `Current Date & Time: ${new Date().toString()}`,
+    soul ? `Clyde's Soul & Personality Profile:\n${soul}` : '',
     'Answer from the provided sources when possible. Keep answers concise and cite sources by id when used.',
+    'When the user asks about their schedule, upcoming events, or upcoming interviews, compare the event dates with the Current Date & Time and do NOT list any events that have already occurred.',
     'If the user asks to change app data, return a pendingAction instead of saying you completed it.',
     'Supported actionType values: updateOpportunity, createOpportunity, deleteOpportunity, createMeeting, updateMeeting, deleteMeeting, saveCalendarEvent, deleteCalendarEvent, deleteSession, setActiveContext.',
     'Canonical updateOpportunity payload: { "entityName": "Sage", "entityId": "sage", "outcome": "advanced", "role": "Staff TechOps Manager" }.',
@@ -358,7 +402,7 @@ function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = 
     'For action requests, include a short confirmation label and summary. Do not mutate data yourself.',
     `Sources:\n${sourceText}`,
     `Calendar:\n${eventText}`
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
 }
 
 function parseChatResponse(text, sessionId, userMessage = '') {

@@ -22,6 +22,7 @@ function buildAssistantPrompt(options = {}) {
     const commandGuidance = meetingCommandGuidance(command);
     return [
       'You are Clyde, a live meeting assistant.',
+      `Current Date & Time: ${new Date().toString()}`,
       'The user wearing Clyde is in the meeting.',
       'System Audio and other named speakers are meeting participants.',
       'Use the transcript to create concise meeting help during the call.',
@@ -30,6 +31,7 @@ function buildAssistantPrompt(options = {}) {
       context.meetingTitle ? `Meeting title: ${context.meetingTitle}.` : '',
       context.company ? `Organization: ${context.company}.` : '',
       formatAttendees(context.attendees),
+      context.soul ? `Clyde's Soul & Personality Profile:\n${context.soul}` : '',
       context.memory ? `Long term memory across meetings:\n${context.memory}` : '',
       context.pinnedKnowledgeBrief ? `Pinned knowledge brief:\n${context.pinnedKnowledgeBrief}` : '',
       context.jobDescription ? `Meeting brief or source context:\n${context.jobDescription}` : '',
@@ -44,6 +46,7 @@ function buildAssistantPrompt(options = {}) {
 
   return [
     'You are Clyde, a live job interview copilot.',
+    `Current Date & Time: ${new Date().toString()}`,
     'The user wearing Clyde ("You") is the job candidate.',
     'The "System Audio" and any other speakers are the interviewers.',
     'Base your answers, hints/tips, and suggested next lines on what the interviewer is asking and the flow of the conversation.',
@@ -51,6 +54,7 @@ function buildAssistantPrompt(options = {}) {
     targetQuestion ? `The interviewer just asked this question: "${targetQuestion}". Answer this exact question first.` : '',
     context.company ? `Company: ${context.company}.` : '',
     context.role ? `Role: ${context.role}.` : '',
+    context.soul ? `Clyde's Soul & Personality Profile:\n${context.soul}` : '',
     context.jobDescription ? `Job Description:\n${context.jobDescription}` : '',
     context.resumeText ? `Candidate Resume/Background:\n${context.resumeText}` : '',
     context.questionBankContext ? `Question Bank:\n${context.questionBankContext}` : '',
@@ -58,10 +62,12 @@ function buildAssistantPrompt(options = {}) {
     formatEntityFiles(context.entityFiles),
     ragContext ? `Relevant RAG Context:\n${ragContext}` : '',
     command === 'interviewer_questions' ? 'Generate 3 thoughtful questions the candidate can ask the interviewer at the end of the interview. Return one answer card with question set to "Questions to ask the interviewer" and the questions as bullets.' : '',
-    command === 'screen_question' ? 'A desktop screenshot is attached. Analyze the attached screenshot of the user\'s desktop along with the recent transcript turns, and provide a single answer card summarizing your analysis and suggestions.' : '',
+    command === 'screen_question' ? 'A desktop screenshot is attached. Analyze the attached screenshot of the user\'s own screen along with the recent transcript turns, and provide a single answer card summarizing your analysis and suggestions.' : '',
+    'When a screenshot is provided, it is a capture of the user\'s own screen. Do not assume the interviewer is looking at it or has access to it, and describe the screen contents directly to the user.',
     'Use first-person language for suggested responses.',
-    'If the question asks about past experience, projects, or background, use only the supplied context for specific project names, metrics, and details.',
+    'If the question asks about past experience, projects, or background, use only the supplied context for specific project names, metrics, and details. Otherwise, for general knowledge, technical concepts, or definitions (like explaining DNS or IP whitelisting), answer directly using your own pre-trained knowledge.',
     'Never suggest questions for the interviewer to ask unless the current command asks for follow-up questions.',
+    'When generating suggestions, always set referenced_transcript to the exact portion of the transcript you are referencing, and put your proposed response options in the bullets array.',
     'Do not mention that you are an AI.'
   ].filter(Boolean).join('\n');
 }
@@ -228,8 +234,11 @@ function getAssistantSchema(mode = 'interview', command = 'assist') {
         type: 'array',
         items: {
           type: 'object',
-          properties: { text: { type: 'string' } },
-          required: ['text']
+          properties: {
+            referenced_transcript: { type: 'string' },
+            bullets: { type: 'array', items: { type: 'string' } }
+          },
+          required: ['referenced_transcript', 'bullets']
         }
       }
     };

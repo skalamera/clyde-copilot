@@ -37,6 +37,7 @@ function createMeetingAssistant(options = {}) {
     knowledgeManager: options.knowledgeManager,
     logger,
     sendStatus,
+    sendUpdate,
     timeoutMs: options.proAgentTimeoutMs || timeout
   });
 
@@ -57,6 +58,9 @@ function createMeetingAssistant(options = {}) {
   function setContext(context) {
     if (context) {
       currentContext = context;
+      if (proAgent && typeof proAgent.setContext === 'function') {
+        proAgent.setContext(context);
+      }
     }
   }
 
@@ -91,6 +95,12 @@ function createMeetingAssistant(options = {}) {
     // Still respect max turns, but note that turns are now full blocks of speech
     transcriptTurns = transcriptTurns.slice(-maxTurns);
     recentHistory = recentHistory.slice(-10); // Keep the absolute latest 10 turns for manual suggestion history
+
+    if (shouldUseProAgent(settings, {}) && !options.testProIntent) {
+      // For Pro, we let the server-side VAD on the audio stream trigger automatic responses.
+      // We do not run client-side text/intent triggers on incoming transcription turns.
+      return { ok: true, skipped: 'pro-server-side' };
+    }
 
     if (isUserSpeaker(turn.speaker)) {
       clearPendingIntentUtterance();
@@ -134,7 +144,7 @@ function createMeetingAssistant(options = {}) {
 
     if (settings.userTier === 'pro') {
       if (!proCandidate) {
-        if (provider === 'local' || provider === 'openai') {
+        if (provider === 'openai') {
           requestProvider = 'openai';
           requestApiKey = settings.transcriptionApiKey || settings.openAiApiKey || process.env.OPENAI_API_KEY || apiKey;
           requestModel = settings.llmModel || 'gpt-4o';
@@ -623,6 +633,12 @@ function createMeetingAssistant(options = {}) {
     proAgent.close?.();
   }
 
+  function appendAudioChunk(base64Audio) {
+    if (shouldUseProAgent(settings, {}) && proAgent && typeof proAgent.appendAudioChunk === 'function') {
+      proAgent.appendAudioChunk(base64Audio);
+    }
+  }
+
   return {
     addTranscript,
     maybeRun,
@@ -630,6 +646,7 @@ function createMeetingAssistant(options = {}) {
     warmup,
     setContext,
     resetTranscript,
+    appendAudioChunk,
     getTranscriptTurns: () => [...transcriptTurns]
   };
 
@@ -744,7 +761,10 @@ function createMeetingAssistant(options = {}) {
 
 function getIntentSettleDelay(text, utteranceSettleMs, incompleteUtteranceSettleMs) {
   if (hasLikelyCompleteInterviewerPrompt(text)) {
-    return utteranceSettleMs;
+    if (/[?.!]\s*$/.test(text)) {
+      return utteranceSettleMs;
+    }
+    return Math.max(utteranceSettleMs, 1000);
   }
 
   return incompleteUtteranceSettleMs;
@@ -916,15 +936,17 @@ function parseAssistantCards(text) {
   }
 
   for (const item of toArray(parsed.suggestions)) {
-    const textValue = cleanText(item.text || item.suggestion);
-    const why = cleanText(item.why);
-
-    if (textValue) {
+    const textValue = cleanText(item.text || item.suggestion || item.body);
+    const context = cleanText(item.referenced_transcript || item.context || item.question || '');
+    const bullets = Array.isArray(item.bullets) ? item.bullets.map(cleanText).filter(Boolean) : [textValue].filter(Boolean);
+    if (context || bullets.length) {
       cards.push({
         type: 'suggestion',
         title: 'Say next',
+        question: context,
+        bullets,
         body: textValue,
-        detail: why
+        id: Buffer.from(context || bullets.join(' ')).toString('base64')
       });
     }
   }
@@ -1244,17 +1266,25 @@ function hasLikelyCompleteInterviewerPrompt(text) {
   }
 
   const hasQuestionCue = hasInterviewPromptCue(lastSpeakerText);
-  const hasTerminalPunctuation = /[?.!]\s*$/.test(lastSpeakerText);
+  const hasTerminalPunctuation = /[?.!]\s*$/.test(lastSpeakerText) || lastSpeakerText.includes('?');
+  const isCommandRequest = /\b(tell me|walk me|talk me|describe|explain|share|give me|show me)\b/i.test(lastSpeakerText);
+  const startsWithQuestionWord = /^(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|have you|has he|has she|had they|will you)\b/i.test(lastSpeakerText);
+  const endsWithFragment = /\b(and|or|but|if|than|because|unless|although|between|with|from|to|for|in|of|on|at|by|about|through|the|a|an|difference|different)\s*$/i.test(lastSpeakerText);
 
-  if (hasTerminalPunctuation && hasQuestionCue) {
-    return true;
+  if (hasQuestionCue) {
+    if (hasTerminalPunctuation) {
+      return true;
+    }
+    if (isCommandRequest && !startsWithQuestionWord && !endsWithFragment) {
+      return true;
+    }
   }
 
   return false;
 }
 
 function hasInterviewPromptCue(text) {
-  return /\b(can|could|would|what|why|how|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there)\b/i.test(text);
+  return /\b(can|could|would|what|why|how|when|where|who|which|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there|describe a|tell me about)\b/i.test(text);
 }
 
 function extractLatestInterviewerPrompt(text) {
@@ -1274,7 +1304,10 @@ function extractLatestInterviewerPrompt(text) {
   const parts = [last.text];
   for (let index = lines.length - 2; index >= 0; index -= 1) {
     const row = parseSpeakerLine(lines[index]);
-    if (row.speaker !== last.speaker) {
+    // Merge consecutive turns if both are interviewer turns (neither is the user)
+    const isLastUser = isUserSpeaker(last.speaker);
+    const isRowUser = isUserSpeaker(row.speaker);
+    if (isLastUser !== isRowUser) {
       break;
     }
     parts.unshift(row.text);

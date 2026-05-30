@@ -305,6 +305,7 @@ function normalizeCalendarEvent(event = {}) {
   return {
     id: clean(event.id),
     htmlLink: clean(event.htmlLink),
+    hangoutLink: clean(event.hangoutLink),
     title: clean(event.summary || event.title || 'Google Calendar event'),
     description: clean(event.description),
     location: clean(event.location),

@@ -48,10 +48,11 @@ test('main process registers IPC handlers before loading renderer', () => {
   assert.ok(createWindowSource.indexOf("ipcMain.handle('list-agent-sources'") > -1);
   assert.ok(createWindowSource.indexOf("ipcMain.handle('list-agent-sources'") < createWindowSource.indexOf('mainWindow.loadFile(filePath)'));
   assert.ok(createWindowSource.indexOf("ipcMain.handle('get-google-sync-status'") < createWindowSource.indexOf('mainWindow.loadFile(filePath)'));
+  assert.ok(createWindowSource.indexOf("ipcMain.handle('get-active-capture-window-bounds'") < createWindowSource.indexOf('mainWindow.loadFile(filePath)'));
 });
 
 test('list-agent-sources handler normalizes request filters before use', () => {
-  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8').replace(/\r\n/g, '\n');
   const start = source.indexOf("ipcMain.handle('list-agent-sources'");
   const end = source.indexOf("\n\n  ipcMain.handle('load-floating-agent-prefs'", start);
   const block = source.slice(start, end);
@@ -362,3 +363,10 @@ test('main process passes source sample rate into transcription processors', () 
   assert.match(source, /async function processAudioChunk\(source, chunk, sampleRate\)/);
   assert.match(source, /const sourceWithRate = sampleRate/);
 });
+
+test('main process forwards captured audio chunks to meetingAssistant if active', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  assert.match(source, /if \(meetingAssistant && typeof meetingAssistant\.appendAudioChunk === 'function'\)/);
+  assert.match(source, /meetingAssistant\.appendAudioChunk\(chunk\.toString\('base64'\)\)/);
+});
+

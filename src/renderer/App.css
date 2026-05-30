@@ -113,7 +113,7 @@ textarea:focus {
 .app-shell {
   background:
     radial-gradient(circle at top left, rgba(79, 231, 255, 0.11), transparent 30%),
-    radial-gradient(circle at 80% 10%, rgba(166, 255, 106, 0.07), transparent 24%),
+    radial-gradient(circle at 80% 10%, rgba(155, 140, 255, 0.07), transparent 24%),
     var(--body-base-rgba);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
@@ -290,7 +290,7 @@ textarea:focus {
 .user-guide-modal {
   background:
     radial-gradient(circle at 20% 0%, rgba(79, 231, 255, 0.12), transparent 28%),
-    radial-gradient(circle at 80% 8%, rgba(166, 255, 106, 0.08), transparent 28%),
+    radial-gradient(circle at 80% 8%, rgba(155, 140, 255, 0.08), transparent 28%),
     rgba(5, 11, 17, 0.96);
   border: 1px solid rgba(154, 202, 255, 0.24);
   border-radius: 24px;
@@ -6797,8 +6797,9 @@ body:has(.app-shell-active) {
 
 .onboarding-backdrop {
   align-items: center;
-  background: rgba(0, 5, 9, 0.78);
-  backdrop-filter: blur(14px);
+  background: rgba(2, 6, 12, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   display: flex;
   inset: 0;
   justify-content: center;
@@ -6808,10 +6809,10 @@ body:has(.app-shell-active) {
 }
 
 .onboarding-wizard {
-  background: linear-gradient(145deg, rgba(5, 16, 24, 0.98), rgba(1, 8, 13, 0.98));
-  border: 1px solid rgba(154, 202, 255, 0.22);
-  border-radius: 10px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
+  background: linear-gradient(135deg, rgba(8, 14, 28, 0.98), rgba(4, 7, 14, 0.99));
+  border: 1px solid rgba(155, 140, 255, 0.28);
+  border-radius: 16px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.65), 0 0 40px rgba(155, 140, 255, 0.08);
   color: var(--text);
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -6822,12 +6823,12 @@ body:has(.app-shell-active) {
 }
 
 .onboarding-steps {
-  background: rgba(0, 8, 14, 0.62);
-  border-right: 1px solid rgba(154, 202, 255, 0.14);
+  background: rgba(3, 7, 16, 0.55);
+  border-right: 1px solid rgba(155, 140, 255, 0.15);
   display: grid;
   gap: 10px;
   grid-auto-rows: max-content;
-  padding: 24px 18px;
+  padding: 30px 20px;
 }
 
 .onboarding-steps > span,
@@ -6847,9 +6848,9 @@ body:has(.app-shell-active) {
 
 .onboarding-steps button {
   align-items: center;
-  background: rgba(154, 202, 255, 0.08);
-  border: 1px solid rgba(154, 202, 255, 0.14);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(155, 140, 255, 0.1);
+  border-radius: 10px;
   color: var(--muted);
   display: grid;
   font: inherit;
@@ -6859,11 +6860,19 @@ body:has(.app-shell-active) {
   justify-items: start;
   padding: 10px;
   text-align: left;
+  transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.onboarding-steps button:hover:not(:disabled) {
+  border-color: rgba(79, 231, 255, 0.4);
+  background: rgba(79, 231, 255, 0.04);
+  color: var(--text);
 }
 
 .onboarding-steps button span {
   align-items: center;
-  background: rgba(154, 202, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
   color: inherit;
   display: inline-flex;
@@ -6873,14 +6882,16 @@ body:has(.app-shell-active) {
 }
 
 .onboarding-steps button.active {
-  background: rgba(0, 229, 255, 0.12);
-  border-color: rgba(0, 229, 255, 0.45);
+  background: rgba(155, 140, 255, 0.14);
+  border-color: rgba(155, 140, 255, 0.6);
   color: var(--text);
+  box-shadow: 0 0 14px rgba(155, 140, 255, 0.2);
 }
 
 .onboarding-steps button.complete span {
-  background: rgba(69, 255, 203, 0.18);
-  color: #9fffe3;
+  background: rgba(79, 231, 255, 0.18);
+  color: var(--cyan);
+  border-color: rgba(79, 231, 255, 0.35);
 }
 
 .onboarding-panel {
@@ -6930,17 +6941,26 @@ body:has(.app-shell-active) {
 .onboarding-wide-card,
 .finish-checklist,
 .choice-grid button {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(155, 140, 255, 0.12);
+  border-radius: 12px;
   color: var(--text);
-  padding: 18px;
+  padding: 20px;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.plan-card:hover,
+.choice-grid button:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(79, 231, 255, 0.3);
+  transform: translateY(-2px);
 }
 
 .plan-card.active,
 .choice-grid button.active {
-  border-color: rgba(0, 229, 255, 0.52);
-  box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.18);
+  border-color: rgba(155, 140, 255, 0.6);
+  background: rgba(155, 140, 255, 0.06);
+  box-shadow: 0 0 16px rgba(155, 140, 255, 0.15);
 }
 
 .plan-card h3,
@@ -8852,17 +8872,45 @@ body:has(.app-shell-active) {
   letter-spacing: 0.3px !important;
 }
 
-.chat-bubble.clyde-response-card {
-  background: rgba(13, 20, 30, 0.95) !important;
-  border: 1px solid rgba(154, 202, 255, 0.18) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35) !important;
-  border-radius: 18px !important;
-  border-top-left-radius: 4px !important;
-  width: 92% !important;
-  max-width: 92% !important;
-  align-self: flex-start !important;
-  padding: 16px !important;
+.chat-bubble-row.clyde-ai {
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+}
+
+.clyde-answer-card {
+  background: linear-gradient(135deg, #1f2630 0%, #121720 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 28px 4px 28px 4px !important;
+  width: 88% !important;
+  max-width: 88% !important;
+  padding: 16px 20px !important;
   color: #e5e5ea !important;
+  align-self: flex-start !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.clyde-card-question {
+  color: #00e5ff !important;
+  font-size: 1.02rem !important;
+  font-weight: 600 !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0.2px !important;
+}
+
+.clyde-card-divider {
+  height: 1px !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  margin: 12px 0 !important;
+  width: 100% !important;
+}
+
+.clyde-avatar-img {
+  width: 28px !important;
+  height: 28px !important;
+  object-fit: contain !important;
 }
 
 .card-kicker {

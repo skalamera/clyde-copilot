@@ -472,6 +472,7 @@ test('pro automatic assist waits for a complete interviewer prompt', async () =>
       localLlmUrl: 'http://localhost:1234/v1/chat/completions',
       llmModel: 'fallback-model'
     },
+    testProIntent: true,
     proAgent: {
       run: async (payload) => {
         proDigests.push(payload.digest);
@@ -527,6 +528,7 @@ test('pro automatic assist does not answer partial ASR prompts before terminal p
       localLlmUrl: 'http://localhost:1234/v1/chat/completions',
       llmModel: 'fallback-model'
     },
+    testProIntent: true,
     proAgent: {
       run: async (payload) => {
         proPayloads.push(payload);
@@ -1092,6 +1094,7 @@ test('pro tier uses realtime agent and emits agentic memory cards', async () => 
         localLlmUrl: 'http://localhost:1234/v1/chat/completions',
         llmModel: 'fallback-model'
       },
+      testProIntent: true,
     proAgent: {
       searchMemoryCards: async (payload) => {
         assert.equal(payload.allowMemorySearch, true);
@@ -1159,6 +1162,7 @@ test('pro tier falls back to free assistant path when realtime agent fails', asy
         localLlmUrl: 'http://localhost:1234/v1/chat/completions',
         llmModel: 'fallback-model'
       },
+      testProIntent: true,
     proAgent: {
       run: async () => {
         throw new Error('socket dropped');
@@ -1206,6 +1210,7 @@ test('pro memory search is throttled across automatic transcript turns', async (
         llmModel: 'fallback-model'
       },
     proMemorySearchIntervalMs: 15000,
+    testProIntent: true,
     proAgent: {
       searchMemoryCards: async (payload) => {
         allowFlags.push(payload.allowMemorySearch);

@@ -4,7 +4,7 @@
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
-    "prestart": "node ./scripts/generate-icon.js && node ./scripts/cleanup-electron-cache.js && electron-builder install-app-deps && electron-rebuild -f -w better-sqlite3",
+    "prestart": "node ./scripts/generate-icon.js && node ./scripts/cleanup-electron-cache.js && electron-builder install-app-deps && (electron-rebuild -f -w better-sqlite3 || echo Rebuild skipped)",
     "start": "npm run renderer:build && node ./scripts/start-electron.js",
     "renderer:build": "vite build",
     "renderer:dev": "vite --host 127.0.0.1",

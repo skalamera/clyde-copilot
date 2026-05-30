@@ -3,6 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const axios = require('axios');
 const log = require('electron-log');
+const { exec } = require('child_process');
 
 // Configure electron-log
 log.transports.file.level = 'info';
@@ -1698,6 +1699,10 @@ async function processAudioChunk(source, chunk, sampleRate) {
         : source;
     updateLiveAudioLevel(sourceWithRate, chunk);
     await getTranscriptionProcessor(sourceWithRate).processAudioChunk(chunk);
+
+    if (meetingAssistant && typeof meetingAssistant.appendAudioChunk === 'function') {
+        meetingAssistant.appendAudioChunk(chunk.toString('base64'));
+    }
 }
 
 function closeTranscriptionProcessors() {
@@ -2243,6 +2248,19 @@ function createWindow () {
       return true;
   });
 
+  ipcMain.handle('open-external-url', async (event, url) => {
+      if (url && typeof url === 'string') {
+          try {
+              await shell.openExternal(url);
+              return true;
+          } catch (e) {
+              console.error('Failed to open external url:', e);
+              return false;
+          }
+      }
+      return false;
+  });
+
   ipcMain.handle('start-checkout-session', async () => {
       const authSession = await getFreshAuthSession();
       const checkout = await createCheckoutSession({
@@ -2359,6 +2377,7 @@ function createWindow () {
       }
       return getAgentChat().listSources(sourceFilters);
   });
+
 
   ipcMain.handle('load-floating-agent-prefs', () => {
       const Store = require('electron-store').default || require('electron-store');
@@ -3912,9 +3931,51 @@ function getAppIconPath() {
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
 
+let wasZoomRunning = null;
+let processMonitorInterval = null;
+
+function startProcessMonitoring() {
+    if (processMonitorInterval) {
+        clearInterval(processMonitorInterval);
+    }
+    
+    const checkZoom = () => {
+        if (process.platform !== 'win32') {
+            return;
+        }
+
+        exec('tasklist /FI "IMAGENAME eq zoom.exe" /NH', (err, stdout) => {
+            if (err) return;
+            const isRunning = !!(stdout && stdout.toLowerCase().includes('zoom.exe'));
+            
+            if (wasZoomRunning === null) {
+                // Initial check on startup: establish baseline state
+                wasZoomRunning = isRunning;
+            } else if (isRunning && !wasZoomRunning) {
+                // Transition from not running to running
+                wasZoomRunning = true;
+                if (!audioCaptureRunning) {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('zoom-detected');
+                    }
+                }
+            } else {
+                wasZoomRunning = isRunning;
+            }
+        });
+    };
+
+    // Run immediately to establish baseline
+    checkZoom();
+
+    // Check every 5 seconds
+    processMonitorInterval = setInterval(checkZoom, 5000);
+}
+
 app.whenReady().then(() => {
     configureElectronStorage();
     createWindow();
+    startProcessMonitoring();
 
     startAutoUpdater({
         enabled: process.env.CLYDE_ENABLE_AUTO_UPDATE === '1',
@@ -3931,6 +3992,10 @@ app.on('window-all-closed', () => {
     if (googleSyncTimer) {
         clearInterval(googleSyncTimer);
         googleSyncTimer = null;
+    }
+    if (processMonitorInterval) {
+        clearInterval(processMonitorInterval);
+        processMonitorInterval = null;
     }
     app.quit();
   }

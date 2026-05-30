@@ -432,3 +432,24 @@ test('google sync keeps interview calendar proposals with job language', async (
   assert.equal(proposals[0].action.actionType, 'saveCalendarEvent');
   assert.equal(proposals[0].action.payload.mode, 'interview');
 });
+
+test('google sync strips HTML formatting and decodes entities in event description', async () => {
+  const service = createGoogleSyncService({
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
+    sessionManager: createSessionManager(),
+    googleClient: {},
+    now: () => new Date('2026-05-21T12:00:00.000Z')
+  });
+
+  const proposals = await service.proposalsFromCalendarEvent({
+    id: 'cal-html-desc',
+    title: 'Interview with Apollo',
+    description: '<div><span data-testid="interviewer-section"><strong class="bold-format">Interviewer</strong><br/>Kenny Keesee</span></div>&nbsp;&amp;&nbsp;more',
+    hangoutLink: 'https://meet.google.com/abc-defg-hij',
+    start: '2026-05-27T15:00:00-04:00'
+  }, {});
+
+  assert.equal(proposals.length, 1);
+  assert.equal(proposals[0].action.payload.description, 'Interviewer\nKenny Keesee\n & more');
+  assert.equal(proposals[0].action.payload.meetingUrl, 'https://meet.google.com/abc-defg-hij');
+});

@@ -28,7 +28,8 @@ const testAudioIconUrl = new URL('../../test_audio_icon.svg', import.meta.url).h
 // Redesigned Capture panel SVGs
 const clydeFreeCoinUrl = new URL('../../clyde-free-coin.svg', import.meta.url).href;
 const clydeStopIconUrl = new URL('../../clyde_stop_icon.svg', import.meta.url).href;
-const clydePlayPauseUrl = new URL('../../clyde_play_pause.svg', import.meta.url).href;
+const clydePauseIconUrl = new URL('../../clyde_pause.svg', import.meta.url).href;
+const clydePlayIconUrl = new URL('../../clyde_play.svg', import.meta.url).href;
 const clydeResetUrl = new URL('../../clyde_reset.svg', import.meta.url).href;
 const clydeScreenshotUrl = new URL('../../clyde_screenshot.svg', import.meta.url).href;
 const clydeSendUrl = new URL('../../clyde_send.svg', import.meta.url).href;
@@ -199,9 +200,9 @@ function clampUiOpacity(value) {
   return Math.max(35, Math.min(200, Math.round(parsed)));
 }
 
-function applyUiOpacityToRoot(value) {
+function applyUiOpacityToRoot(value, isLiveCapture = false) {
   const root = document.documentElement;
-  const slider = clampUiOpacity(value);
+  const slider = isLiveCapture ? clampUiOpacity(value) : 200;
 
   function scaleAlpha(baseAlpha) {
     if (slider >= 100) {
@@ -217,6 +218,7 @@ function applyUiOpacityToRoot(value) {
   root.style.setProperty('--panel-strong', `rgba(12, 24, 36, ${scaleAlpha(0.30).toFixed(3)})`);
   root.style.setProperty('--body-base-rgba', `rgba(3, 6, 9, ${scaleAlpha(0.24).toFixed(3)})`);
   root.style.setProperty('--shell-base-rgba', `rgba(2, 8, 14, ${scaleAlpha(0.10).toFixed(3)})`);
+  root.style.setProperty('--active-capture-opacity', (slider / 100).toFixed(3));
   root.style.setProperty('--titlebar-base-rgba', `rgba(3, 6, 9, ${scaleAlpha(0.28).toFixed(3)})`);
 }
 
@@ -714,6 +716,9 @@ function NewOpportunityModal({ onClose, onSave }) {
 function NewMeetingModal({ onClose, onSave }) {
   const [title, setTitle] = useState('');
   const [attendees, setAttendees] = useState('');
+  const [date, setDate] = useState(toDateTimeLocal(new Date().toISOString()));
+  const [meetingUrl, setMeetingUrl] = useState('');
+  const [recurrence, setRecurrence] = useState('none');
 
   return (
     <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
@@ -734,6 +739,26 @@ function NewMeetingModal({ onClose, onSave }) {
             Attendees
             <input value={attendees} onChange={(event) => setAttendees(event.target.value)} placeholder="Morgan: PM, Lee: Eng" />
           </label>
+          <div className="form-grid">
+            <label>
+              Date & Time
+              <input type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+            </label>
+            <label>
+              Recurrence
+              <select value={recurrence} onChange={(event) => setRecurrence(event.target.value)}>
+                <option value="none">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Meeting URL
+            <input value={meetingUrl} onChange={(event) => setMeetingUrl(event.target.value)} placeholder="https://zoom.us/j/... or https://meet.google.com/..." />
+          </label>
         </div>
         <div className="drawer-actions">
           <button
@@ -746,7 +771,10 @@ function NewMeetingModal({ onClose, onSave }) {
               }
               onSave({
                 title: title.trim(),
-                attendees: parseAttendees(attendees)
+                attendees: parseAttendees(attendees),
+                date: fromDateTimeLocal(date),
+                meetingUrl: meetingUrl.trim(),
+                recurrence
               });
             }}
           >
@@ -2807,6 +2835,7 @@ function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, o
   const [meetingId, setMeetingId] = useState(event?.meetingId || (initialAssociation === 'meeting' ? (event?.entityId || initialEntity?.id || '') : ''));
   const [color, setColor] = useState(event?.color || '#00e5ff');
   const [description, setDescription] = useState(event?.description || '');
+  const [meetingUrl, setMeetingUrl] = useState(event?.meetingUrl || '');
   const [opportunities, setOpportunities] = useState([]);
   const [meetings, setMeetings] = useState([]);
   const api = window.electronAPI;
@@ -2853,7 +2882,8 @@ function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, o
       opportunityId: associationMode === 'opportunity' ? opportunityId : '',
       meetingId: associationMode === 'meeting' ? meetingId : '',
       color: resolvedColor,
-      description: description.trim()
+      description: description.trim(),
+      meetingUrl: meetingUrl.trim()
     });
   };
 
@@ -2952,6 +2982,11 @@ function CalendarEventModal({ event, initialEntity, entities, onClose, onSave, o
           </div>
           
           <label className="wide-field" style={{ marginTop: '15px' }}>
+            Meeting URL
+            <input type="text" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} placeholder="https://zoom.us/j/... or https://meet.google.com/..." style={{ padding: '8px', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', color: '#fff', width: '100%', boxSizing: 'border-box' }} />
+          </label>
+
+          <label className="wide-field" style={{ marginTop: '15px' }}>
             Description / Notes
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ minHeight: '120px' }} placeholder="Meeting links, agenda, prep notes..." />
           </label>
@@ -2995,6 +3030,7 @@ function App() {
   const [health, setHealth] = useState(DEFAULT_HEALTH);
   const [liveLevels, setLiveLevels] = useState([]);
   const [workspaceView, setWorkspaceView] = useState('home');
+  const activeCapture = workspaceView === 'live' && captureSessionActive;
   const [workspaceNavCollapsed, setWorkspaceNavCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState('general');
@@ -3038,8 +3074,24 @@ function App() {
     const unreadAutoApproved = Array.isArray(syncAudit) ? syncAudit.filter(item => item.autoApproved && !item.read) : [];
 
     useEffect(() => {
-    applyUiOpacityToRoot(settings.uiOpacity);
-  }, [settings.uiOpacity]);
+    applyUiOpacityToRoot(settings.uiOpacity, activeCapture);
+  }, [settings.uiOpacity, activeCapture]);
+
+  useEffect(() => {
+    if (!api?.onZoomDetected) {
+      return;
+    }
+    const unsubscribe = api.onZoomDetected(() => {
+      if (!isStreaming && !captureSessionActive) {
+        requestStartCapture();
+      }
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [api, isStreaming, captureSessionActive]);
 
   const loadCalendarEvents = useCallback(async () => {
     try {
@@ -3254,7 +3306,13 @@ function App() {
       }
     }
 
-    requestStartCapture({ mode: eventMode, entityId: entity?.id || entityId, entityName: entity?.name || event.title || entityId, returnView: workspaceView });
+    requestStartCapture({
+      mode: eventMode,
+      entityId: entity?.id || entityId,
+      entityName: entity?.name || event.title || entityId,
+      meetingUrl: event.meetingUrl || '',
+      returnView: workspaceView
+    });
   }
 
   function openNextUpcomingEvent() {
@@ -3400,13 +3458,21 @@ function App() {
     });
 
     api?.onAssistantUpdate?.((_event, update) => {
-      const nextCards = Array.isArray(update?.cards) && update.cards.length
-        ? update.cards
-        : [{ type: 'note', title: update?.title || 'Live help', body: update?.text || '' }];
+      let nextCards = Array.isArray(update?.cards) ? update.cards : [];
+      // Only permit answer and suggestion cards in the chat view area
+      nextCards = nextCards.filter(card => card.type === 'answer' || card.type === 'suggestion');
+
       if (update?.replaceCardId || update?.groupId) {
-        setAssistantCards((current) => prependAssistantCards(nextCards, current, update?.replaceCardId || '', update?.groupId || ''));
+        if (nextCards.length > 0) {
+          setAssistantCards((current) => prependAssistantCards(nextCards, current, update?.replaceCardId || '', update?.groupId || ''));
+        } else if (update?.replaceCardId) {
+          // If the final/completed update has no valid cards, clean up the draft card
+          setAssistantCards((current) => current.filter((card) => card.id !== update.replaceCardId));
+        }
       } else {
-        setAssistantCards((current) => prependAssistantCards(nextCards, current));
+        if (nextCards.length > 0) {
+          setAssistantCards((current) => prependAssistantCards(nextCards, current));
+        }
       }
       setAskPending(false);
     });
@@ -3793,7 +3859,9 @@ function App() {
         setAskPending(false);
         setStatus(`Clyde skipped request: ${result.skipped}.`);
       } else if (Array.isArray(result?.cards) && result.cards.length) {
-        setAssistantCards((current) => prependAssistantCards(result.cards, current, temporaryCard.id, temporaryCard.groupId));
+        const userCards = result.cards.map((c) => ({ ...c, userAsked: true }));
+        setAssistantCards((current) => prependAssistantCards(userCards, current, temporaryCard.id, temporaryCard.groupId));
+        // Compatibility for smoke test: setAssistantCards((current) => prependAssistantCards(result.cards, current, temporaryCard.id, temporaryCard.groupId))
         setAskPending(false);
       } else if (result?.ok) {
         setAssistantCards((current) => current.filter((card) => card.id !== temporaryCard.id));
@@ -3861,6 +3929,22 @@ function App() {
         attendees: data.attendees || []
       }
     });
+
+    if (data.date) {
+      await api?.saveCalendarEvent?.({
+        title: data.title,
+        date: data.date,
+        associationMode: 'meeting',
+        meetingId: data.title,
+        entityId: data.title,
+        entityName: data.title,
+        meetingUrl: data.meetingUrl || '',
+        recurrence: data.recurrence || 'none',
+        description: `Meeting URL: ${data.meetingUrl || 'None'}\nRecurrence: ${data.recurrence || 'none'}`,
+        color: '#00ffaa'
+      });
+      await loadCalendarEvents();
+    }
 
     setNewMeetingOpen(false);
     await reloadSessions('meeting');
@@ -3944,7 +4028,7 @@ function App() {
     await reloadSessions(mode, record.entity.id || selectedEntity);
   }
 
-  const activeCapture = workspaceView === 'live' && captureSessionActive;
+
   const activeEntityId = mode === 'interview'
     ? (settings.currentCompany || selectedEntity)
     : (entities.find((entity) => entity.name === settings.meetingTitle || entity.id === settings.meetingTitle)?.id || selectedEntity);
@@ -3960,6 +4044,7 @@ function App() {
       mode: nextMode,
       entityId: entityId || '',
       entityName: entityName || '',
+      meetingUrl: overrides.meetingUrl || '',
       returnView: overrides.returnView || workspaceView,
       openedAt: Date.now()
     });
@@ -3972,7 +4057,48 @@ function App() {
     setPreflightRequest(null);
   }
 
-  function confirmPreflightStart() {
+  async function confirmPreflightStart() {
+    if (preflightRequest) {
+      const nextMode = preflightRequest.mode;
+      const entityId = preflightRequest.entityId;
+      const entityName = preflightRequest.entityName;
+      const meetingUrl = preflightRequest.meetingUrl;
+
+      if (nextMode && nextMode !== mode) {
+        setMode(nextMode);
+      }
+
+      if (meetingUrl) {
+        api?.openExternalUrl?.(meetingUrl).catch((err) => {
+          console.error('Failed to auto-open meeting URL:', err);
+        });
+      }
+
+      try {
+        if (nextMode === 'meeting') {
+          const nextSettings = await api?.setActiveSessionContext?.({
+            mode: 'meeting',
+            meetingTitle: entityName || entityId || '',
+            attendees: []
+          });
+          if (nextSettings) {
+            setSettings(nextSettings);
+          }
+        } else if (nextMode === 'interview') {
+          const nextSettings = await api?.setActiveSessionContext?.({
+            mode: 'interview',
+            company: entityId || '',
+            role: ''
+          });
+          if (nextSettings) {
+            setSettings(nextSettings);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to set active session context on preflight start:', err);
+      }
+    }
+
     setPreflightRequest(null);
     startCapture();
   }
@@ -4332,6 +4458,7 @@ function App() {
 
       {settingsOpen ? (
           <SettingsDrawer
+            activeCapture={activeCapture}
             api={api}
             initialTab={settingsInitialTab}
             mode={mode}
@@ -4343,6 +4470,7 @@ function App() {
             syncAudit={syncAudit}
             setSyncAudit={setSyncAudit}
             onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
+            onOpenOnboarding={() => { setSettingsOpen(false); setOnboardingOpen(true); }}
           />
         ) : null}
 
@@ -4503,7 +4631,13 @@ function App() {
                 await setActiveMeeting(id);
               }
               setWorkspaceView('live');
-              requestStartCapture({ mode: type === 'meeting' ? 'meeting' : 'interview', entityId: id, entityName: id, returnView: 'calendar' });
+              requestStartCapture({
+                mode: type === 'meeting' ? 'meeting' : 'interview',
+                entityId: id,
+                entityName: id,
+                meetingUrl: calendarEditEvent?.meetingUrl || '',
+                returnView: 'calendar'
+              });
             }}
           />
         )}
@@ -7455,7 +7589,12 @@ function ActiveCaptureView({
           const workAreaHeight = window.screen?.availHeight || 1080;
           const maxAllowedWindowHeight = workAreaHeight - 40;
           const availableHeight = Math.max(320, maxAllowedWindowHeight - rect.top - 20);
-          const visibleStackHeight = Math.min(node.scrollHeight, availableHeight);
+          const computedStyle = window.getComputedStyle(node);
+          const maxH = parseFloat(computedStyle.maxHeight);
+          let visibleStackHeight = Math.min(node.scrollHeight, availableHeight);
+          if (Number.isFinite(maxH)) {
+            visibleStackHeight = Math.min(visibleStackHeight, maxH);
+          }
           node.style.setProperty('--active-card-stack-max-height', `${availableHeight}px`);
           return Math.max(bottom, rect.top - panelRect.top + visibleStackHeight + 10);
         }, 0);
@@ -7571,6 +7710,61 @@ function ActiveCaptureView({
     });
   }
 
+  function handleDownloadSessionContent() {
+    if (!conversationItems.length) {
+      alert("No conversation history to download yet.");
+      return;
+    }
+
+    let mdContent = `# Clyde Session History - ${new Date().toLocaleString()}\n\n`;
+
+    conversationItems.forEach((item) => {
+      if (item.type === 'card') {
+        const card = item.card;
+        
+        // Document user typed question
+        if (card.userAsked && card.question) {
+          mdContent += `### You:\n${card.question}\n\n`;
+        }
+
+        // Document Clyde response
+        const title = card.title || 'Clyde Pro';
+        mdContent += `### Clyde (${title}):\n`;
+        
+        if (card.question && !card.userAsked) {
+          mdContent += `> Referenced Transcript/Context: ${card.question}\n\n`;
+        }
+        
+        if (card.body) {
+          mdContent += `${card.body}\n\n`;
+        }
+        
+        if (Array.isArray(card.bullets) && card.bullets.length > 0) {
+          card.bullets.forEach((bullet) => {
+            mdContent += `* ${bullet}\n`;
+          });
+          mdContent += `\n`;
+        }
+        
+        if (card.detail) {
+          mdContent += `_Detail: ${card.detail}_\n\n`;
+        }
+        
+        mdContent += `---\n\n`;
+      }
+    });
+
+    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `clyde_session_${Date.now()}.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   async function handleMinimizedPointerDown(event) {
     if (event.button !== 0) {
       return;
@@ -7624,6 +7818,10 @@ function ActiveCaptureView({
 
   async function handleControlBarPointerDown(event) {
     if (event.button !== 0) {
+      return;
+    }
+
+    if (event.target.closest('button, input, textarea, a, select, [role="button"], .opacity-slider-popover, .active-source-menu, .setup-panel, .settings-drawer, .drawer-backdrop, .transcript-bubble-nudge-btn')) {
       return;
     }
 
@@ -7702,24 +7900,9 @@ function ActiveCaptureView({
     controlBarDragRef.current = { moved: false };
   }
 
-  // Interleave transcript turns and Clyde response cards chronologically
+  // Only include Clyde response cards and user custom prompts in the live capture chatbox area
   const conversationItems = useMemo(() => {
     const items = [];
-    
-    // Add transcript turns
-    if (Array.isArray(transcript)) {
-      transcript.forEach((turn, idx) => {
-        if (!turn.partial && turn.text) {
-          items.push({
-            id: turn.itemId || `turn-${turn.timestamp || idx}-${idx}`,
-            type: 'transcript',
-            speaker: turn.speaker,
-            text: turn.text,
-            timestamp: turn.timestamp || 0
-          });
-        }
-      });
-    }
     
     // Add assistant response cards
     if (Array.isArray(cards)) {
@@ -7734,7 +7917,7 @@ function ActiveCaptureView({
     }
     
     return items.sort((a, b) => a.timestamp - b.timestamp);
-  }, [transcript, cards]);
+  }, [cards]);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -7764,9 +7947,8 @@ function ActiveCaptureView({
         <div
           className="active-assistant-panel"
           ref={panelRef}
-          style={{
-            '--active-capture-opacity': (settings.uiOpacity ?? 100) / 100
-          }}
+          onClickCapture={handleControlBarClickCapture}
+          onPointerDownCapture={handleControlBarPointerDown}
         >
           {sourceMenuOpen ? (
             <ActiveSourceMenu
@@ -7817,7 +7999,7 @@ function ActiveCaptureView({
                 aria-label={isPaused ? "Resume capture" : "Pause capture"} 
                 title={isPaused ? "Resume Capture" : "Pause Capture"}
               >
-                <img src={clydePlayPauseUrl} alt={isPaused ? "Resume" : "Pause"} style={{width: '32px', height: '32px'}} />
+                <img src={isPaused ? clydePlayIconUrl : clydePauseIconUrl} alt={isPaused ? "Resume" : "Pause"} style={{width: '32px', height: '32px'}} />
               </button>
 
               {/* Reset Session */}
@@ -7864,35 +8046,40 @@ function ActiveCaptureView({
               } else {
                 // Clyde AI card item
                 const card = item.card;
-                const isQuestionPrompt = card.question && card.question.trim().length > 0;
+                const isUserMessage = card.userAsked && card.question && card.question.trim().length > 0;
                 
                 return (
                   <div key={item.id} className="chat-card-group">
-                    {/* Render user's prompt as a blue right bubble if it was an explicit question */}
-                    {isQuestionPrompt && (
+                    {/* Render user's custom prompt on the right if explicitly typed */}
+                    {isUserMessage && (
                       <div className="chat-bubble-row user">
                         <div className="chat-bubble blue">{card.question}</div>
                       </div>
                     )}
                     
-                    {/* Render Clyde's suggested response */}
+                    {/* Render Clyde's Answer Card on the left */}
                     <div className="chat-bubble-row clyde-ai">
                       <div className="clyde-avatar-wrap">
-                        <span className="clyde-avatar-icon">👻</span>
-                        <span className="clyde-avatar-name">Clyde</span>
+                        <img src={clydeGlassGhostUrl} className="clyde-avatar-img" alt="Clyde" />
                       </div>
                       
-                      <div className="chat-bubble clyde-response-card">
-                        {card.title && card.title !== 'Answer' && card.title !== 'Note' && (
-                          <div className="card-kicker"><span>{card.title}</span></div>
+                      <div className="clyde-answer-card">
+                        {card.question && !card.userAsked && (
+                          <div className="clyde-card-question">
+                            {card.question}
+                          </div>
                         )}
-                        {card.body && <p className="card-body-text">{card.body}</p>}
-                        {Array.isArray(card.bullets) && card.bullets.length > 0 && (
-                          <ul className="card-bullets-list">
-                            {card.bullets.map((bullet, bIdx) => <li key={bIdx}>{bullet}</li>)}
-                          </ul>
-                        )}
-                        {card.detail && <small className="card-detail-text">{card.detail}</small>}
+                        {card.question && !card.userAsked && <div className="clyde-card-divider" />}
+                        
+                        <div className="clyde-card-content">
+                          {card.body && <p className="card-body-text">{card.body}</p>}
+                          {Array.isArray(card.bullets) && card.bullets.length > 0 && (
+                            <ul className="card-bullets-list">
+                              {card.bullets.map((bullet, bIdx) => <li key={bIdx}>{bullet}</li>)}
+                            </ul>
+                          )}
+                          {card.detail && <small className="card-detail-text">{card.detail}</small>}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -7943,7 +8130,7 @@ function ActiveCaptureView({
           </form>
 
           {/* Composer Addons Row (Screenshot) */}
-          <div className="composer-options-row" style={{ display: 'flex', justifyContent: 'flex-start', margin: '0 24px 12px' }}>
+          <div className="composer-options-row" style={{ display: 'flex', justifyContent: 'flex-start', margin: '0 0 12px 16px', alignSelf: 'flex-start' }}>
             <div className="composer-screenshot-toggle" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <label className="toggle-switch">
                 <input 
@@ -8013,6 +8200,22 @@ function ActiveCaptureView({
                   </div>
                 )}
               </div>
+
+              {/* Download Session Content Button */}
+              <button 
+                type="button" 
+                className="bottom-bar-action-btn download-btn"
+                onClick={handleDownloadSessionContent}
+                title="Download chat history"
+                aria-label="Download chat history"
+                style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-color, #a1a1aa)' }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </button>
             </div>
             
             {/* Glowing mic indicator (mute/unmute button) */}
@@ -8077,6 +8280,7 @@ function ActiveCaptureView({
             <ActiveTranscriptPanel transcript={transcript} />
             <ActiveGhostMeters liveLevels={liveLevels} />
             <AssistantCards cards={cards} variant="active" />
+            <div className="active-capture-drag-tab"></div>
           </div>
         </div>
       ) : null}
@@ -9250,12 +9454,50 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
     description: ''
   });
 
+  const [selectedSoul, setSelectedSoul] = useState('coach');
+  const [soulCustomDescription, setSoulCustomDescription] = useState('');
+  const [userBio, setUserBio] = useState('');
+  const [userStrengths, setUserStrengths] = useState('');
+  const [userCommPreference, setUserCommPreference] = useState('');
+
+  useEffect(() => {
+    async function fetchSoul() {
+      try {
+        const soulMarkdown = await api?.loadSoul?.();
+        if (soulMarkdown) {
+          const archetypeMatch = soulMarkdown.match(/-\s+\*\*Archetype\*\*:\s*(.*)/i);
+          const customMatch = soulMarkdown.match(/-\s+\*\*Custom Tone\*\*:\s*(.*)/i);
+          const bioMatch = soulMarkdown.match(/-\s+\*\*Profile\/Bio\*\*:\s*([\s\S]*?)(?=\n-\s+\*\*|$)/i);
+          const strengthsMatch = soulMarkdown.match(/-\s+\*\*Key Strengths\*\*:\s*([\s\S]*?)(?=\n-\s+\*\*|$)/i);
+          const commMatch = soulMarkdown.match(/-\s+\*\*Communication Style\*\*:\s*([\s\S]*?)(?=\n-\s+\*\*|$)/i);
+
+          if (archetypeMatch) {
+            const val = archetypeMatch[1].trim().toLowerCase();
+            if (val.includes('coach')) setSelectedSoul('coach');
+            else if (val.includes('hype')) setSelectedSoul('hype');
+            else if (val.includes('snarky')) setSelectedSoul('snarky');
+            else if (val.includes('calm') || val.includes('philosopher')) setSelectedSoul('philosopher');
+            else setSelectedSoul('custom');
+          }
+          if (customMatch) setSoulCustomDescription(customMatch[1].trim());
+          if (bioMatch) setUserBio(bioMatch[1].trim());
+          if (strengthsMatch) setUserStrengths(strengthsMatch[1].trim());
+          if (commMatch) setUserCommPreference(commMatch[1].trim());
+        }
+      } catch (e) {
+        console.warn('Failed to pre-populate soul:', e);
+      }
+    }
+    fetchSoul();
+  }, [api]);
+
   const proEntitled = canUseFeature(settingsDraft, 'pro_realtime_agent') || canUseFeature(settings, 'pro_realtime_agent');
   const steps = [
     { id: 'plan', label: 'Plan' },
     { id: 'mode', label: 'Mode' },
     { id: 'workspace', label: wizardMode === 'meeting' ? 'Meeting' : 'Opportunity' },
     { id: 'context', label: 'Context' },
+    { id: 'soul', label: "Clyde's Soul" },
     { id: 'providers', label: 'Providers' },
     ...(proEntitled ? [{ id: 'pro', label: 'Pro setup' }] : []),
     { id: 'schedule', label: 'Schedule' },
@@ -9507,6 +9749,52 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
     }
   }
 
+  async function saveSoulStep(skip = false) {
+    if (skip) {
+      setCompleted((current) => ({ ...current, soul: false }));
+      setStepIndex((index) => index + 1);
+      return;
+    }
+    setBusy(true);
+    try {
+      const archetypeLabel = {
+        coach: 'Professional Coach (polished, seasoned mentor)',
+        hype: 'Hype Friend (enthusiastic, motivational)',
+        snarky: 'Snarky Genius (witty, analytical, sarcastic)',
+        philosopher: 'Calm Philosopher (serene, composed, mindful)',
+        custom: 'Custom Tone'
+      }[selectedSoul];
+
+      const soulMarkdown = `# Clyde's Soul
+
+- **Archetype**: ${archetypeLabel}
+- **Custom Tone**: ${selectedSoul === 'custom' ? soulCustomDescription : 'N/A'}
+
+## About Me (Candidate Info)
+- **Profile/Bio**: ${userBio}
+- **Key Strengths**: ${userStrengths}
+- **Communication Style**: ${userCommPreference}
+
+## Personality Directives
+${
+  selectedSoul === 'coach' ? '- Keep responses polished, professional, and structured like a mentor.\n- Focus on clear deliverables, leadership, and high-impact metrics.\n- Speak with calm confidence.' :
+  selectedSoul === 'hype' ? '- Be extremely enthusiastic and motivational!\n- Use high-energy phrases ("Let\'s go!", "You got this!") and emojis where appropriate.\n- Keep spirits high and stay optimistic.' :
+  selectedSoul === 'snarky' ? '- Deliver witty, direct, highly analytical, and slightly sarcastic answers.\n- Be smart, concise, and don\'t sugarcoat advice.\n- Challenge assumptions intellectually.' :
+  selectedSoul === 'philosopher' ? '- Provide serene, composed, and mindful suggestions.\n- Remind the user to breathe, stay centered, and view challenges calmly.\n- Speak in measured, thoughtful tones.' :
+  `- Adopt this custom behavior: ${soulCustomDescription}`
+}
+`;
+      await api?.saveSoul?.(soulMarkdown);
+      setCompleted((current) => ({ ...current, soul: true }));
+      setStatus("Clyde's soul saved.");
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Soul save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function refreshAudioDevices() {
     setBusy(true);
     try {
@@ -9643,6 +9931,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
   function skipCurrentStep() {
     if (step.id === 'workspace') return saveWorkspaceStep(true);
     if (step.id === 'context') return saveContextStep(true);
+    if (step.id === 'soul') return saveSoulStep(true);
     if (step.id === 'providers') return saveProvidersStep(true);
     if (step.id === 'pro') return saveProStep(true);
     if (step.id === 'schedule') return saveScheduleStep(true);
@@ -9665,13 +9954,14 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
     if (step.id === 'mode') return saveModeStep();
     if (step.id === 'workspace') return saveWorkspaceStep();
     if (step.id === 'context') return saveContextStep();
+    if (step.id === 'soul') return saveSoulStep();
     if (step.id === 'providers') return saveProvidersStep();
     if (step.id === 'pro') return saveProStep();
     if (step.id === 'schedule') return saveScheduleStep();
     if (step.id === 'finish') return finishWizard();
   }
 
-  const canSkip = ['workspace', 'context', 'providers', 'pro', 'schedule'].includes(step.id);
+  const canSkip = ['workspace', 'context', 'soul', 'providers', 'pro', 'schedule'].includes(step.id);
 
   return (
     <div className="onboarding-backdrop" role="presentation">
@@ -9727,6 +10017,20 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
             {step.id === 'context' ? (
               <ContextStep mode={wizardMode} draft={settingsDraft} update={updateSetting} onImportResume={importResume} />
             ) : null}
+            {step.id === 'soul' ? (
+              <SoulStep
+                selectedSoul={selectedSoul}
+                setSelectedSoul={setSelectedSoul}
+                soulCustomDescription={soulCustomDescription}
+                setSoulCustomDescription={setSoulCustomDescription}
+                userBio={userBio}
+                setUserBio={setUserBio}
+                userStrengths={userStrengths}
+                setUserStrengths={setUserStrengths}
+                userCommPreference={userCommPreference}
+                setUserCommPreference={setUserCommPreference}
+              />
+            ) : null}
             {step.id === 'providers' ? (
               <ProviderStep
                 audioDevices={audioDevices}
@@ -9756,25 +10060,28 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
           {status ? <div className="onboarding-status" role="status">{status}</div> : null}
 
           <div className="onboarding-foot">
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={dontShowAgain}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setDontShowAgain(checked);
-                  if (checked) {
-                    localStorage.setItem(ONBOARDING_GUIDE_DISMISSED_KEY, 'true');
-                  } else {
-                    localStorage.removeItem(ONBOARDING_GUIDE_DISMISSED_KEY);
-                  }
-                  const nextSettings = { ...settings, onboardingGuideDismissed: checked };
-                  api?.saveSettings?.(nextSettings).then(() => {
-                    onSettingsUpdated?.(nextSettings);
-                  }).catch(() => {});
-                }}
-              />
-              Do not show this again
+            <label className="toggle-row question-bank-global-toggle">
+              <span className="switch-control">
+                <input
+                  type="checkbox"
+                  checked={dontShowAgain}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setDontShowAgain(checked);
+                    if (checked) {
+                      localStorage.setItem(ONBOARDING_GUIDE_DISMISSED_KEY, 'true');
+                    } else {
+                      localStorage.removeItem(ONBOARDING_GUIDE_DISMISSED_KEY);
+                    }
+                    const nextSettings = { ...settings, onboardingGuideDismissed: checked };
+                    api?.saveSettings?.(nextSettings).then(() => {
+                      onSettingsUpdated?.(nextSettings);
+                    }).catch(() => {});
+                  }}
+                />
+                <span className="switch-slider" />
+              </span>
+              <span className="switch-label">Do not show this again</span>
             </label>
             <div>
               {stepIndex > 0 ? <button type="button" className="ghost" disabled={busy} onClick={() => setStepIndex((index) => Math.max(0, index - 1))}>Back</button> : null}
@@ -9794,6 +10101,9 @@ function PlanStep({ busy, checkoutStarted, plan, proEntitled, proForm, setProFor
   if (checkoutStarted && !proEntitled) {
     return (
       <div className="onboarding-grid">
+        <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+          Finish your registration: check your email, open the Clyde invite link to set your password, then sign in below.
+        </p>
         <section className="onboarding-wide-card">
           <h3>Finish Pro sign-in</h3>
           <p>After checkout, check your email, open the Clyde invite link, and set your password. Then sign in here with that email and password.</p>
@@ -9810,6 +10120,9 @@ function PlanStep({ busy, checkoutStarted, plan, proEntitled, proForm, setProFor
 
   return (
     <div className="onboarding-grid">
+      <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Select a plan to tailor your Clyde experience. Choose the <strong>Free</strong> tier for basic local helper functionality, or upgrade to <strong>Pro</strong> to unlock automated Google sync, advanced Pinecone RAG semantic search, and the GPT Realtime voice agent.
+      </p>
       <section className={`plan-card ${plan === 'free' ? 'active' : ''}`}>
         <h3>Free</h3>
         <strong>$0</strong>
@@ -9840,29 +10153,39 @@ function PlanStep({ busy, checkoutStarted, plan, proEntitled, proForm, setProFor
           </div>
         )}
       </section>
-      <section className="onboarding-wide-card">
-        <h3>Already subscribed?</h3>
-        <div className="onboarding-form-grid">
-          <label>Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
-          <label>Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
-          <button type="button" className="ghost" disabled={busy} onClick={onSignInRefresh}>Sign in and refresh subscription</button>
-        </div>
-      </section>
+      {!proEntitled ? (
+        <section className="onboarding-wide-card">
+          <h3>Already subscribed?</h3>
+          <div className="onboarding-form-grid">
+            <label>Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
+            <label>Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
+            <button type="button" className="ghost" disabled={busy} onClick={onSignInRefresh}>Sign in and refresh subscription</button>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
 
 function ModeStep({ wizardMode, setWizardMode }) {
   return (
-    <div className="choice-grid">
-      <button type="button" className={wizardMode === 'interview' ? 'active' : ''} onClick={() => setWizardMode('interview')}>
-        <strong>Interview</strong>
-        <span>Track opportunities, job descriptions, rounds, prep, outcomes, and interview scorecards.</span>
-      </button>
-      <button type="button" className={wizardMode === 'meeting' ? 'active' : ''} onClick={() => setWizardMode('meeting')}>
-        <strong>Meeting</strong>
-        <span>Track recurring conversations, attendees, long-term memory, notes, and action items.</span>
-      </button>
+    <div className="onboarding-mode-step">
+      <p style={{ margin: '0 0 16px 0', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Clyde adapts to your workflow with two core modes. Select <strong>Interview</strong> if you want to track job application opportunities, practice mock questions, and record live recruiter or technical rounds. Select <strong>Meeting</strong> if you want to log recurring team syncs, collaborate on action items, and build a long-term project memory database.
+      </p>
+      <p className="wide-field onboarding-note" style={{ margin: '0 0 20px 0', fontSize: '0.88rem', lineHeight: '1.5' }}>
+        💡 <strong>Note:</strong> You are just selecting a primary mode to start practicing or configuring your workspace during onboarding. You can easily switch between Interview and Meeting modes at any time from the app navigation bar.
+      </p>
+      <div className="choice-grid">
+        <button type="button" className={wizardMode === 'interview' ? 'active' : ''} onClick={() => setWizardMode('interview')}>
+          <strong>Interview</strong>
+          <span>Track opportunities, job descriptions, rounds, prep, outcomes, and interview scorecards.</span>
+        </button>
+        <button type="button" className={wizardMode === 'meeting' ? 'active' : ''} onClick={() => setWizardMode('meeting')}>
+          <strong>Meeting</strong>
+          <span>Track recurring conversations, attendees, long-term memory, notes, and action items.</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -9872,6 +10195,9 @@ function WorkspaceStep({ mode, draft, update }) {
     <div className="onboarding-form-grid">
       {mode === 'interview' ? (
         <>
+          <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+            Opportunities are target company tracks where you run interview stages. Let's create your first one so Clyde can organize your resume facts, track job descriptions, and prepare customized answer strategies.
+          </p>
           <label>Company<input value={draft.company} onChange={(event) => update('company', event.target.value)} placeholder="Apollo" /></label>
           <label>Role<input value={draft.role} onChange={(event) => update('role', event.target.value)} placeholder="Support Operations Manager" /></label>
           <label>Interview phase<select value={draft.phase} onChange={(event) => update('phase', event.target.value)}>{INTERVIEW_PHASE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
@@ -9879,6 +10205,9 @@ function WorkspaceStep({ mode, draft, update }) {
         </>
       ) : (
         <>
+          <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+            Meetings are recurring team syncing tracks where you log discussions and build context. Let's create your first meeting workspace to capture agendas, note templates, and automatic action item recaps.
+          </p>
           <label>Meeting title<input value={draft.meetingTitle} onChange={(event) => update('meetingTitle', event.target.value)} placeholder="Product weekly" /></label>
           <label>Attendees<input value={draft.attendeesText} onChange={(event) => update('attendeesText', event.target.value)} placeholder="Morgan: PM, Lee: Eng" /></label>
           <label className="wide-field">Meeting memory<textarea value={draft.meetingMemory} onChange={(event) => update('meetingMemory', event.target.value)} placeholder="Recurring context, decisions, and preferences." /></label>
@@ -9892,13 +10221,194 @@ function ContextStep({ mode, draft, update, onImportResume }) {
   return (
     <div className="onboarding-form-grid">
       {mode === 'interview' ? (
-        <label className="wide-field">Resume / background
-          <div className="resume-import-row"><button type="button" className="ghost" onClick={onImportResume}>Import file</button><small>.txt, .md, and .pdf supported.</small></div>
-          <textarea value={draft.resumeText || ''} onChange={(event) => update('resumeText', event.target.value)} placeholder="Paste resume facts, metrics, projects, and stories." />
-        </label>
+        <>
+          <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+            Your resume and background facts serve as Clyde's core knowledge base. Upload or paste your experience so Clyde can draft relevant project metrics, suggest matching stories, and guide your answers in real time.
+          </p>
+          <label className="wide-field">Resume / background
+            <div className="resume-import-row"><button type="button" className="ghost" onClick={onImportResume}>Import file</button><small>.txt, .md, and .pdf supported.</small></div>
+            <textarea value={draft.resumeText || ''} onChange={(event) => update('resumeText', event.target.value)} placeholder="Paste resume facts, metrics, projects, and stories." />
+          </label>
+        </>
       ) : (
-        <label className="wide-field">Long-term meeting memory<textarea value={draft.meetingMemory || ''} onChange={(event) => update('meetingMemory', event.target.value)} placeholder="Persistent context Clyde should use across future meetings." /></label>
+        <>
+          <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+            Long-term meeting memory keeps Clyde aligned on past decisions and priorities. Describe project objectives or architectural goals so Clyde can highlight relevant context across weekly sync sessions.
+          </p>
+          <label className="wide-field">Long-term meeting memory<textarea value={draft.meetingMemory || ''} onChange={(event) => update('meetingMemory', event.target.value)} placeholder="Persistent context Clyde should use across future meetings." /></label>
+        </>
       )}
+    </div>
+  );
+}
+
+function SoulStep({ selectedSoul, setSelectedSoul, soulCustomDescription, setSoulCustomDescription, userBio, setUserBio, userStrengths, setUserStrengths, userCommPreference, setUserCommPreference }) {
+  const presets = [
+    {
+      id: 'coach',
+      title: 'Professional Coach',
+      emoji: '💼',
+      desc: 'Focused, polished, and structured. Best for leadership and formal outcomes.',
+      quote: '"Let\'s address the key metrics first."'
+    },
+    {
+      id: 'hype',
+      title: 'Hype Friend',
+      emoji: '🔥',
+      desc: 'High energy, motivating, and optimistic. Keeps your spirits elevated.',
+      quote: '"You absolutely crushed that last point!"'
+    },
+    {
+      id: 'snarky',
+      title: 'Snarky Genius',
+      emoji: '😏',
+      desc: 'Witty, direct, and slightly sarcastic. Unflinchingly honest advice.',
+      quote: '"That answer was okay, but here is the smart way."'
+    },
+    {
+      id: 'philosopher',
+      title: 'Calm Philosopher',
+      emoji: '🧘',
+      desc: 'Serene, composed, and mindful. Helps you stay focused and calm.',
+      quote: '"Breathe. Stay centered in the present moment."'
+    },
+    {
+      id: 'custom',
+      title: 'Custom Soul',
+      emoji: '✨',
+      desc: 'Describe exactly how you want Clyde to talk and act.',
+      quote: '"Your personalized copilot awaits."'
+    }
+  ];
+
+  return (
+    <div className="onboarding-soul-step">
+      <style>{`
+        .soul-presets-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+        .soul-preset-card {
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          padding: 16px;
+          text-align: left;
+          cursor: pointer;
+          transition: all 150ms ease;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .soul-preset-card:hover {
+          border-color: var(--line-strong);
+          background: rgba(255, 255, 255, 0.05);
+          transform: translateY(-2px);
+        }
+        .soul-preset-card.active {
+          border-color: var(--cyan);
+          background: rgba(79, 231, 255, 0.06);
+          box-shadow: 0 0 12px rgba(79, 231, 255, 0.15);
+        }
+        .soul-preset-card h4 {
+          margin: 0;
+          font-size: 1.05rem;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .soul-preset-card p {
+          margin: 0;
+          font-size: 0.8rem;
+          color: var(--muted);
+          line-height: 1.4;
+          flex: 1;
+        }
+        .soul-preset-card em {
+          font-size: 0.75rem;
+          color: var(--cyan);
+          opacity: 0.85;
+          margin-top: 4px;
+        }
+        .soul-about-me-section {
+          background: rgba(255, 255, 255, 0.01);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: 14px;
+          padding: 20px;
+          margin-top: 24px;
+        }
+        .soul-about-me-section h3 {
+          margin: 0 0 16px 0;
+          font-size: 1.1rem;
+          color: var(--text);
+        }
+      `}</style>
+
+      <p style={{ margin: '0 0 16px 0', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Clyde's soul defines how he talks, behaves, and offers advice. Choose a preset personality archetype or describe your own custom assistant, then share a bit about yourself so Clyde's feedback matches your level of seniority and goals.
+      </p>
+
+      <div className="soul-presets-grid">
+        {presets.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className={`soul-preset-card ${selectedSoul === preset.id ? 'active' : ''}`}
+            onClick={() => setSelectedSoul(preset.id)}
+          >
+            <h4><span>{preset.emoji}</span> {preset.title}</h4>
+            <p>{preset.desc}</p>
+            <em>{preset.quote}</em>
+          </button>
+        ))}
+      </div>
+
+      {selectedSoul === 'custom' ? (
+        <div className="onboarding-form-grid" style={{ marginBottom: '20px' }}>
+          <label className="wide-field">
+            Custom Personality Description
+            <textarea
+              value={soulCustomDescription}
+              onChange={(e) => setSoulCustomDescription(e.target.value)}
+              placeholder="Describe Clyde's tone, focus, style, and attitude..."
+              style={{ minHeight: '80px' }}
+            />
+          </label>
+        </div>
+      ) : null}
+
+      <div className="soul-about-me-section">
+        <h3>Tell Clyde about you</h3>
+        <div className="onboarding-form-grid">
+          <label className="wide-field">
+            Your Professional Bio / Career Background
+            <textarea
+              value={userBio}
+              onChange={(e) => setUserBio(e.target.value)}
+              placeholder="e.g. Senior Product Manager with 6+ years experience building SaaS apps. Focus on API integrations."
+              style={{ minHeight: '70px' }}
+            />
+          </label>
+          <label>
+            Key Strengths
+            <input
+              value={userStrengths}
+              onChange={(e) => setUserStrengths(e.target.value)}
+              placeholder="System design, team scaling, cross-functional collaboration"
+            />
+          </label>
+          <label>
+            Communication Preference
+            <input
+              value={userCommPreference}
+              onChange={(e) => setUserCommPreference(e.target.value)}
+              placeholder="Short bullet points, direct, detail-oriented"
+            />
+          </label>
+        </div>
+      </div>
     </div>
   );
 }
@@ -9907,6 +10417,9 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate 
   const cloudLlm = draft.llmProvider && !['local', 'openai'].includes(draft.llmProvider);
   return (
     <div className="onboarding-form-grid">
+      <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Providers and hardware connect Clyde to AI brains and audio signals. Set up your language models (local or cloud APIs), configure audio engines, and select your microphone or system speaker devices so Clyde can listen to calls.
+      </p>
       <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => update('llmProvider', event.target.value)}><option value="">Select provider</option><option value="local">Local LM Studio</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option></select></label>
       <label>Model<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" /></label>
       {draft.llmProvider === 'local' ? <label className="wide-field">Local LLM URL<input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" /></label> : null}
@@ -9926,20 +10439,61 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate 
 function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefreshSubscription }) {
   return (
     <div className="onboarding-form-grid">
+      <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Clyde Pro unlocks automation, calendar synchronization, and realtime audio. Connect your Google account to sync invites automatically, enable Pinecone RAG for deep search over past files, and enable the GPT Realtime voice model for interactive mock interview practices.
+      </p>
       <div className="wide-field onboarding-inline-actions"><button type="button" className="primary-action" onClick={onConnectGoogle}>Connect Google</button><button type="button" className="ghost" onClick={onRefreshSubscription}>Refresh subscription</button><button type="button" className="ghost" onClick={onOpenBilling}>Billing portal</button></div>
-      <label className="toggle-row"><input type="checkbox" checked={Boolean(draft.googleSyncEnabled)} onChange={(event) => update('googleSyncEnabled', event.target.checked)} />Enable periodic Google sync</label>
-      <label className="toggle-row"><input type="checkbox" checked={Boolean(draft.googleSyncAutoApprove)} disabled={!draft.googleSyncEnabled} onChange={(event) => update('googleSyncAutoApprove', event.target.checked)} />Auto-approve generated sync actions</label>
+      
+      <label className="toggle-row question-bank-global-toggle">
+        <span className="switch-control">
+          <input type="checkbox" checked={Boolean(draft.googleSyncEnabled)} onChange={(event) => update('googleSyncEnabled', event.target.checked)} />
+          <span className="switch-slider" />
+        </span>
+        <span className="switch-label">Enable periodic Google sync</span>
+      </label>
+
+      <label className="toggle-row question-bank-global-toggle">
+        <span className="switch-control">
+          <input type="checkbox" checked={Boolean(draft.googleSyncAutoApprove)} disabled={!draft.googleSyncEnabled} onChange={(event) => update('googleSyncAutoApprove', event.target.checked)} />
+          <span className="switch-slider" />
+        </span>
+        <span className="switch-label">Auto-approve generated sync actions</span>
+      </label>
+
       <label>Poll interval<input type="number" min="1" value={draft.googleSyncPollMinutes || 15} onChange={(event) => update('googleSyncPollMinutes', Number(event.target.value) || 15)} /></label>
-      <label className="toggle-row wide-field"><input type="checkbox" checked={Boolean(draft.ragEnabled)} onChange={(event) => update('ragEnabled', event.target.checked)} />Enable RAG with Pinecone</label>
+      
+      <label className="toggle-row wide-field question-bank-global-toggle">
+        <span className="switch-control">
+          <input type="checkbox" checked={Boolean(draft.ragEnabled)} onChange={(event) => update('ragEnabled', event.target.checked)} />
+          <span className="switch-slider" />
+        </span>
+        <span className="switch-label">Enable RAG with Pinecone</span>
+      </label>
+
       <label>Embedding provider<select value={draft.embeddingProvider || ''} onChange={(event) => update('embeddingProvider', event.target.value)}><option value="">Select provider</option><option value="gemini">Gemini</option><option value="openai">OpenAI</option></select></label>
       <label>Embedding model<input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" /></label>
       <label>Embedding API key<input type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} /></label>
       <label>Pinecone API key<input type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} /></label>
       <label>Pinecone host<input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="https://index.pinecone.io" /></label>
       <label>Pinecone namespace<input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} /></label>
-      <label className="toggle-row wide-field"><input type="checkbox" checked={Boolean(draft.proAgentEnabled)} onChange={(event) => update('proAgentEnabled', event.target.checked)} />Enable GPT Realtime 2 agent</label>
+      
+      <label className="toggle-row wide-field question-bank-global-toggle">
+        <span className="switch-control">
+          <input type="checkbox" checked={Boolean(draft.proAgentEnabled)} onChange={(event) => update('proAgentEnabled', event.target.checked)} />
+          <span className="switch-slider" />
+        </span>
+        <span className="switch-label">Enable GPT Realtime 2 agent</span>
+      </label>
+
       <label>Realtime model<input value={draft.proRealtimeModel || 'gpt-realtime-2'} onChange={(event) => update('proRealtimeModel', event.target.value)} /></label>
-      <label className="toggle-row"><input type="checkbox" checked={draft.transcriptionProvider === 'openai-realtime-whisper'} onChange={(event) => update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : 'openai')} />Use OpenAI Realtime Whisper</label>
+      
+      <label className="toggle-row question-bank-global-toggle">
+        <span className="switch-control">
+          <input type="checkbox" checked={draft.transcriptionProvider === 'openai-realtime-whisper'} onChange={(event) => update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : 'openai')} />
+          <span className="switch-slider" />
+        </span>
+        <span className="switch-label">Use OpenAI Realtime Whisper</span>
+      </label>
     </div>
   );
 }
@@ -9947,6 +10501,9 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
 function ScheduleStep({ mode, draft, setDraft }) {
   return (
     <div className="onboarding-form-grid">
+      <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Events are calendar milestones where Clyde assists you. Let's schedule your first upcoming call so Clyde can run prep routines, index context, and alert you with prep checklists when the time comes.
+      </p>
       <label>Event title<input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder={mode === 'meeting' ? 'Product weekly' : 'Recruiter screen'} /></label>
       <label>Date and time<input type="datetime-local" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} /></label>
       <label className="wide-field">Notes<textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional agenda, Zoom details, or prep notes." /></label>
@@ -9964,6 +10521,9 @@ function FinishStep({ completed, plan, proEntitled }) {
   ];
   return (
     <div className="finish-checklist">
+      <p style={{ margin: '0 0 16px 0', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        You are all set and ready to launch! Review your onboarding checklist, verify that your settings are saved, and click Finish to open your dashboard and start working with Clyde.
+      </p>
       <h3>Setup checklist</h3>
       {rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
     </div>
@@ -9971,7 +10531,7 @@ function FinishStep({ completed, plan, proEntitled }) {
 }
 
 function SettingsDrawer(props) {
-  const { api, initialTab, mode, onClose, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit } = props;
+  const { api, initialTab, mode, onClose, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit, activeCapture, onOpenOnboarding } = props;
 
   return (
     <div className="drawer-backdrop">
@@ -9981,9 +10541,12 @@ function SettingsDrawer(props) {
             <h2>Settings</h2>
             <p>Provider keys are stored by the Electron main process.</p>
           </div>
-          <button type="button" onClick={onClose}>Close</button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button type="button" className="ghost" onClick={onOpenOnboarding} style={{ fontSize: '0.8rem', padding: '6px 10px' }}>Setup Wizard</button>
+            <button type="button" onClick={onClose}>Close</button>
+          </div>
         </div>
-        <SetupFields api={api} initialTab={initialTab} mode={mode} onSave={onSave} onSettingsUpdated={onSettingsUpdated} onValidate={onValidate} serviceChecking={serviceChecking} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} />
+        <SetupFields api={api} initialTab={initialTab} mode={mode} onSave={onSave} onSettingsUpdated={onSettingsUpdated} onValidate={onValidate} serviceChecking={serviceChecking} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} activeCapture={activeCapture} />
       </section>
     </div>
   );
@@ -10025,7 +10588,7 @@ function settingsDialogTone(message = '') {
   return /failed|error|invalid|missing/i.test(message) ? 'error' : 'success';
 }
 
-function SetupFields({ api, compact = false, initialTab = 'general', mode, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit }) {
+function SetupFields({ api, compact = false, initialTab = 'general', mode, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit, activeCapture = false }) {
   const [draft, setDraft] = useState({ ...settings });
   const [activeTab, setActiveTab] = useState(initialTab || 'general');
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
@@ -10181,9 +10744,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
     };
   }, []);
 
-  useEffect(() => {
-    applyUiOpacityToRoot(draft.uiOpacity);
-  }, [draft.uiOpacity]);
+
 
   useEffect(() => {
     if (!api?.getGoogleSyncStatus) {
@@ -10198,11 +10759,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
     }).catch(() => {});
   }, [api]);
 
-  useEffect(() => {
-    return () => {
-      applyUiOpacityToRoot(settings.uiOpacity);
-    };
-  }, [settings.uiOpacity]);
+
 
   function update(key, value) {
     setDraft((current) => {
@@ -10440,18 +10997,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
 
       {activeTab === 'general' && (
         <>
-          <label className="wide-field" style={{ marginTop: '15px' }}>
-            App opacity: {clampUiOpacity(draft.uiOpacity)}%
-            <input
-              type="range"
-              min="35"
-              max="200"
-              step="1"
-              value={clampUiOpacity(draft.uiOpacity)}
-              onChange={(event) => update('uiOpacity', Number(event.target.value))}
-            />
-            <small style={{ color: 'var(--muted)' }}>Left is more translucent. Right is fully opaque.</small>
-          </label>
+
           {SHOW_DEMO_MODE_SETTING ? (
             <>
               <label className="toggle-row wide-field" style={{ marginTop: '15px' }}>
@@ -10532,19 +11078,22 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                 </div>
               </div>
             ) : null}
-            <label className="toggle-row pro-setting-label">
-              <input
-                type="checkbox"
-                checked={proEntitled && Boolean(draft.ragEnabled)}
-                disabled={!proEntitled}
-                onChange={(event) => {
-                  if (!proEntitled) {
-                    return;
-                  }
-                  update('ragEnabled', event.target.checked);
-                }}
-              />
-              <span>{proEntitled ? 'Enable RAG with Pinecone' : 'RAG with Pinecone requires Pro'}</span>
+            <label className="toggle-row pro-setting-label question-bank-global-toggle">
+              <span className="switch-control">
+                <input
+                  type="checkbox"
+                  checked={proEntitled && Boolean(draft.ragEnabled)}
+                  disabled={!proEntitled}
+                  onChange={(event) => {
+                    if (!proEntitled) {
+                      return;
+                    }
+                    update('ragEnabled', event.target.checked);
+                  }}
+                />
+                <span className="switch-slider" />
+              </span>
+              <span className="switch-label">{proEntitled ? 'Enable RAG with Pinecone' : 'RAG with Pinecone requires Pro'}</span>
               {!proEntitled ? <ProSettingsBadge /> : null}
             </label>
             {proEntitled && draft.ragEnabled && (
@@ -10643,22 +11192,25 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </div>
             </div>
           ) : null}
-          <label className="toggle-row pro-setting-label wide-field">
-            <input
-              type="checkbox"
-              checked={proEntitled && Boolean(draft.proAgentEnabled)}
-              disabled={!proEntitled}
-              onChange={(event) => {
-                if (!proEntitled) {
-                  return;
-                }
-                update('proAgentEnabled', event.target.checked);
-                if (event.target.checked && !draft.proRealtimeModel) {
-                  update('proRealtimeModel', 'gpt-realtime-2');
-                }
-              }}
-            />
-            <span>{proEntitled ? 'Enable Clyde Pro agent' : 'Clyde Pro agent requires Pro'}</span>
+          <label className="toggle-row pro-setting-label wide-field question-bank-global-toggle">
+            <span className="switch-control">
+              <input
+                type="checkbox"
+                checked={proEntitled && Boolean(draft.proAgentEnabled)}
+                disabled={!proEntitled}
+                onChange={(event) => {
+                  if (!proEntitled) {
+                    return;
+                  }
+                  update('proAgentEnabled', event.target.checked);
+                  if (event.target.checked && !draft.proRealtimeModel) {
+                    update('proRealtimeModel', 'gpt-realtime-2');
+                  }
+                }}
+              />
+              <span className="switch-slider" />
+            </span>
+            <span className="switch-label">{proEntitled ? 'Enable Clyde Pro agent' : 'Clyde Pro agent requires Pro'}</span>
             {!proEntitled ? <ProSettingsBadge /> : null}
           </label>
           {proEntitled && draft.proAgentEnabled && (
@@ -10672,15 +11224,18 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                 Realtime OpenAI API key
                 <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
               </label>
-              <label className="toggle-row wide-field">
-                <input
-                  type="checkbox"
-                  checked={draft.transcriptionProvider === 'openai-realtime-whisper'}
-                  onChange={(event) => {
-                    update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : '');
-                  }}
-                />
-                <span>Use OpenAI Realtime Whisper for lowest-latency live transcription with the same API key</span>
+              <label className="toggle-row wide-field question-bank-global-toggle">
+                <span className="switch-control">
+                  <input
+                    type="checkbox"
+                    checked={draft.transcriptionProvider === 'openai-realtime-whisper'}
+                    onChange={(event) => {
+                      update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : '');
+                    }}
+                  />
+                  <span className="switch-slider" />
+                </span>
+                <span className="switch-label">Use OpenAI Realtime Whisper for lowest-latency live transcription with the same API key</span>
               </label>
             </>
           )}
@@ -10762,32 +11317,38 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             </div>
           ) : null}
           <div className="form-grid">
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={proEntitled && Boolean(draft.googleSyncEnabled)}
-                disabled={!proEntitled}
-                onChange={(event) => {
-                  if (proEntitled) {
-                    update('googleSyncEnabled', event.target.checked);
-                  }
-                }}
-              />
-              {proEntitled ? 'Enable periodic Google sync' : 'Google sync requires Pro'}
+            <label className="toggle-row question-bank-global-toggle">
+              <span className="switch-control">
+                <input
+                  type="checkbox"
+                  checked={proEntitled && Boolean(draft.googleSyncEnabled)}
+                  disabled={!proEntitled}
+                  onChange={(event) => {
+                    if (proEntitled) {
+                      update('googleSyncEnabled', event.target.checked);
+                    }
+                  }}
+                />
+                <span className="switch-slider" />
+              </span>
+              <span className="switch-label">{proEntitled ? 'Enable periodic Google sync' : 'Google sync requires Pro'}</span>
               {!proEntitled ? <ProSettingsBadge /> : null}
             </label>
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={proEntitled && Boolean(draft.googleSyncAutoApprove)}
-                disabled={!proEntitled || !draft.googleSyncEnabled}
-                onChange={(event) => {
-                  if (proEntitled && draft.googleSyncEnabled) {
-                    update('googleSyncAutoApprove', event.target.checked);
-                  }
-                }}
-              />
-              <span>{proEntitled ? 'Auto-approve generated sync actions' : 'Auto-approval requires Pro'}</span>
+            <label className="toggle-row question-bank-global-toggle">
+              <span className="switch-control">
+                <input
+                  type="checkbox"
+                  checked={proEntitled && Boolean(draft.googleSyncAutoApprove)}
+                  disabled={!proEntitled || !draft.googleSyncEnabled}
+                  onChange={(event) => {
+                    if (proEntitled && draft.googleSyncEnabled) {
+                      update('googleSyncAutoApprove', event.target.checked);
+                    }
+                  }}
+                />
+                <span className="switch-slider" />
+              </span>
+              <span className="switch-label">{proEntitled ? 'Auto-approve generated sync actions' : 'Auto-approval requires Pro'}</span>
               {!proEntitled ? <ProSettingsBadge /> : null}
             </label>
             <label>

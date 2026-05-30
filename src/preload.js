@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     requestSuggestion: (payload) => ipcRenderer.invoke('request-suggestion', payload),
     saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
     loadSettings: () => ipcRenderer.invoke('load-settings'),
+    saveSoul: (soulMarkdown) => ipcRenderer.invoke('save-soul', soulMarkdown),
+    loadSoul: () => ipcRenderer.invoke('load-soul'),
     getTierStatus: () => ipcRenderer.invoke('get-tier-status'),
     getAuthSession: () => ipcRenderer.invoke('get-auth-session'),
     signUp: (payload) => ipcRenderer.invoke('sign-up', payload),
@@ -21,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     refreshAuthSession: () => ipcRenderer.invoke('refresh-auth-session'),
     refreshEntitlements: () => ipcRenderer.invoke('refresh-entitlements'),
     openUpgradePage: () => ipcRenderer.invoke('open-upgrade-page'),
+    openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
     startCheckoutSession: () => ipcRenderer.invoke('start-checkout-session'),
     startProSignupCheckout: (payload) => ipcRenderer.invoke('start-pro-signup-checkout', payload),
     openBillingPortal: () => ipcRenderer.invoke('open-billing-portal'),
@@ -119,5 +122,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onSessionDataChanged: (callback) => {
         ipcRenderer.on('session-data-changed', callback);
         return () => ipcRenderer.off('session-data-changed', callback);
+    },
+    onZoomDetected: (callback) => {
+        ipcRenderer.on('zoom-detected', callback);
+        return () => ipcRenderer.off('zoom-detected', callback);
     }
 });
