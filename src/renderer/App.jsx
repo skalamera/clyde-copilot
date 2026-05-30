@@ -5042,6 +5042,27 @@ function formatBytes(bytes = 0) {
 }
 
 function UserGuideModal({ onClose }) {
+  const [guideSearch, setGuideSearch] = useState('');
+  const guideBodyRef = useRef(null);
+
+  useEffect(() => {
+    if (!guideBodyRef.current) return;
+    const query = guideSearch.trim().toLowerCase();
+    const sections = guideBodyRef.current.querySelectorAll('.guide-section');
+    sections.forEach((section) => {
+      if (!query) {
+        section.classList.remove('guide-section-hidden');
+        return;
+      }
+      const text = section.textContent.toLowerCase();
+      if (text.includes(query)) {
+        section.classList.remove('guide-section-hidden');
+      } else {
+        section.classList.add('guide-section-hidden');
+      }
+    });
+  }, [guideSearch]);
+
   return (
     <div className="user-guide-backdrop" role="presentation" onClick={onClose}>
       <section className="user-guide-modal" role="dialog" aria-modal="true" aria-labelledby="user-guide-title" onClick={(event) => event.stopPropagation()}>
@@ -5054,11 +5075,28 @@ function UserGuideModal({ onClose }) {
           <button type="button" className="ghost" onClick={onClose}>Close</button>
         </header>
 
+        <div className="user-guide-search-bar">
+          <div className="user-guide-search-input-wrap">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><line x1="13" y1="13" x2="18" y2="18" /></svg>
+            <input
+              type="text"
+              value={guideSearch}
+              onChange={(e) => setGuideSearch(e.target.value)}
+              placeholder="Search the guide..."
+              aria-label="Search user guide"
+              autoFocus
+            />
+            {guideSearch ? (
+              <button type="button" className="user-guide-search-clear" onClick={() => setGuideSearch('')} aria-label="Clear search">✕</button>
+            ) : null}
+          </div>
+        </div>
+
         <nav className="user-guide-toc" aria-label="User guide table of contents">
-          <a href="#guide-start">🚀 Start</a><a href="#guide-requirements">✅ Requirements</a><a href="#guide-providers">🔑 Providers</a><a href="#guide-local">🏠 Local AI</a><a href="#guide-modes">🎛️ Modes</a><a href="#guide-live">🎙️ Live Calls</a><a href="#guide-agent">🤖 Agent</a><a href="#guide-opportunities">📌 Opportunities</a><a href="#guide-meetings">📝 Meetings</a><a href="#guide-calendar">📅 Calendar</a><a href="#guide-knowledge">🧠 Knowledge</a><a href="#guide-mock">🎭 Mock Interviews</a><a href="#guide-trends">📈 Trends</a><a href="#guide-privacy">🛡️ Privacy</a><a href="#guide-troubleshooting">🧰 Troubleshooting</a>
+          <a href="#guide-start">🚀 Start</a><a href="#guide-requirements">✅ Requirements</a><a href="#guide-providers">🔑 Providers</a><a href="#guide-local">🏠 Local AI</a><a href="#guide-modes">🎛️ Modes</a><a href="#guide-live">🎙️ Live Calls</a><a href="#guide-nudge">👋 Nudge</a><a href="#guide-agent">🤖 Agent</a><a href="#guide-opportunities">📌 Opportunities</a><a href="#guide-meetings">📝 Meetings</a><a href="#guide-calendar">📅 Calendar</a><a href="#guide-knowledge">🧠 Knowledge</a><a href="#guide-mock">🎭 Mock Interviews</a><a href="#guide-trends">📈 Trends</a><a href="#guide-privacy">🛡️ Privacy</a><a href="#guide-troubleshooting">🧰 Troubleshooting</a>
         </nav>
 
-        <div className="user-guide-body">
+        <div className="user-guide-body" ref={guideBodyRef}>
           <GuideSection id="guide-start" icon="🚀" title="Quick Start">
             <div className="guide-callout success"><strong>Best first run:</strong> choose Interview or Meeting mode, select an active context, configure providers in Settings, validate services, then click <b>Start</b>.</div>
             <div className="guide-steps">
@@ -5114,6 +5152,16 @@ function UserGuideModal({ onClose }) {
               <GuideFeature label="Screenshot analysis" body="Use screenshots for prompts, slides, dashboards, coding questions, or shared screens that Clyde should interpret." />
               <GuideFeature label="Stop and save" body="When the call ends, Clyde can save transcripts, generate notes, extract action items, and grade interviews." />
             </div>
+          </GuideSection>
+
+          <GuideSection id="guide-nudge" icon="👋" title="Nudge: What Should I Say Next">
+            <p>The Nudge feature gives you instant suggestions for what to say next during a live call. Nudge cards appear in a distinct purple/indigo color so they are easy to differentiate from auto-generated answer cards.</p>
+            <div className="guide-feature-list">
+              <GuideFeature label="Nudge button" body="During an active capture session, click the nudge button (wave icon) in the input pill next to the screenshot button. Clyde reviews the most recent question or request from the transcript and suggests what to say next." />
+              <GuideFeature label="Nudge hotkey" body="A programmable global keyboard shortcut triggers the nudge from anywhere on your desktop during live calls. The default is Ctrl+Shift+N. Configure it in Settings → General → Nudge hotkey." />
+              <GuideFeature label="Global shortcut" body="The hotkey is registered system-wide when audio capture starts and unregistered when capture stops. It works even when Clyde is not the focused window, making it ideal for triggering nudge while in your meeting app." />
+            </div>
+            <div className="guide-callout"><strong>Tip:</strong> If the default Ctrl+Shift+N conflicts with another application, record a different combination in Settings → General. Click inside the hotkey box and press your preferred keys.</div>
           </GuideSection>
 
           <GuideSection id="guide-agent" icon="🤖" title="Clyde Assistant vs Clyde Pro Agent">
@@ -5212,11 +5260,20 @@ function UserGuideModal({ onClose }) {
               <GuideCard title="RAG has no results" body="Upload/index knowledge, verify Pinecone settings, choose the right source mode, and confirm files are scoped to the correct entity." />
             </div>
           </GuideSection>
+
+          {guideSearch.trim() && guideBodyRef.current && (() => {
+            const visible = guideBodyRef.current.querySelectorAll('.guide-section:not(.guide-section-hidden)').length;
+            const total = guideBodyRef.current.querySelectorAll('.guide-section').length;
+            return visible < total ? (
+              <div className="user-guide-search-status">Showing {visible} of {total} sections matching "{guideSearch.trim()}"</div>
+            ) : null;
+          })()}
         </div>
       </section>
     </div>
   );
 }
+
 
 function GuideSection({ children, icon, id, title }) {
   return <section className="guide-section" id={id}><h3><span>{icon}</span>{title}</h3>{children}</section>;

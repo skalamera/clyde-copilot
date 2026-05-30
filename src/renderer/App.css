@@ -296,7 +296,7 @@ textarea:focus {
   border-radius: 24px;
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58);
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   max-height: min(88vh, 980px);
   max-width: min(1180px, calc(100vw - 48px));
   overflow: hidden;
@@ -361,6 +361,78 @@ textarea:focus {
 .user-guide-toc a:hover {
   border-color: rgba(79, 231, 255, 0.5);
   color: #ffffff;
+}
+
+.user-guide-search-bar {
+  border-bottom: 1px solid rgba(154, 202, 255, 0.12);
+  padding: 10px 30px;
+}
+
+.user-guide-search-input-wrap {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(154, 202, 255, 0.18);
+  border-radius: 10px;
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.user-guide-search-input-wrap:focus-within {
+  border-color: rgba(79, 231, 255, 0.5);
+  box-shadow: 0 0 0 2px rgba(79, 231, 255, 0.12);
+}
+
+.user-guide-search-input-wrap svg {
+  color: var(--muted, #7a8a9e);
+  flex-shrink: 0;
+}
+
+.user-guide-search-input-wrap input {
+  background: transparent;
+  border: none;
+  color: #fff;
+  flex: 1;
+  font-size: 0.92rem;
+  outline: none;
+}
+
+.user-guide-search-input-wrap input::placeholder {
+  color: rgba(168, 185, 210, 0.5);
+}
+
+.user-guide-search-clear {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 50%;
+  color: var(--muted, #7a8a9e);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.75rem;
+  height: 22px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+  width: 22px;
+}
+
+.user-guide-search-clear:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.guide-section-hidden {
+  display: none !important;
+}
+
+.user-guide-search-status {
+  color: var(--muted, #7a8a9e);
+  font-size: 0.82rem;
+  padding: 4px 0;
+  text-align: center;
 }
 
 .user-guide-body {

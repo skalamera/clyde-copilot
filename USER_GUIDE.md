@@ -1,6 +1,6 @@
 # Clyde User Guide
 
-Everything you need to run Clyde with confidence: provider setup, fully local/private AI, live capture, Clyde Assistant, Clyde Pro Agent, opportunity tracking, meeting notes, RAG, mock interviews, trends, privacy, and troubleshooting.
+Everything you need to run Clyde with confidence: provider setup, fully local/private AI, live capture, nudge, question bank, pre-call prep, Clyde Assistant, Clyde Pro Agent, opportunity tracking, meeting notes, RAG, mock interviews, trends, privacy, and troubleshooting.
 
 ## Table Of Contents
 
@@ -10,6 +10,10 @@ Everything you need to run Clyde with confidence: provider setup, fully local/pr
 - [Fully Local / Private Setup](#fully-local--private-setup)
 - [Interview Mode Vs Meeting Mode](#interview-mode-vs-meeting-mode)
 - [Running Live Calls](#running-live-calls)
+- [Nudge: What Should I Say Next](#nudge-what-should-i-say-next)
+- [Capture Window Controls](#capture-window-controls)
+- [Pre-Call Prep](#pre-call-prep)
+- [Question Bank](#question-bank)
 - [Clyde Assistant Vs Clyde Pro Agent](#clyde-assistant-vs-clyde-pro-agent)
 - [Opportunity Tracker](#opportunity-tracker)
 - [Meeting Notes And Action Items](#meeting-notes-and-action-items)
@@ -18,6 +22,9 @@ Everything you need to run Clyde with confidence: provider setup, fully local/pr
 - [Realtime Mock Interviews](#realtime-mock-interviews)
 - [Trends, Scorecards, And Confidence](#trends-scorecards-and-confidence)
 - [Privacy, Undetectable Mode, And Capture Protection](#privacy-undetectable-mode-and-capture-protection)
+- [Settings Reference](#settings-reference)
+- [Onboarding And In-App User Guide](#onboarding-and-in-app-user-guide)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Troubleshooting](#troubleshooting)
 
 ## Quick Start
@@ -60,11 +67,11 @@ Open **Settings**. Provider credentials are handled by the Electron main process
 
 ### LLM Provider
 
-Choose the model Clyde uses for chat, answer cards, notes, and reasoning. Add API key, model name, and endpoint when required.
+Choose the model Clyde uses for chat, answer cards, notes, and reasoning. Supported providers include OpenAI, Anthropic, Google Gemini, and local LM Studio. Add API key, model name, and endpoint when required.
 
 ### Realtime Transcription
 
-Choose a transcription provider for live turns. This can be different from the assistant model.
+Choose a transcription provider for live turns. Options include Local Whisper, OpenAI Whisper, and OpenAI Realtime Whisper. This can be different from the assistant model.
 
 ### Vision / Screenshots
 
@@ -96,7 +103,7 @@ For a private path, configure local transcription and a local chat model so audi
 
 ### Interview Mode
 
-Use for recruiter screens, technical rounds, hiring manager calls, final loops, and follow-ups. Clyde tracks role, phase, JD, transcript ratings, confidence, outcomes, trends, and mock interviews.
+Use for recruiter screens, technical rounds, hiring manager calls, final loops, and follow-ups. Clyde tracks role, phase, JD, transcript ratings, confidence, outcomes, trends, and mock interviews. Interview mode also enables the Question Bank and Trend Analysis pages.
 
 ### Meeting Mode
 
@@ -106,23 +113,123 @@ Use for product reviews, retros, customer calls, investor updates, 1:1s, plannin
 
 ### Preflight
 
-Start opens a preflight check so you can verify context, providers, and capture settings before going live.
+Start opens a preflight check modal so you can verify context, providers, capture protection status, and capture settings before going live. The preflight shows the active entity, linked question bank pairs, and whether screen capture protection is enabled.
 
 ### Live Transcript
 
-Clyde captures microphone/system audio, separates turns, and creates a near realtime transcript.
+Clyde captures microphone/system audio, separates turns by speaker, and creates a near realtime transcript. Transcript bubbles show as a chat interface with your turns on the right and the other party's turns on the left.
 
 ### Ask Clyde
 
-Request answer suggestions, recap, risks, follow-up questions, or custom help while the call is active.
+Type a custom prompt in the input pill at the bottom of the capture window. Request answer suggestions, recap, risks, follow-up questions, or any custom help while the call is active.
 
 ### Screenshot Analysis
 
-Use screenshots for prompts, slides, dashboards, coding questions, or shared screens that Clyde should interpret.
+Click the **camera button** (1-click screenshot) in the input pill to capture and analyze your desktop. Clyde interprets prompts, slides, dashboards, coding questions, or shared screens. You can also toggle the **Include Screenshot** switch to attach a screenshot with any custom prompt.
+
+### Suggested Questions
+
+Click the **questions button** in the capture bottom bar to ask Clyde for tailored follow-up questions based on the full transcript, job description, and active opportunity context.
 
 ### Stop And Save
 
 When the call ends, Clyde can save transcripts, generate notes, extract action items, and grade interviews.
+
+### Download Session History
+
+Click the **download button** in the capture bottom bar to export the full conversation history (your prompts and Clyde's answer cards) as a markdown file.
+
+## Nudge: What Should I Say Next
+
+The Nudge feature gives you instant suggestions for what to say next during a live call.
+
+### Nudge Button
+
+During an active capture session, click the **nudge button** (wave icon) in the input pill next to the screenshot button. Clyde reviews the most recent question or request from the current transcript and provides an answer or suggestion in a distinctly colored card (purple/indigo) so nudge suggestions are easy to differentiate from auto-generated answer cards.
+
+### Nudge Hotkey (Global Keyboard Shortcut)
+
+A programmable global keyboard shortcut triggers the nudge from anywhere on your desktop during live calls. The default is **Ctrl+Shift+N**.
+
+- The shortcut is registered system-wide when audio capture starts and unregistered when capture stops.
+- Configure the hotkey in **Settings → General → Nudge hotkey**. Click inside the recording box and press the desired key combination. Press **Clear** to remove it.
+- The shortcut works even when Clyde is not the focused window, making it ideal for triggering nudge while you are in your meeting application.
+
+## Capture Window Controls
+
+The active capture window provides a complete set of controls:
+
+### Top Control Bar
+
+- **Minimize** — Click the ghost coin icon to minimize Clyde to a small draggable chip. Click or drag the chip to restore.
+- **Stop** — End the capture session and return to the workspace.
+- **Pause / Resume** — Pause audio capture temporarily. The pause icon switches to a play icon while paused.
+- **Reset** — Clear the current session transcript and answer cards.
+
+### Bottom Bar
+
+- **Capture Protection Toggle** — Enable or disable screen capture protection on the fly. The ghost icon glows when protection is active.
+- **Opacity Slider** — Adjust window background transparency from 35% to 100%. Click the opacity icon to open the slider popover.
+- **Download** — Export the full chat history as a markdown file.
+- **Microphone Indicator** — A glowing mic icon that pulses when audio is detected. Click to mute/unmute (pause/resume capture).
+- **Suggested Questions** — Generate tailored follow-up questions for the interviewer.
+
+### Input Pill
+
+- **Screenshot (Camera)** — 1-click screenshot analysis.
+- **Nudge** — Trigger the "what should I say next" suggestion.
+- **Text Input** — Type any custom prompt.
+- **Send** — Submit the custom prompt.
+- **Include Screenshot Toggle** — Attach a screenshot with your next custom prompt.
+
+### Window Dragging
+
+Drag the control bar or the minimized chip to reposition the capture window anywhere on screen.
+
+### Source Selection Menu
+
+Access the source selection menu to control which context sources Clyde uses when answering during capture. Options include resume/background, memory, RAG, and web, plus a toggle for including screenshots.
+
+## Pre-Call Prep
+
+The **Pre-Call Prep** page (labeled "Pre-Call Prep" in the sidebar under the "Now" eyebrow) provides a structured preparation workflow before calls.
+
+### Material Pre-Call Prep
+
+When Clyde has enough context (sessions, JD, and opportunity data), it generates a comprehensive prep card that includes:
+
+- **Cumulative phase summary** — What the opportunity has covered so far.
+- **Probable focus** — What to expect in the upcoming round.
+- **Strengths aligned to the role** — Key talking points and patterns from prior interviewer questions.
+- **Questions to ask** — Suggested questions for the interviewer, informed by the JD and prior sessions.
+
+### Quick Launch
+
+From Pre-Call Prep you can quickly start a capture session, configure your setup, or jump into the active context.
+
+## Question Bank
+
+The **Question Bank** page (interview mode only) is a dedicated workspace for managing Q&A pairs that Clyde uses as context during live calls.
+
+### Add Questions
+
+Add individual questions and model answers manually. Provide the interviewer question and your ideal response.
+
+### Import CSV
+
+Bulk import question-answer pairs from a CSV file.
+
+### Link to Opportunities
+
+Questions can be scoped to specific opportunities so Clyde only uses relevant Q&A during that interview.
+
+### Global Question Bank
+
+Toggle the **Include Global** checkbox to include unscoped global Q&A pairs alongside opportunity-specific ones during capture. This setting is also available in **Settings → Context**.
+
+### Review and Edit
+
+Browse, edit, and delete existing Q&A pairs. The dashboard shows the total count and linked pairs.
 
 ## Clyde Assistant Vs Clyde Pro Agent
 
@@ -240,7 +347,7 @@ Request reminders, next-step summaries, or calendar updates from the floating ch
 
 ### Calendar Workspace
 
-View upcoming interviews, meetings, follow-ups, and reminders associated with opportunities or meetings.
+View upcoming interviews, meetings, follow-ups, and reminders associated with opportunities or meetings. The sidebar shows your next upcoming event with countdown timing.
 
 ### Gmail Scans
 
@@ -266,17 +373,17 @@ Attach files to a specific opportunity or meeting when they should only apply th
 
 ### Pin Context
 
-Pin high-priority files so Clyde brings them into active context quickly.
+Pin high-priority files (up to 3 per entity) so Clyde brings them into active context quickly.
 
 ### Semantic RAG
 
-Pro users can index knowledge into Pinecone so Clyde can retrieve and cite relevant sources.
+Pro users can index knowledge into Pinecone so Clyde can retrieve and cite relevant sources. Configure embedding provider (Gemini or OpenAI), embedding model, embedding API key, Pinecone API key, Pinecone host URL, and Pinecone namespace in **Settings → Context**.
 
 ## Realtime Mock Interviews
 
 ### Start Practice
 
-Open Mock Interview with an active opportunity selected. The avatar asks role-specific questions and follows up on your answers.
+Open Mock Interview with an active opportunity selected. The avatar asks role-specific questions and follows up on your answers. Requires Clyde Pro with a realtime voice agent model configured.
 
 ### Review Scorecards
 
@@ -314,7 +421,15 @@ Clyde runs as a desktop app and does not join the meeting participant list.
 
 ### Capture Protection
 
-Clyde can use content protection and overlay behavior to keep active UI out of standard captures where supported.
+Clyde uses content protection and overlay behavior to keep the active UI out of standard screen captures and recordings. Toggle capture protection on or off:
+
+- **During capture:** Click the ghost icon in the bottom bar of the capture window.
+- **Before capture:** The preflight modal shows the current capture protection status.
+- **In settings:** The `captureProtectionEnabled` setting defaults to on.
+
+### UI Opacity
+
+Adjust the capture window transparency using the opacity slider in the bottom bar. Lower opacity makes the window more transparent, allowing you to see through it while keeping Clyde's cards visible. Range is 35% to 100%.
 
 ### Source Control
 
@@ -322,7 +437,69 @@ Choose which files, transcripts, memories, screenshots, and integrations Clyde c
 
 ### Pause Anytime
 
-Pause or stop capture whenever content should not be processed.
+Pause or stop capture whenever content should not be processed. The microphone indicator in the bottom bar also serves as a quick mute/unmute toggle.
+
+## Settings Reference
+
+Access Settings from the gear icon in the workspace. Settings are organized into six tabs:
+
+### Account
+
+Manage account and billing information. View your subscription status (Free or Pro), authentication email, and subscription plan. Upgrade to Clyde Pro or refresh entitlements from this tab.
+
+### General
+
+- **Floating Clyde chatbot** — Show or hide the floating chat window.
+- **Nudge hotkey** — Record a global keyboard shortcut for the nudge feature. Click inside the box and press a key combination (e.g., Ctrl+Shift+N). The shortcut is registered globally during live calls.
+- **Validate services** — Run a health check against audio, transcription, assistant provider, and capture status using the current saved settings.
+
+### Context
+
+- **Resume / background** (interview mode) or **Long term memory** (meeting mode) — Paste resume facts, metrics, and projects, or persistent context for meetings. Import from .txt, .md, or .pdf files.
+- **RAG with Pinecone** (Pro) — Enable semantic search. Configure embedding provider, model, API key, and Pinecone connection details.
+
+### Sync
+
+- **Google sync** (Pro) — Enable periodic Gmail and Calendar scanning. Configure auto-approval of sync actions and poll interval.
+- **Connect / Disconnect Google** — Manage the Google account connection.
+- **Scan now** — Trigger an immediate sync scan.
+- **Audit log** — Review all sync events with timestamps and statuses.
+
+### LLM
+
+- **Standard AI provider** — Choose the model for answer cards, prep, summaries, grading, trend analysis, and sync reasoning. Supported providers: Local LM Studio, OpenAI, Anthropic, Google Gemini.
+- **Realtime voice agent** (Pro) — Enable Clyde Pro agent with a realtime model. Configure the OpenAI realtime model and API key.
+- **OpenAI Realtime Whisper** — Option to use the same realtime API key for lowest-latency transcription.
+
+### Speech
+
+- **Audio engine** — Choose between Rust native audio and legacy recorder.
+- **Microphone** — Select the input device for your voice.
+- **System audio** — Select the output device for capturing the other party's audio.
+- **Refresh devices** — Re-scan available audio devices.
+- **Transcription provider** — Choose Local Whisper, OpenAI Whisper, or OpenAI Realtime Whisper. Configure the transcription URL or API key.
+
+## Onboarding And In-App User Guide
+
+### Onboarding Guide
+
+On first launch, Clyde displays an onboarding guide that walks through all core features. The guide covers quick start steps, provider setup, local AI, modes, live calls, agent behavior, opportunities, meetings, calendar, knowledge, mock interviews, trends, and privacy. Dismiss the guide when ready; it will not appear again.
+
+### In-App User Guide
+
+Access the full User Guide at any time from within the app. The in-app guide mirrors this document and provides quick navigation via a table of contents with anchored sections.
+
+### Floating Clyde Chatbot
+
+The floating chat window provides quick access to Clyde Assistant (Free) or Clyde Pro Agent (Pro) from any page. Show or hide the floating chatbot from **Settings → General**.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action | Scope |
+|---|---|---|
+| Nudge hotkey (default: Ctrl+Shift+N) | Trigger nudge — "What should I say next?" | Global during live capture |
+
+Configure the nudge hotkey in **Settings → General → Nudge hotkey**. The shortcut is registered when audio capture starts and unregistered when capture stops.
 
 ## Troubleshooting
 
@@ -341,3 +518,15 @@ Confirm Google is connected, run **Scan now**, inspect proposals, and check whet
 ### RAG Has No Results
 
 Upload/index knowledge, verify Pinecone settings, choose the right source mode, and confirm files are scoped to the correct entity.
+
+### Nudge Hotkey Not Working
+
+Confirm a hotkey is set in **Settings → General**. The global shortcut only registers while audio capture is actively running. If the hotkey conflicts with another application, choose a different combination. Check the app logs for registration errors.
+
+### Capture Window Not Visible
+
+If the capture window disappears, it may be minimized to the ghost chip. Look for a small floating icon on screen and click it to restore. If it is off-screen, restart the capture session.
+
+### Capture Protection Blocks Screenshots
+
+When capture protection is enabled, Clyde's window will appear blank in screen recordings and screenshots. Toggle it off using the ghost icon in the capture bottom bar if you need to include Clyde in a recording.
