@@ -753,6 +753,83 @@ test('pro queued forced run skips duplicate after draft is already shown', async
   assert.equal(updates.length, 1);
 });
 
+test('pro queued forced run skips duplicate continuation from a new item after first draft displays', async () => {
+  const proPayloads = [];
+  const updates = [];
+  let releaseFirstRun;
+  let firstRunStarted;
+  const firstRunStartedPromise = new Promise((resolve) => {
+    firstRunStarted = resolve;
+  });
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      userTier: 'pro',
+      proAgentEnabled: true,
+      transcriptionApiKey: 'openai-key',
+      llmApiKey: 'openai-key',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'fallback-model'
+    },
+    proAgent: {
+      run: async (payload) => {
+        proPayloads.push(payload);
+        if (proPayloads.length === 1) {
+          firstRunStarted();
+          await new Promise((resolve) => {
+            releaseFirstRun = resolve;
+          });
+        }
+        payload.onDraft?.({
+          text: 'draft',
+          cards: [{
+            id: payload.draftCardId,
+            type: 'answer',
+            title: 'Answer',
+            question: payload.targetQuestion,
+            bullets: ['I audited the CRM workflow.', 'I removed repeated agent steps.', 'I measured the rollout impact.'],
+            draft: true
+          }]
+        });
+        return {
+          ok: true,
+          text: 'answer',
+          cards: [{
+            type: 'answer',
+            title: 'Answer',
+            question: payload.targetQuestion,
+            bullets: ['I audited the CRM workflow.', 'I removed repeated agent steps.', 'I measured the rollout impact.']
+          }],
+          toolCalls: 0
+        };
+      }
+    },
+    intervalMs: 0,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you walk me through a time when you audited or optimized a CRM or ticketing system?',
+    itemId: 'crm-early'
+  });
+
+  await firstRunStartedPromise;
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you walk me through a time when you audited or optimized a CRM or ticketing system to improve frontline performance?',
+    itemId: 'crm-fuller'
+  });
+
+  releaseFirstRun();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.equal(proPayloads.length, 1);
+  assert.equal(updates.filter((update) => update.cards?.[0]?.type === 'answer').length, 1);
+});
+
 test('pro gate combines realtime final fragments before answering', async () => {
   const proPayloads = [];
 
@@ -1108,7 +1185,188 @@ test('pro final replacement keeps draft bullets and adds new memory detail', asy
     'I removed repeated agent steps.',
     'I measured the impact after rollout.'
   ]);
+  assert.equal(finalCard.title, 'Say next');
+  assert.equal(finalCard.draft, undefined);
   assert.deepEqual(finalCard.detailBullets, ['The rollout reduced handle time by 32%.']);
+});
+
+test('pro final replacement extracts embedded supplemental detail without changing draft bullets', async () => {
+  const updates = [];
+  let runCount = 0;
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      userTier: 'pro',
+      proAgentEnabled: true,
+      transcriptionApiKey: 'openai-key',
+      llmApiKey: 'openai-key',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'fallback-model',
+      ragEnabled: true
+    },
+    proAgent: {
+      searchMemoryCards: async () => ({
+        contextText: 'Memory says failing API calls were visible in Power BI.',
+        cards: []
+      }),
+      run: async (payload) => {
+        runCount += 1;
+        if (runCount === 1) {
+          payload.onDraft?.({
+            text: 'draft',
+            cards: [{
+              id: payload.draftCardId,
+              type: 'answer',
+              title: 'Draft answer',
+              question: 'Can you describe an API integration?',
+              bullets: [
+                'I connected Freshdesk with Jira so engineering work could be created from support context.',
+                'I used dynamic forms to route the right request to the right engineering pod.',
+                'I monitored reliability and fixed failures quickly.'
+              ],
+              draft: true
+            }]
+          });
+          return {
+            ok: true,
+            text: 'draft',
+            cards: [{
+              type: 'answer',
+              title: 'Say next',
+              question: 'Can you describe an API integration?',
+              bullets: [
+                'I connected Freshdesk with Jira so engineering work could be created from support context.',
+                'I used dynamic forms to route the right request to the right engineering pod.',
+                'I monitored reliability and fixed failures quickly.'
+              ]
+            }],
+            toolCalls: 0
+          };
+        }
+        return {
+          ok: true,
+          text: 'final',
+          cards: [{
+            type: 'answer',
+            title: 'Say next',
+            question: 'Can you describe an API integration?',
+            bullets: [
+              'I connected Freshdesk with Jira so engineering work could be created from support context.',
+              'I used dynamic forms to route the right request to the right engineering pod.',
+              'I monitored reliability and fixed failures quickly, with failing API calls visible in Power BI for faster troubleshooting.'
+            ]
+          }],
+          toolCalls: 0
+        };
+      }
+    },
+    sendUpdate: (update) => updates.push(update),
+    intervalMs: 0,
+    proFinalMemoryWaitMs: 10
+  });
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you describe an API integration?',
+    itemId: 'api-detail'
+  });
+
+  await waitFor(() => updates.filter((update) => update.cards?.[0]?.type === 'answer').length === 2, 1000);
+  const finalCard = updates[1].cards[0];
+  assert.deepEqual(finalCard.bullets, [
+    'I connected Freshdesk with Jira so engineering work could be created from support context.',
+    'I used dynamic forms to route the right request to the right engineering pod.',
+    'I monitored reliability and fixed failures quickly.'
+  ]);
+  assert.deepEqual(finalCard.detailBullets, ['with failing API calls visible in Power BI for faster troubleshooting.']);
+});
+
+test('pro final replacement filters dangling detail fragments', async () => {
+  const updates = [];
+  let runCount = 0;
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      userTier: 'pro',
+      proAgentEnabled: true,
+      transcriptionApiKey: 'openai-key',
+      llmApiKey: 'openai-key',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'fallback-model',
+      ragEnabled: true
+    },
+    proAgent: {
+      searchMemoryCards: async () => ({
+        contextText: 'Memory says the work reduced resolution time by 38%.',
+        cards: []
+      }),
+      run: async (payload) => {
+        runCount += 1;
+        if (runCount === 1) {
+          payload.onDraft?.({
+            text: 'draft',
+            cards: [{
+              id: payload.draftCardId,
+              type: 'answer',
+              title: 'Draft answer',
+              question: 'Have you integrated automation into support?',
+              bullets: [
+                'I introduced automation into support workflows.',
+                'I built routing logic with escalation paths.',
+                'I measured outcomes after rollout.'
+              ],
+              draft: true
+            }]
+          });
+          return {
+            ok: true,
+            text: 'draft',
+            cards: [{
+              type: 'answer',
+              title: 'Say next',
+              question: 'Have you integrated automation into support?',
+              bullets: [
+                'I introduced automation into support workflows.',
+                'I built routing logic with escalation paths.',
+                'I measured outcomes after rollout.'
+              ]
+            }],
+            toolCalls: 0
+          };
+        }
+        return {
+          ok: true,
+          text: 'final',
+          cards: [{
+            type: 'answer',
+            title: 'Say next',
+            question: 'Have you integrated automation into support?',
+            bullets: [
+              'I introduced automation into support workflows, I focus on safe rollout patterns by using clear routing.',
+              'I built routing logic with escalation paths, which reduced resolution time by 38%.',
+              'I measured outcomes after rollout, I measured success with operational.'
+            ]
+          }],
+          toolCalls: 0
+        };
+      }
+    },
+    sendUpdate: (update) => updates.push(update),
+    intervalMs: 0,
+    proFinalMemoryWaitMs: 10
+  });
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Have you integrated automation into support?',
+    itemId: 'automation-detail'
+  });
+
+  await waitFor(() => updates.filter((update) => update.cards?.[0]?.type === 'answer').length === 2, 1000);
+  const finalCard = updates[1].cards[0];
+  assert.deepEqual(finalCard.detailBullets, ['reduced resolution time by 38%.']);
 });
 
 test('pro final replacement is skipped when final matches draft', async () => {

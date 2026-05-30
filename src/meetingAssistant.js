@@ -10,6 +10,7 @@ const DEFAULT_MAX_TOKENS = 800;
 const DEFAULT_UTTERANCE_SETTLE_MS = 0;
 const DEFAULT_INCOMPLETE_UTTERANCE_SETTLE_MS = 1400;
 const PRO_INTERVIEWER_PROMPT_GAP_MS = 10000;
+const PRO_RECENT_DISPLAYED_QUESTION_TTL_MS = 30000;
 
 function createMeetingAssistant(options = {}) {
   const settings = options.settings || {};
@@ -62,6 +63,7 @@ function createMeetingAssistant(options = {}) {
   const partialQuestionTimers = new Map();
   const latestProRunTextByGroup = new Map();
   const displayedProRunTextByGroup = new Map();
+  let recentDisplayedProRuns = [];
   let proInterviewerPromptHistory = [];
   let lastProInterviewerPromptAt = 0;
 
@@ -197,12 +199,14 @@ function createMeetingAssistant(options = {}) {
 
     if (inFlight) {
       if (force && requestOptions.draftCardId) {
-        if (isDuplicateDisplayedProRun(requestOptions)) {
+        const duplicateDisplayedRun = getDuplicateDisplayedProRun(requestOptions);
+        if (duplicateDisplayedRun) {
           trace('assistant.run.skip_duplicate_forced', {
             draftCardId: requestOptions.draftCardId,
             groupId: requestOptions.groupId,
             targetQuestion: requestOptions.targetQuestion || '',
-            displayedQuestion: displayedProRunTextByGroup.get(requestOptions.groupId) || ''
+            displayedQuestion: duplicateDisplayedRun.text,
+            displayedGroupId: duplicateDisplayedRun.groupId
           });
           return { ok: true, skipped: 'duplicate-forced-run' };
         }
@@ -673,12 +677,14 @@ function createMeetingAssistant(options = {}) {
       if (queuedForcedRun) {
         const queued = queuedForcedRun;
         queuedForcedRun = null;
-        if (isDuplicateDisplayedProRun(queued.requestOptions)) {
+        const duplicateDisplayedRun = getDuplicateDisplayedProRun(queued.requestOptions);
+        if (duplicateDisplayedRun) {
           trace('assistant.run.skip_queued_forced_duplicate', {
             draftCardId: queued.requestOptions?.draftCardId || '',
             groupId: queued.requestOptions?.groupId || '',
             targetQuestion: queued.requestOptions?.targetQuestion || '',
-            displayedQuestion: displayedProRunTextByGroup.get(queued.requestOptions?.groupId) || ''
+            displayedQuestion: duplicateDisplayedRun.text,
+            displayedGroupId: duplicateDisplayedRun.groupId
           });
         } else {
           setTimeout(() => {
@@ -1005,17 +1011,42 @@ function createMeetingAssistant(options = {}) {
     }
 
     displayedProRunTextByGroup.set(normalizedGroupId, normalizedQuestion);
+    pruneRecentDisplayedProRuns();
+    recentDisplayedProRuns = [
+      ...recentDisplayedProRuns.filter((run) => run.groupId !== normalizedGroupId),
+      {
+        groupId: normalizedGroupId,
+        text: normalizedQuestion,
+        at: Date.now()
+      }
+    ].slice(-12);
   }
 
-  function isDuplicateDisplayedProRun(requestOptions = {}) {
+  function getDuplicateDisplayedProRun(requestOptions = {}) {
     const groupId = cleanText(requestOptions.groupId);
     const targetQuestion = normalizeUtteranceText(requestOptions.targetQuestion);
     const displayedQuestion = normalizeUtteranceText(displayedProRunTextByGroup.get(groupId));
-    if (!groupId || !targetQuestion || !displayedQuestion) {
-      return false;
+    if (!groupId || !targetQuestion) {
+      return null;
     }
 
-    return isSameOrNearDuplicateQuestion(displayedQuestion, targetQuestion);
+    if (displayedQuestion && isSameOrNearDuplicateQuestion(displayedQuestion, targetQuestion)) {
+      return {
+        groupId,
+        text: displayedQuestion
+      };
+    }
+
+    pruneRecentDisplayedProRuns();
+    return recentDisplayedProRuns.find((run) => (
+      run.groupId !== groupId
+      && isDuplicateRecentDisplayedQuestion(run.text, targetQuestion)
+    )) || null;
+  }
+
+  function pruneRecentDisplayedProRuns() {
+    const cutoff = Date.now() - PRO_RECENT_DISPLAYED_QUESTION_TTL_MS;
+    recentDisplayedProRuns = recentDisplayedProRuns.filter((run) => run.at >= cutoff);
   }
 
   function resetStaleProPromptHistory() {
@@ -1100,6 +1131,7 @@ function createMeetingAssistant(options = {}) {
     partialQuestionGate.clear();
     latestProRunTextByGroup.clear();
     displayedProRunTextByGroup.clear();
+    recentDisplayedProRuns = [];
     clearProPromptHistory();
     for (const timer of partialQuestionTimers.values()) {
       clearTimeout(timer);
@@ -1880,6 +1912,29 @@ function isSameOrNearDuplicateQuestion(left, right) {
     || textSimilarity(normalizedLeft, normalizedRight) >= 0.9;
 }
 
+function isDuplicateRecentDisplayedQuestion(displayedQuestion, targetQuestion) {
+  const displayed = normalizeUtteranceText(displayedQuestion);
+  const target = normalizeUtteranceText(targetQuestion);
+  if (!displayed || !target) {
+    return false;
+  }
+
+  if (isSameOrNearDuplicateQuestion(displayed, target)) {
+    return true;
+  }
+
+  const displayedWords = displayed.split(/\s+/).filter(Boolean);
+  const targetWords = target.split(/\s+/).filter(Boolean);
+  const wordDelta = Math.abs(displayedWords.length - targetWords.length);
+  const displayedLower = displayed.toLowerCase();
+  const targetLower = target.toLowerCase();
+  const shorter = displayedLower.length <= targetLower.length ? displayedLower : targetLower;
+  const longer = displayedLower.length > targetLower.length ? displayedLower : targetLower;
+  const isSmallContinuation = wordDelta <= 8 && longer.startsWith(`${shorter} `);
+
+  return isSmallContinuation || textSimilarity(displayed, target) >= 0.68;
+}
+
 function classifyProGatePrompt(text) {
   const value = stripTrailingAcknowledgement(stripLeadingQuestionFiller(normalizeUtteranceText(text)));
   const prompt = stripTrailingAcknowledgement(extractLatestInterviewerPrompt(value));
@@ -2046,13 +2101,16 @@ function reconcileDraftAndFinalCards(draftCards = [], finalCards = []) {
     return finalCards;
   }
 
-  const additionalBullets = finalBullets.slice(draftBullets.length).filter((bullet) => (
-    !draftBullets.some((draftBullet) => textSimilarity(draftBullet, bullet) >= 0.55)
-  ));
-
   const finalQuestion = cleanText(final.question);
   const draftQuestion = cleanText(draft.question);
-  const questionChanged = finalQuestion && draftQuestion && textSimilarity(finalQuestion, draftQuestion) < 0.72;
+  const finalQuestionWords = finalQuestion.split(/\s+/).filter(Boolean);
+  const questionChanged = finalQuestion
+    && draftQuestion
+    && finalQuestionWords.length >= 5
+    && hasInterviewPromptCue(finalQuestion)
+    && !isSameOrNearDuplicateQuestion(finalQuestion, draftQuestion)
+    && textSimilarity(finalQuestion, draftQuestion) < 0.6;
+  const additionalBullets = collectSupplementalFinalBullets(draftBullets, finalBullets);
 
   if (!additionalBullets.length && !questionChanged) {
     return [];
@@ -2063,13 +2121,112 @@ function reconcileDraftAndFinalCards(draftCards = [], finalCards = []) {
     ...additionalBullets.map((bullet) => boilDownDetailBullet(bullet, draftBullets))
   ].filter(Boolean);
 
+  const { draft: _draftFlag, ...draftCard } = draft;
   return [{
-    ...draft,
+    ...draftCard,
+    title: 'Say next',
     question: questionChanged ? finalQuestion : draft.question,
     bullets: draftBullets,
     detail: cleanText(draft.detail),
     detailBullets
   }];
+}
+
+function collectSupplementalFinalBullets(draftBullets = [], finalBullets = []) {
+  const additions = [];
+  for (const finalBullet of finalBullets.map(cleanText).filter(Boolean)) {
+    if (finalBullet.split(/\s+/).filter(Boolean).length < 5) {
+      continue;
+    }
+
+    const bestDraft = draftBullets
+      .map((draftBullet) => ({
+        bullet: draftBullet,
+        similarity: textSimilarity(draftBullet, finalBullet)
+      }))
+      .sort((left, right) => right.similarity - left.similarity)[0];
+
+    const supplement = bestDraft ? extractSupplementalClause(bestDraft.bullet, finalBullet) : '';
+    if (supplement) {
+      additions.push(supplement);
+      continue;
+    }
+
+    if (!bestDraft || bestDraft.similarity < 0.5) {
+      additions.push(finalBullet);
+      continue;
+    }
+  }
+
+  return dedupeDetailBullets(additions, draftBullets);
+}
+
+function extractSupplementalClause(draftBullet, finalBullet) {
+  const draftTokens = tokenSet(draftBullet);
+  const finalText = cleanText(finalBullet);
+  const draftText = cleanText(draftBullet);
+  if (draftText && finalText.toLowerCase().startsWith(draftText.toLowerCase())) {
+    const remainder = cleanText(finalText.slice(draftText.length).replace(/^[,.;:\s-]+/, ''));
+    if (remainder.split(/\s+/).filter(Boolean).length >= 5) {
+      return remainder;
+    }
+  }
+
+  const clauses = finalText
+    .split(/(?:;|,|\s+-\s+|\s+\band\b\s+|\s+\bwhich\b\s+|\s+\bso\b\s+)/i)
+    .map(cleanText)
+    .filter((clause) => clause.split(/\s+/).filter(Boolean).length >= 5);
+
+  for (const clause of clauses) {
+    const clauseTokens = tokenSet(clause);
+    const newTokens = [...clauseTokens].filter((token) => !draftTokens.has(token));
+    if (newTokens.length >= 3 && textSimilarity(clause, draftBullet) < 0.65) {
+      return clause;
+    }
+  }
+
+  return '';
+}
+
+function dedupeDetailBullets(additions = [], draftBullets = []) {
+  const kept = [];
+  for (const addition of additions.map(cleanText).filter(isUsefulDetailBullet)) {
+    if (draftBullets.some((draftBullet) => textSimilarity(draftBullet, addition) >= 0.55)) {
+      continue;
+    }
+    if (kept.some((existing) => textSimilarity(existing, addition) >= 0.72)) {
+      continue;
+    }
+    kept.push(addition);
+  }
+  return kept.slice(0, 3);
+}
+
+function isUsefulDetailBullet(value) {
+  const text = cleanText(value);
+  if (!text) {
+    return false;
+  }
+
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 4) {
+    return false;
+  }
+
+  const lower = text.toLowerCase().replace(/[.,;:!?]+$/g, '');
+  if (/^(and|or|but|so|then|which|that|for|to|from|into|where|when)\b/i.test(lower)) {
+    return false;
+  }
+
+  if (/\b(and|or|but|so|then|which|that|with|by|for|to|from|into|where|when|using|through|during|across|between|including|such as|like)$/i.test(lower)) {
+    return false;
+  }
+
+  const hasConcreteAnchor = /\b(api|apis|jira|freshdesk|zendesk|intercom|fin|zapier|github|power bi|dashboard|ticket|tickets|workflow|workflows|routing|handoff|handoffs|engineering|support|agent|agents|customer|customers|queue|queues|escalation|escalations|integration|integrations|automation|automations|runbook|runbooks|sandbox|rollout|pilot|metric|metrics|kpi|kpis|resolution|response|handle time|sync|form|forms|validation|monitoring|failures?|errors?|volume|headcount|dependency|dependencies|stakeholders?|roadmap|product|operations?)\b/i.test(lower);
+  const hasNumber = /\d/.test(lower);
+  const hasAction = /\b(built|created|linked|routed|reduced|improved|increased|measured|monitored|visualized|surfaced|mapped|validated|tested|piloted|implemented|designed|managed|tracked|caught|resolved|troubleshot|automated|connected|visible)\b/i.test(lower);
+
+  return hasNumber || (hasConcreteAnchor && hasAction);
 }
 
 function boilDownDetailBullet(value, existingBullets = []) {
@@ -2082,7 +2239,7 @@ function boilDownDetailBullet(value, existingBullets = []) {
       text = cleanText(text.slice(existingText.length));
     }
   }
-  return text;
+  return isUsefulDetailBullet(text) ? text : '';
 }
 
 function textSimilarity(left, right) {
