@@ -9285,6 +9285,26 @@ input:checked + .toggle-slider:before {
   transform: scale(1.1) !important;
 }
 
+/* Input pill nudge button normalization */
+.active-capture-input-pill .composer-action-btn.nudge-btn {
+  color: rgba(255, 255, 255, 0.65);
+  transition: all 0.2s ease;
+}
+
+.active-capture-input-pill .composer-action-btn.nudge-btn:hover {
+  color: #ffffff;
+  transform: scale(1.08);
+}
+
+.clyde-answer-card.nudge-card {
+  background: linear-gradient(135deg, #2b1f3c 0%, #150f22 100%) !important;
+  border: 1px solid rgba(168, 85, 247, 0.25) !important;
+  box-shadow: 0 16px 36px rgba(168, 85, 247, 0.15) !important;
+}
+.clyde-answer-card.nudge-card .clyde-card-question {
+  color: #c084fc !important;
+}
+
 .bottom-bar-action-btn.opacity-toggle-btn.active {
   color: var(--cyan) !important;
   background: rgba(79, 231, 255, 0.12) !important;

@@ -126,5 +126,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onZoomDetected: (callback) => {
         ipcRenderer.on('zoom-detected', callback);
         return () => ipcRenderer.off('zoom-detected', callback);
+    },
+    onTriggerNudge: (callback) => {
+        ipcRenderer.on('trigger-nudge', callback);
+        return () => ipcRenderer.off('trigger-nudge', callback);
     }
 });

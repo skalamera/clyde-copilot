@@ -32,6 +32,7 @@ const clydePauseIconUrl = new URL('../../clyde_pause.svg', import.meta.url).href
 const clydePlayIconUrl = new URL('../../clyde_play.svg', import.meta.url).href;
 const clydeResetUrl = new URL('../../clyde_reset.svg', import.meta.url).href;
 const clydeScreenshotUrl = new URL('../../clyde_screenshot.svg', import.meta.url).href;
+const clydeNudgeUrl = new URL('../../clyde_nudge.svg', import.meta.url).href;
 const clydeSendUrl = new URL('../../clyde_send.svg', import.meta.url).href;
 const clydeMicUrl = new URL('../../clyde_mic.svg', import.meta.url).href;
 const clydeGlassGhostUrl = new URL('../../cylde_glass_ghost.svg', import.meta.url).href;
@@ -147,7 +148,8 @@ const EMPTY_SETTINGS = {
   onboardingGuideDismissed: false,
   demoMode: false,
   captureProtectionEnabled: true,
-  uiOpacity: 100
+  uiOpacity: 100,
+  nudgeHotkey: 'Ctrl+Shift+N'
 };
 
 const COMMANDS = [
@@ -3483,6 +3485,13 @@ function App() {
       setStatus('Session reset.');
     });
 
+    const unsubscribeNudge = api?.onTriggerNudge?.(() => {
+      const nudgeBtn = document.querySelector('.composer-action-btn.nudge-btn');
+      if (nudgeBtn) {
+        nudgeBtn.click();
+      }
+    });
+
     const unsubscribeMaximized = api?.onAppWindowMaximizedStateChange?.((_event, isMaximized) => {
       setAppWindowMaximized(Boolean(isMaximized));
     });
@@ -3491,6 +3500,9 @@ function App() {
       mounted = false;
       if (typeof unsubscribeMaximized === 'function') {
         unsubscribeMaximized();
+      }
+      if (typeof unsubscribeNudge === 'function') {
+        unsubscribeNudge();
       }
     };
   }, [api]);
@@ -3859,7 +3871,11 @@ function App() {
         setAskPending(false);
         setStatus(`Clyde skipped request: ${result.skipped}.`);
       } else if (Array.isArray(result?.cards) && result.cards.length) {
-        const userCards = result.cards.map((c) => ({ ...c, userAsked: true }));
+        const userCards = result.cards.map((c) => ({
+          ...c,
+          userAsked: true,
+          isNudge: payload.intent === 'say_next'
+        }));
         setAssistantCards((current) => prependAssistantCards(userCards, current, temporaryCard.id, temporaryCard.groupId));
         // Compatibility for smoke test: setAssistantCards((current) => prependAssistantCards(result.cards, current, temporaryCard.id, temporaryCard.groupId))
         setAskPending(false);
@@ -7529,6 +7545,37 @@ function ActiveCaptureView({
 }) {
   const [prompt, setPrompt] = useState('');
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const hotkey = settings?.nudgeHotkey || 'Ctrl+Shift+N';
+      const parts = hotkey.split('+').map(p => p.trim().toLowerCase());
+      
+      const ctrlRequired = parts.includes('ctrl') || parts.includes('control') || parts.includes('commandorcontrol');
+      const shiftRequired = parts.includes('shift');
+      const altRequired = parts.includes('alt');
+      
+      const mainKeyPart = parts.find(p => !['ctrl', 'control', 'commandorcontrol', 'shift', 'alt', 'meta', 'cmd', 'command'].includes(p));
+      
+      const eventCtrl = event.ctrlKey || event.metaKey;
+      const eventShift = event.shiftKey;
+      const eventAlt = event.altKey;
+      
+      let keyMatch = false;
+      if (mainKeyPart) {
+        keyMatch = event.key.toLowerCase() === mainKeyPart;
+      }
+      
+      if (keyMatch && ctrlRequired === eventCtrl && shiftRequired === eventShift && altRequired === eventAlt) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleNudge();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [settings?.nudgeHotkey]);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
   const [videoActive, setVideoActive] = useState(false);
   const [showMeters, setShowMeters] = useState(false);
@@ -8063,7 +8110,7 @@ function ActiveCaptureView({
                         <img src={clydeGlassGhostUrl} className="clyde-avatar-img" alt="Clyde" />
                       </div>
                       
-                      <div className="clyde-answer-card">
+                      <div className={`clyde-answer-card ${card.isNudge ? 'nudge-card' : ''}`}>
                         {card.question && !card.userAsked && (
                           <div className="clyde-card-question">
                             {card.question}
@@ -8110,6 +8157,15 @@ function ActiveCaptureView({
               style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '0 8px 0 0', display: 'flex', alignItems: 'center' }}
             >
               <img src={clydeScreenshotUrl} alt="Screenshot" style={{ width: '22px', height: '22px' }} />
+            </button>
+            <button 
+              type="button" 
+              className="composer-action-btn nudge-btn" 
+              onClick={handleNudge}
+              title="Nudge Clyde to suggest what to say next"
+              style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '0 8px 0 0', display: 'flex', alignItems: 'center' }}
+            >
+              <img src={clydeNudgeUrl} alt="Nudge" style={{ width: '22px', height: '22px' }} />
             </button>
             <input 
               type="text" 
@@ -10775,6 +10831,32 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
     });
   }
 
+  const handleHotkeyKeyDown = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) {
+      return;
+    }
+    
+    const parts = [];
+    if (event.ctrlKey) parts.push('Ctrl');
+    if (event.shiftKey) parts.push('Shift');
+    if (event.altKey) parts.push('Alt');
+    if (event.metaKey) parts.push('Cmd');
+    
+    let keyName = event.key;
+    if (keyName === ' ') {
+      keyName = 'Space';
+    } else if (keyName.length === 1) {
+      keyName = keyName.toUpperCase();
+    }
+    
+    parts.push(keyName);
+    const combo = parts.join('+');
+    update('nudgeHotkey', combo);
+  };
+
   async function saveDraft(close) {
     setSaving(true);
     setSaveStatus('');
@@ -11043,6 +11125,30 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </button>
             </div>
           </div>
+          <div className="wide-field floating-agent-settings">
+            <span>Nudge hotkey</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.nudgeHotkey || ''}
+                onKeyDown={handleHotkeyKeyDown}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('nudgeHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <small className="wide-field" style={{ color: 'var(--muted)', marginTop: '-8px', marginBottom: '10px' }}>
+            Click inside the box and press a key combination (e.g., Ctrl+Shift+N) to record. The shortcut will be registered globally during live calls.
+          </small>
           <div className="wide-field validate-services-card">
             <div>
               <strong>Service check</strong>

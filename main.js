@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog, shell, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const axios = require('axios');
@@ -230,6 +230,7 @@ function loadSettings() {
         meetingMemory: store.get('meetingMemory', ''),
         captureProtectionEnabled: store.get('captureProtectionEnabled', true),
         uiOpacity: store.get('uiOpacity', 100),
+        nudgeHotkey: store.get('nudgeHotkey', 'Ctrl+Shift+N'),
         activeCaptureBounds: store.get('activeCaptureBounds', null),
         debugTraceEnabled: store.get('debugTraceEnabled', process.env.CLYDE_DISABLE_SESSION_TRACE !== '1')
     };
@@ -2152,11 +2153,29 @@ function createWindow () {
           sendAudioStatus({ state: 'capturing', message });
           enterActiveCaptureWindow();
           updateHealth('capture', { state: 'ready', detail: message });
+
+          if (settings.nudgeHotkey) {
+              try {
+                  globalShortcut.register(settings.nudgeHotkey, () => {
+                      log.info(`Global hotkey triggered: ${settings.nudgeHotkey}`);
+                      if (mainWindow && !mainWindow.isDestroyed()) {
+                          mainWindow.webContents.send('trigger-nudge');
+                      }
+                  });
+              } catch (error) {
+                  log.error(`Failed to register global hotkey: ${error.message}`);
+              }
+          }
       }
   });
 
   ipcMain.on('stop-audio-capture', () => {
       writeSessionTrace('capture.stop.requested', {});
+      try {
+          globalShortcut.unregisterAll();
+      } catch (err) {
+          log.warn(`globalShortcut.unregisterAll failed: ${err.message}`);
+      }
       capturePaused = false;
       audioCaptureRunning = false;
       if (audioCaptures) {
