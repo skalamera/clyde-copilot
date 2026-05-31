@@ -149,7 +149,8 @@ const EMPTY_SETTINGS = {
   demoMode: false,
   captureProtectionEnabled: true,
   uiOpacity: 100,
-  nudgeHotkey: 'Ctrl+Shift+N'
+  nudgeHotkey: 'Ctrl+Shift+N',
+  theme: 'default'
 };
 
 const COMMANDS = [
@@ -3078,6 +3079,15 @@ function App() {
     useEffect(() => {
     applyUiOpacityToRoot(settings.uiOpacity, activeCapture);
   }, [settings.uiOpacity, activeCapture]);
+
+  useEffect(() => {
+    const theme = settings.theme || 'default';
+    const classes = document.documentElement.className.split(' ').filter(c => !c.startsWith('theme-'));
+    if (theme !== 'default') {
+      classes.push(`theme-${theme}`);
+    }
+    document.documentElement.className = classes.join(' ').trim();
+  }, [settings.theme]);
 
   useEffect(() => {
     if (!api?.onZoomDetected) {
@@ -11205,6 +11215,35 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           </div>
           <small className="wide-field" style={{ color: 'var(--muted)', marginTop: '-8px', marginBottom: '10px' }}>
             Click inside the box and press a key combination (e.g., Ctrl+Shift+N) to record. The shortcut will be registered globally during live calls.
+          </small>
+          <div className="wide-field floating-agent-settings">
+            <span>App Color Theme</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <select
+                value={draft.theme || 'default'}
+                onChange={(event) => update('theme', event.target.value)}
+                style={{
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  borderRadius: '4px',
+                  padding: '6px 12px',
+                  cursor: 'pointer',
+                  width: '180px'
+                }}
+              >
+                <option value="default" style={{ background: '#071018', color: '#fff' }}>Midnight Blue (Default)</option>
+                <option value="cyberpunk" style={{ background: '#10051d', color: '#fff' }}>Neon Cyberpunk</option>
+                <option value="forest" style={{ background: '#050e0a', color: '#fff' }}>Emerald Forest</option>
+                <option value="amber" style={{ background: '#0e0a05', color: '#fff' }}>Retro Amber</option>
+                <option value="slate" style={{ background: '#0f1115', color: '#fff' }}>Nordic Slate</option>
+                <option value="snow" style={{ background: '#f8fafc', color: '#0f172a' }}>Nordic Snow (Light)</option>
+                <option value="blossom" style={{ background: '#fffbfb', color: '#4c0519' }}>Sakura Blossom (Light)</option>
+              </select>
+            </div>
+          </div>
+          <small className="wide-field" style={{ color: 'var(--muted)', marginTop: '-8px', marginBottom: '10px' }}>
+            Choose a visual style for the Clyde desktop application.
           </small>
           <div className="wide-field validate-services-card">
             <div>

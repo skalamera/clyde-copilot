@@ -232,7 +232,8 @@ function loadSettings() {
         uiOpacity: store.get('uiOpacity', 100),
         nudgeHotkey: store.get('nudgeHotkey', 'Ctrl+Shift+N'),
         activeCaptureBounds: store.get('activeCaptureBounds', null),
-        debugTraceEnabled: store.get('debugTraceEnabled', process.env.CLYDE_DISABLE_SESSION_TRACE !== '1')
+        debugTraceEnabled: store.get('debugTraceEnabled', process.env.CLYDE_DISABLE_SESSION_TRACE !== '1'),
+        theme: store.get('theme', 'default')
     };
 
     // Inject back into process.env so existing modules (like pineconeClient.js) can read them
