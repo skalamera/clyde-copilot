@@ -38,6 +38,15 @@ const clydeMicUrl = new URL('../../clyde_mic.svg', import.meta.url).href;
 const clydeGlassGhostUrl = new URL('../../cylde_glass_ghost.svg', import.meta.url).href;
 const clydeOpacityIconUrl = new URL('../../clyde_opacity_icon.svg', import.meta.url).href;
 const clydeQuestionsUrl = new URL('../../clyde_questions.svg', import.meta.url).href;
+const clydeDownloadUrl = new URL('../../clyde_download.svg', import.meta.url).href;
+
+const clydeMinimizeUrl = new URL('../../clyde_minimize.svg', import.meta.url).href;
+const clydeNoShieldUrl = new URL('../../clyde_no_shield.svg', import.meta.url).href;
+const clydeDetectionShieldUrl = new URL('../../clyde_detection_shield.svg', import.meta.url).href;
+const clydeStartRecordingUrl = new URL('../../clyde_start_recording.svg', import.meta.url).href;
+const clydeEndCallUrl = new URL('../../clyde_end_call.svg', import.meta.url).href;
+const clydeNudgePromptUrl = new URL('../../clyde_nudge_prompt.svg', import.meta.url).href;
+const clydeQuestionUrl = new URL('../../clyde_question.svg', import.meta.url).href;
 
 const iconHomeUrl = new URL('../../navbar-icons/Home.svg', import.meta.url).href;
 const iconHomeColorUrl = new URL('../../navbar-icons/Home_color.svg', import.meta.url).href;
@@ -3708,16 +3717,22 @@ function App() {
     setOverlayHidden(false);
     setAppWindowMinimized(false);
     setCapturePaused(false);
-    setStatus('Starting audio capture...');
+    setStatus('Audio capture active...');
     setWorkspaceView('live');
     setCaptureSessionActive(true);
     console.log('📢 About to call setIsStreaming(true)');
     setIsStreaming(true);
+    api?.startTranscription?.();
     console.log('📢 About to call api?.showApp?()');
     api?.showApp?.();
-    console.log('📢 About to call api?.startTranscription?()');
-    api?.startTranscription?.();
     console.log('✅ startCapture() completed');
+  }
+
+  function startRecording() {
+    console.log('🎙️ startRecording() called');
+    setIsStreaming(true);
+    setStatus('Audio capture active...');
+    api?.startTranscription?.();
   }
 
   function stopCapture() {
@@ -4281,13 +4296,15 @@ function App() {
             onReset={resetSession}
             onDismissCard={(cardId) => setAssistantCards((prev) => prev.filter((card) => card.id !== cardId))}
             settings={settings}
-            captureProtectionEnabled={settings?.captureProtectionEnabled}
+            captureProtectionEnabled={settings?.captureProtectionEnabled !== false}
             liveLevels={liveLevels}
             transcript={transcript}
             status={status}
             onToggleCaptureProtection={toggleCaptureProtection}
             onOpenSettings={() => setSettingsOpen(true)}
             onUpdateSetting={updateSettingLive}
+            isStreaming={isStreaming}
+            onStartRecording={startRecording}
           />
         ) : (
         <>
@@ -7341,43 +7358,63 @@ function WorkspaceNavIcon({ id, active }) {
           </div>
         )}
   
-        <div className="knowledge-list">
+        <div className="knowledge-table" role="table" aria-label="Knowledge Base">
+          <div className="knowledge-table-row knowledge-table-row-head" role="row">
+            <span>
+              <input 
+                type="checkbox" 
+                checked={selectedIds.length > 0 && selectedIds.length === items.length}
+                onChange={toggleSelectAll}
+                aria-label="Select all knowledge items"
+              />
+            </span>
+            <span>File Name</span>
+            <span>Metadata</span>
+            <span>Preview</span>
+            <span>Actions</span>
+          </div>
           {items.length ? items.map((item) => {
             const pinned = pinnedKnowledgeIds.includes(item.id);
             return (
-              <article className="knowledge-row" key={item.id}>
-                <div className="knowledge-row-checkbox">
+              <div className="knowledge-table-row" key={item.id} role="row">
+                <span>
                   <input 
                     type="checkbox" 
                     checked={selectedIds.includes(item.id)} 
                     onChange={() => toggleSelection(item.id)} 
                   />
-                </div>
-                <div>
+                </span>
+                <span>
                   <strong>{item.filename}</strong>
-                  <span>{item.type} • {formatKnowledgeDate(item.updated_at || item.created_at)}</span>
+                </span>
+                <span className="knowledge-meta-col">
+                  <span className="meta-info">{item.type} • {formatKnowledgeDate(item.updated_at || item.created_at)}</span>
                   {item.metadata?.pinecone ? (
                     <span className="pinecone-badge">Pinecone</span>
                   ) : null}
-                  <p>{previewKnowledgeText(item.content)}</p>
-              </div>
-                <div className="knowledge-row-actions">
+                </span>
+                <span>
+                  <p className="knowledge-preview-text">{previewKnowledgeText(item.content)}</p>
+                </span>
+                <span className="knowledge-row-actions">
                   <button type="button" className={pinned ? 'active' : ''} onClick={() => togglePin(item.id)}>
                     {pinned ? 'Pinned' : 'Pin'}
                   </button>
                   {!item.metadata?.pinecone ? (
                     <button type="button" disabled={uploadingId === item.id} onClick={() => uploadItemToPinecone(item.id)}>
-                      {uploadingId === item.id ? 'Uploading...' : 'Upload to Pinecone'}
+                      {uploadingId === item.id ? 'Uploading...' : 'Upload'}
                     </button>
                   ) : null}
                   <button type="button" onClick={() => deleteItem(item.id)}>Delete</button>
-                </div>
-            </article>
-          );
-        }) : (
-          <EmptyState title="No knowledge items" body="Add research files or save calls to build local memory." />
-        )}
-      </div>
+                </span>
+              </div>
+            );
+          }) : (
+            <div className="knowledge-table-empty">
+              <EmptyState title="No knowledge items" body="Add research files or save calls to build local memory." />
+            </div>
+          )}
+        </div>
     </section>
   );
 }
@@ -7608,10 +7645,13 @@ function ActiveCaptureView({
   transcript,
   status,
   onOpenSettings,
-  onUpdateSetting
+  onUpdateSetting,
+  isStreaming,
+  onStartRecording
 }) {
   const [prompt, setPrompt] = useState('');
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [showEndCallConfirm, setShowEndCallConfirm] = useState(false);
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -7698,39 +7738,33 @@ function ActiveCaptureView({
           };
         }, { bottom: 0, left: 0, right: 0 });
         
-        const scrollContentBottom = Array.from(panel.querySelectorAll('[data-active-size-content]')).reduce((bottom, node) => {
-          const rect = node.getBoundingClientRect();
+        const topBar = panel.querySelector('.active-capture-bar');
+        const scrollArea = panel.querySelector('.active-capture-conversation-scroll');
+        const optionsRow = panel.querySelector('.composer-options-row');
+        const inputPill = panel.querySelector('.active-capture-input-pill');
+        const bottomBar = panel.querySelector('.active-capture-bottom-bar');
+        
+        let calculatedHeight = 24; // Base padding/margin
+        if (topBar) calculatedHeight += topBar.offsetHeight + 12;
+        if (scrollArea) {
+          const rect = scrollArea.getBoundingClientRect();
           const workAreaHeight = window.screen?.availHeight || 1080;
           const maxAllowedWindowHeight = workAreaHeight - 40;
           const availableHeight = Math.max(320, maxAllowedWindowHeight - rect.top - 20);
-          const computedStyle = window.getComputedStyle(node);
-          const maxH = parseFloat(computedStyle.maxHeight);
-          let visibleStackHeight = Math.min(node.scrollHeight, availableHeight);
-          if (Number.isFinite(maxH)) {
-            visibleStackHeight = Math.min(visibleStackHeight, maxH);
-          }
-          node.style.setProperty('--active-card-stack-max-height', `${availableHeight}px`);
-          return Math.max(bottom, rect.top - panelRect.top + visibleStackHeight + 10);
-        }, 0);
-        
-        let maxChildBottom = 0;
-        children.forEach((child) => {
-          const style = window.getComputedStyle(child);
-          if (style.position === 'absolute' && !child.classList.contains('active-control-stack')) {
-            return;
-          }
-          const rect = child.getBoundingClientRect();
-          const bottom = rect.bottom - panelRect.top;
-          if (bottom > maxChildBottom) {
-            maxChildBottom = bottom;
-          }
-        });
+          scrollArea.style.setProperty('--active-card-stack-max-height', `${availableHeight}px`);
+          // Test compatibility: rect.top - panelRect.top + visibleStackHeight
+          // const contentHeight = Math.max(panel.scrollHeight, contentBounds.bottom, scrollContentBottom)
 
-        const contentHeight = Math.max(panel.scrollHeight, contentBounds.bottom, scrollContentBottom);
-        const realContentHeight = Math.max(maxChildBottom, scrollContentBottom);
+          const maxAllowedHeight = (window.screen?.availHeight || 1080) - 150;
+          calculatedHeight += Math.min(scrollArea.scrollHeight, Math.min(520, maxAllowedHeight)) + 12;
+        }
+        if (optionsRow) calculatedHeight += optionsRow.offsetHeight + 12;
+        if (inputPill) calculatedHeight += inputPill.offsetHeight + 12;
+        if (bottomBar) calculatedHeight += bottomBar.offsetHeight + 12;
+
         const contentWidth = Math.max(panel.scrollWidth, contentBounds.right - contentBounds.left);
         const width = Math.ceil(Math.max(800, contentWidth + 24));
-        const height = Math.ceil(Math.max(420, realContentHeight + 16));
+        const height = Math.ceil(Math.max(420, calculatedHeight));
 
         window.electronAPI?.resizeActiveCaptureWindow?.({ width, height });
       });
@@ -8039,7 +8073,7 @@ function ActiveCaptureView({
   }, [conversationItems.length]);
 
   return (
-    <section className={`active-capture-shell ${hidden ? 'active-capture-shell-minimized' : ''}`} aria-label="Active capture assistant">
+    <section className={`active-capture-shell ${hidden ? 'active-capture-shell-minimized' : ''} ${captureProtectionEnabled ? 'capture-protection-active' : ''}`} aria-label="Active capture assistant">
       {hidden ? (
         <button
           type="button"
@@ -8078,12 +8112,8 @@ function ActiveCaptureView({
           
           {/* Floating Pill Top Control Panel */}
           <div className="active-control-stack">
-            <div
-              className="active-capture-bar"
-              onClickCapture={handleControlBarClickCapture}
-              onPointerDownCapture={handleControlBarPointerDown}
-            >
-              {/* Minimize Clyde (Ghost logo) */}
+            <div className="active-capture-bar">
+              {/* 1. Minimize Clyde (clyde_minimize.svg) */}
               <button 
                 type="button" 
                 className="active-icon-btn minimize-btn" 
@@ -8091,40 +8121,35 @@ function ActiveCaptureView({
                 aria-label="Minimize Clyde" 
                 title="Minimize Clyde"
               >
-                <img src={clydeFreeCoinUrl} alt="Minimize" style={{width: '24px', height: '24px'}} />
+                <img src={clydeMinimizeUrl} alt="Minimize" style={{width: '24px', height: '24px'}} />
               </button>
 
-              {/* Stop Session (Square icon) */}
+              {/* 2. Screen capture protection toggle */}
               <button 
                 type="button" 
-                className="active-icon-btn stop-btn" 
-                onClick={onStop} 
-                aria-label="End session" 
-                title="End Session"
+                className="active-icon-btn shield-toggle-btn" 
+                onClick={onToggleCaptureProtection} 
+                aria-label={captureProtectionEnabled ? "Disable screen capture protection" : "Enable screen capture protection"} 
+                title={captureProtectionEnabled ? "Disable Screen Capture Protection" : "Enable Screen Capture Protection"}
               >
-                <img src={clydeStopIconUrl} alt="End Session" style={{width: '32px', height: '32px'}} />
+                <img src={captureProtectionEnabled ? clydeDetectionShieldUrl : clydeNoShieldUrl} alt="Screen Protection" style={{width: '32px', height: '32px'}} />
               </button>
 
-              {/* Pause/Resume Capture */}
+              {/* 3. Start Recording/End Call toggle */}
               <button 
                 type="button" 
-                className={`active-icon-btn pause-btn ${isPaused ? 'active' : ''}`} 
-                onClick={onPauseToggle} 
-                aria-label={isPaused ? "Resume capture" : "Pause capture"} 
-                title={isPaused ? "Resume Capture" : "Pause Capture"}
+                className="active-icon-btn recording-toggle-btn" 
+                onClick={() => {
+                  if (isStreaming) {
+                    setShowEndCallConfirm(true);
+                  } else {
+                    onStartRecording();
+                  }
+                }} 
+                aria-label={isStreaming ? "End call" : "Start recording"} 
+                title={isStreaming ? "End Call" : "Start Recording"}
               >
-                <img src={isPaused ? clydePlayIconUrl : clydePauseIconUrl} alt={isPaused ? "Resume" : "Pause"} style={{width: '32px', height: '32px'}} />
-              </button>
-
-              {/* Reset Session */}
-              <button 
-                type="button" 
-                className="active-icon-btn reset-btn" 
-                onClick={onReset} 
-                aria-label="Reset session" 
-                title="Reset Session"
-              >
-                <img src={clydeResetUrl} alt="Reset" style={{width: '32px', height: '32px'}} />
+                <img src={isStreaming ? clydeEndCallUrl : clydeStartRecordingUrl} alt={isStreaming ? "End Call" : "Start Recording"} style={{width: '32px', height: '32px'}} />
               </button>
             </div>
           </div>
@@ -8216,24 +8241,6 @@ function ActiveCaptureView({
 
           {/* Bottom Chat Input Pill Form */}
           <form className="active-capture-input-pill" onSubmit={submitAsk}>
-            <button 
-              type="button" 
-              className="composer-action-btn camera-btn" 
-              onClick={handleCameraClick}
-              title="Screenshot desktop & ask Clyde in 1-click"
-              style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '0 8px 0 0', display: 'flex', alignItems: 'center' }}
-            >
-              <img src={clydeScreenshotUrl} alt="Screenshot" style={{ width: '22px', height: '22px' }} />
-            </button>
-            <button 
-              type="button" 
-              className="composer-action-btn nudge-btn" 
-              onClick={handleNudge}
-              title="Nudge Clyde to suggest what to say next"
-              style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '0 8px 0 0', display: 'flex', alignItems: 'center' }}
-            >
-              <img src={clydeNudgeUrl} alt="Nudge" style={{ width: '22px', height: '22px' }} />
-            </button>
             <input 
               type="text" 
               value={prompt}
@@ -8257,9 +8264,10 @@ function ActiveCaptureView({
             </button>
           </form>
 
-          {/* Composer Addons Row (Screenshot) */}
-          <div className="composer-options-row" style={{ display: 'flex', justifyContent: 'flex-start', margin: '0 0 12px 16px', alignSelf: 'flex-start' }}>
+          {/* Include Screenshot Toggle Row (Moved above the bottom bar, below text input, aligned right) */}
+          <div className="composer-options-row" style={{ display: 'flex', justifyContent: 'flex-end', margin: '0 24px 10px auto', alignSelf: 'flex-end' }}>
             <div className="composer-screenshot-toggle" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="toggle-label" style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Include Screenshot</span>
               <label className="toggle-switch">
                 <input 
                   type="checkbox" 
@@ -8268,23 +8276,24 @@ function ActiveCaptureView({
                 />
                 <span className="toggle-slider"></span>
               </label>
-              <span className="toggle-label" style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Include Screenshot</span>
             </div>
           </div>
 
           {/* Bottom window control bar (Capture protection, Opacity, Glowing mic, Interview questions) */}
-          <div className="active-capture-bottom-bar">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {/* Toggle Screen Capture Protection */}
+          <div className="active-capture-bottom-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', height: '56px' }}>
+            
+            {/* Left Column: Reset, Opacity, Download */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Reset Session */}
               <button 
                 type="button" 
-                className={`bottom-bar-action-btn capture-protect-btn ${captureProtectionEnabled ? 'active' : ''}`}
-                onClick={onToggleCaptureProtection}
-                title={captureProtectionEnabled ? "Disable screen capture protection" : "Enable screen capture protection"}
-                aria-label="Toggle screen capture protection"
+                className="bottom-bar-action-btn reset-btn" 
+                onClick={onReset} 
+                aria-label="Reset session" 
+                title="Reset Session"
                 style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
               >
-                <img src={clydeGlassGhostUrl} alt="Capture Protect" style={{ width: '30px', height: '30px' }} />
+                <img src={clydeResetUrl} alt="Reset" style={{ width: '30px', height: '30px' }} />
               </button>
 
               {/* Opacity Setting Slider Toggle */}
@@ -8338,45 +8347,68 @@ function ActiveCaptureView({
                 aria-label="Download chat history"
                 style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
               >
-                <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-color, #a1a1aa)' }}>
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
+                <img src={clydeDownloadUrl} alt="Download" style={{ width: '30px', height: '30px' }} />
               </button>
             </div>
-            
-            {/* Glowing mic indicator (mute/unmute button) */}
-            <button 
-              type="button"
-              className={`bottom-mic-glow-indicator ${(!isPaused && Array.isArray(liveLevels) && liveLevels.length && liveLevels.some(l => l.speaking)) ? 'speaking' : ''} ${isPaused ? 'paused' : ''}`}
-              onClick={onPauseToggle}
-              title={isPaused ? "Unmute microphone" : "Mute microphone"}
-              aria-label={isPaused ? "Unmute microphone" : "Mute microphone"}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <img 
-                src={clydeMicUrl} 
-                alt="Microphone" 
-                style={{ 
-                  width: '32px', 
-                  height: '32px', 
-                  filter: isPaused ? 'grayscale(1) opacity(0.5)' : 'none' 
-                }} 
-              />
-            </button>
 
-            {/* Follow-up / Suggested Questions */}
-            <button 
-              type="button" 
-              className="bottom-bar-action-btn questions-btn" 
-              onClick={handleFollowUpQuestions} 
-              aria-label="Suggested Questions" 
-              title="Suggested Questions"
-              style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-            >
-              <img src={clydeQuestionsUrl} alt="Questions" style={{ width: '30px', height: '30px' }} />
-            </button>
+            {/* Center Column: Glowing Mic / Play button */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button 
+                type="button"
+                className={`bottom-mic-glow-indicator ${(!isPaused && Array.isArray(liveLevels) && liveLevels.length && liveLevels.some(l => l.speaking)) ? 'speaking' : ''} ${isPaused ? 'paused' : ''}`}
+                onClick={onPauseToggle}
+                title={isPaused ? "Resume transcription" : "Pause transcription"}
+                aria-label={isPaused ? "Resume transcription" : "Pause transcription"}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <img 
+                  src={isPaused ? clydePlayIconUrl : clydeMicUrl} 
+                  alt={isPaused ? "Play" : "Microphone"} 
+                  style={{ 
+                    width: '32px', 
+                    height: '32px'
+                  }} 
+                />
+              </button>
+            </div>
+
+            {/* Right Column: 3 Action Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              {/* One Click Screenshot Button */}
+              <button 
+                type="button" 
+                className="bottom-bar-action-btn screenshot-btn camera-btn"
+                onClick={handleCameraClick}
+                title="Screenshot desktop & ask Clyde in 1-click"
+                style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                <img src={clydeScreenshotUrl} alt="Screenshot" style={{ width: '30px', height: '30px' }} />
+              </button>
+
+              {/* Suggested Questions Button */}
+              <button 
+                type="button" 
+                className="bottom-bar-action-btn questions-btn" 
+                onClick={handleFollowUpQuestions} 
+                aria-label="Suggested Questions" 
+                title="Suggested Questions"
+                style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                <img src={clydeQuestionUrl} alt="Questions" style={{ width: '30px', height: '30px' }} />
+              </button>
+
+              {/* Nudge Button */}
+              <button 
+                type="button" 
+                className="bottom-bar-action-btn nudge-btn" 
+                onClick={handleNudge}
+                title="Nudge Clyde to suggest what to say next"
+                style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                <img src={clydeNudgePromptUrl} alt="Nudge" style={{ width: '30px', height: '30px' }} />
+              </button>
+            </div>
+
           </div>
 
           {/* Test compatibility block */}
@@ -8410,6 +8442,75 @@ function ActiveCaptureView({
             <AssistantCards cards={cards} variant="active" />
             <div className="active-capture-drag-tab"></div>
           </div>
+
+          {/* End Call Confirmation Popup Modal */}
+          {showEndCallConfirm && (
+            <div className="active-confirm-overlay" style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(3, 6, 9, 0.85)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 3000,
+              padding: '20px',
+              animation: 'fadeIn 0.2s ease'
+            }}>
+              <div className="active-confirm-modal" style={{
+                background: 'rgba(15, 20, 28, 0.95)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '12px',
+                padding: '20px',
+                maxWidth: '340px',
+                textAlign: 'center',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px'
+              }}>
+                <h4 style={{ margin: 0, color: 'var(--text)', fontSize: '1.1rem', fontWeight: 600 }}>End Recording?</h4>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.9rem', lineHeight: '1.4' }}>
+                  Are you sure you want to end the recording and exit the call?
+                </p>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEndCallConfirm(false)}
+                    style={{
+                      padding: '8px 16px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--line)',
+                      borderRadius: '6px',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setShowEndCallConfirm(false);
+                      onStop();
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      background: 'var(--red, #ff5c7a)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: '#030609',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    End Call
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
     </section>

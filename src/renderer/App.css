@@ -820,10 +820,20 @@ textarea:focus {
   min-width: 0;
 }
 
-.view-tab.active {
-  background: linear-gradient(135deg, rgba(79, 231, 255, 0.18), rgba(155, 140, 255, 0.16)) !important;
-  border-color: rgba(79, 231, 255, 0.38) !important;
-  box-shadow: inset 0 0 0 1px rgba(79, 231, 255, 0.08) !important;
+.view-tab.active,
+.workspace-nav .view-tab.active {
+  background: linear-gradient(135deg, var(--cyan), var(--violet)) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.view-tab.active,
+.view-tab.active strong,
+.view-tab.active span,
+.workspace-nav .view-tab.active,
+.workspace-nav .view-tab.active strong,
+.workspace-nav .view-tab.active span {
+  color: #030609 !important;
 }
 
 .view-tab.disabled-tab {
@@ -2277,7 +2287,8 @@ textarea:focus {
   padding: 0;
   position: absolute;
   right: -17px;
-  top: 112px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 34px;
   z-index: 5;
 }
@@ -2487,6 +2498,121 @@ textarea:focus {
 .knowledge-row-actions .active {
   background: rgba(166, 255, 106, 0.14);
   border-color: rgba(166, 255, 106, 0.34);
+}
+
+/* Tabular Knowledge Base Table (Styled like Question Bank Table) */
+.knowledge-table {
+  background:
+    linear-gradient(145deg, rgba(79, 231, 255, 0.08), rgba(155, 140, 255, 0.025)),
+    rgba(10, 19, 30, 0.65);
+  border: 1px solid rgba(130, 180, 220, 0.22);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 16px;
+}
+
+.knowledge-table-row {
+  display: grid;
+  gap: 16px;
+  /* Columns: Checkbox (40px), Filename (1.2fr), Metadata (1.1fr), Preview (1.7fr), Actions (250px) */
+  grid-template-columns: 40px 1.2fr 1.1fr 1.7fr 250px;
+  padding: 16px 20px;
+  align-items: center;
+}
+
+.knowledge-table-row:not(.knowledge-table-row-head) {
+  border-top: 1px solid rgba(154, 202, 255, 0.08);
+}
+
+.knowledge-table-row-head {
+  background: rgba(154, 202, 255, 0.04);
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.knowledge-table-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.knowledge-table-row:hover:not(.knowledge-table-row-head) {
+  background: rgba(154, 202, 255, 0.03);
+}
+
+.knowledge-table-row span input[type="checkbox"] {
+  cursor: pointer;
+  height: 16px;
+  width: 16px;
+}
+
+.knowledge-table-row .knowledge-row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.knowledge-table-row .knowledge-row-actions button {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  transition: all 0.2s ease;
+}
+
+.knowledge-table-row .knowledge-row-actions button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--line-strong);
+}
+
+.knowledge-table-row .knowledge-row-actions button.active {
+  background: rgba(166, 255, 106, 0.12) !important;
+  border-color: rgba(166, 255, 106, 0.35) !important;
+  color: #a6ff6a !important;
+}
+
+.knowledge-table-row .knowledge-row-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.knowledge-table-empty {
+  color: var(--muted);
+  padding: 32px;
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.knowledge-preview-text {
+  color: #d8e6ef;
+  line-height: 1.45;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.knowledge-meta-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.knowledge-meta-col .meta-info {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .pro-setting-group {
@@ -8738,7 +8864,7 @@ body:has(.app-shell-active) {
   transform: translateX(-50%) !important;
   margin: 0 !important;
   z-index: 1000 !important;
-  opacity: 0.55 !important;
+  opacity: 1 !important;
   transition: opacity 0.2s ease-in-out !important;
 }
 
@@ -8884,17 +9010,21 @@ body:has(.app-shell-active) {
 }
 
 .chat-bubble.blue {
-  background: linear-gradient(135deg, #007aff, #0056d6) !important;
+  background: rgba(0, 122, 255, 0.45) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
   color: #ffffff !important;
   border-bottom-right-radius: 4px !important;
-  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25) !important;
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.15) !important;
 }
 
 .chat-bubble.gray {
-  background: rgba(38, 38, 43, 0.85) !important;
+  background: rgba(38, 38, 43, 0.5) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
   color: #f2f2f7 !important;
   border-bottom-left-radius: 4px !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
 .transcript-bubble-nudge-btn {
@@ -8951,7 +9081,9 @@ body:has(.app-shell-active) {
 }
 
 .clyde-answer-card {
-  background: linear-gradient(135deg, #1f2630 0%, #121720 100%) !important;
+  background: rgba(21, 26, 35, 0.6) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5) !important;
   border-radius: 28px 4px 28px 4px !important;
@@ -9093,6 +9225,9 @@ body:has(.app-shell-active) {
   border-radius: 50% !important;
   width: 28px !important;
   height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  flex-shrink: 0 !important;
   display: grid !important;
   place-items: center !important;
   color: white !important;
@@ -9181,7 +9316,7 @@ body:has(.app-shell-active) {
 }
 
 input:checked + .toggle-slider {
-  background-color: #30d158 !important;
+  background-color: #26b5dd !important;
 }
 
 input:checked + .toggle-slider:before {
@@ -9314,9 +9449,18 @@ input:checked + .toggle-slider:before {
   transition: all 0.2s ease !important;
 }
 
+.bottom-bar-action-btn.capture-protect-btn img {
+  filter: grayscale(1) opacity(0.5);
+  transition: filter 0.2s ease !important;
+}
+
 .bottom-bar-action-btn.capture-protect-btn:hover {
   color: #ffffff !important;
   transform: scale(1.1) !important;
+}
+
+.bottom-bar-action-btn.capture-protect-btn:hover img {
+  filter: grayscale(1) opacity(0.8);
 }
 
 .bottom-bar-action-btn.capture-protect-btn.active {
@@ -9324,6 +9468,10 @@ input:checked + .toggle-slider:before {
   background: rgba(79, 231, 255, 0.12) !important;
   border-radius: 50% !important;
   box-shadow: 0 0 8px rgba(79, 231, 255, 0.1) !important;
+}
+
+.bottom-bar-action-btn.capture-protect-btn.active img {
+  filter: none;
 }
 
 .bottom-bar-action-btn.questions-btn {
@@ -9995,6 +10143,262 @@ input:checked + .toggle-slider:before {
 .theme-blossom .mock-avatar-ready strong,
 .theme-blossom .mock-turn p {
   color: #4c0519 !important;
+}
+
+/* ==========================================
+   Sakura Blossom & Snow Light Theme Overrides
+   ========================================== */
+
+/* 1. App Shell Background */
+.theme-blossom .app-shell,
+.theme-snow .app-shell {
+  background-color: var(--body-base-rgba) !important;
+  background-image: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* 2. Workspace View Panels & Tables (Disable backdrop blur black fallback in transparent Electron) */
+.theme-blossom .timeline-view,
+.theme-blossom .status-strip,
+.theme-blossom .setup-panel,
+.theme-blossom .live-panel,
+.theme-blossom .context-panel,
+.theme-blossom .settings-drawer,
+.theme-blossom .question-bank-table,
+.theme-blossom .question-bank-dashboard article,
+.theme-blossom .question-bank-insights section,
+.theme-blossom .question-bank-editor,
+.theme-blossom .knowledge-table,
+.theme-blossom .trends-overview-hero,
+.theme-blossom .trends-overview-panel,
+.theme-blossom .trends-overview-kpi,
+.theme-blossom .trends-ranking-card,
+.theme-blossom .session-block {
+  background: #ffffff !important;
+  border-color: #fecdd3 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 4px 20px rgba(219, 39, 119, 0.03) !important;
+}
+
+.theme-snow .timeline-view,
+.theme-snow .status-strip,
+.theme-snow .setup-panel,
+.theme-snow .live-panel,
+.theme-snow .context-panel,
+.theme-snow .settings-drawer,
+.theme-snow .question-bank-table,
+.theme-snow .question-bank-dashboard article,
+.theme-snow .question-bank-insights section,
+.theme-snow .question-bank-editor,
+.theme-snow .knowledge-table,
+.theme-snow .trends-overview-hero,
+.theme-snow .trends-overview-panel,
+.theme-snow .trends-overview-kpi,
+.theme-snow .trends-ranking-card,
+.theme-snow .session-block {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+}
+
+/* 3. Text colors inside evaluation/action sections */
+.theme-blossom .evaluation-section p,
+.theme-blossom .action-item-list,
+.theme-blossom .action-item-list li,
+.theme-blossom .timeline-session-area h3 {
+  color: #4c0519 !important;
+}
+
+.theme-snow .evaluation-section p,
+.theme-snow .action-item-list,
+.theme-snow .action-item-list li,
+.theme-snow .timeline-session-area h3 {
+  color: #0f172a !important;
+}
+
+/* 4. Timeline View left rail items */
+.theme-blossom .opportunity-row > button:first-child {
+  background: #ffffff !important;
+  border: 1px solid #fecdd3 !important;
+  color: #4c0519 !important;
+}
+
+.theme-blossom .opportunity-row > button:first-child:hover {
+  background: #fff1f2 !important;
+  border-color: #db2777 !important;
+}
+
+.theme-blossom .opportunity-row > button:first-child.active {
+  background: #fce7f3 !important;
+  border-color: #db2777 !important;
+  color: #db2777 !important;
+}
+
+.theme-blossom .opportunity-row > button:first-child strong {
+  color: #4c0519 !important;
+}
+
+.theme-snow .opportunity-row > button:first-child {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.theme-snow .opportunity-row > button:first-child:hover {
+  background: #f1f5f9 !important;
+  border-color: #0284c7 !important;
+}
+
+.theme-snow .opportunity-row > button:first-child.active {
+  background: #e0f2fe !important;
+  border-color: #0284c7 !important;
+  color: #0284c7 !important;
+}
+
+.theme-snow .opportunity-row > button:first-child strong {
+  color: #0f172a !important;
+}
+
+/* 5. Chart SVG elements styling */
+.theme-blossom svg text {
+  fill: #4c0519 !important;
+}
+
+.theme-blossom svg line {
+  stroke: rgba(219, 39, 119, 0.16) !important;
+}
+
+.theme-snow svg text {
+  fill: #0f172a !important;
+}
+
+.theme-snow svg line {
+  stroke: rgba(15, 23, 42, 0.12) !important;
+}
+
+/* 6. Action buttons and search inputs in tables */
+.theme-blossom .question-bank-row button,
+.theme-blossom .knowledge-table-row button {
+  background: #ffffff !important;
+  border: 1px solid #fecdd3 !important;
+  color: #4c0519 !important;
+}
+
+.theme-blossom .question-bank-row button:hover,
+.theme-blossom .knowledge-table-row button:hover {
+  background: #fef1f2 !important;
+  border-color: #db2777 !important;
+}
+
+.theme-snow .question-bank-row button,
+.theme-snow .knowledge-table-row button {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.theme-snow .question-bank-row button:hover,
+.theme-snow .knowledge-table-row button:hover {
+  background: #f1f5f9 !important;
+  border-color: #0284c7 !important;
+}
+
+/* 7. Mock Interview Library Drawer and Saved Items Overrides */
+.theme-blossom .mock-library-modal {
+  background: #fffbfb !important;
+  border-left-color: #fecdd3 !important;
+  box-shadow: -20px 0 60px rgba(219, 39, 119, 0.05) !important;
+}
+
+.theme-snow .mock-library-modal {
+  background: #f8fafc !important;
+  border-left-color: #cbd5e1 !important;
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-blossom .mock-saved-item {
+  background: #ffffff !important;
+  border-color: #fecdd3 !important;
+  color: #4c0519 !important;
+}
+
+.theme-blossom .mock-saved-item:hover {
+  background: #fef1f2 !important;
+}
+
+.theme-blossom .mock-saved-item.active {
+  background: rgba(37, 211, 174, 0.08) !important;
+  border-color: rgba(37, 211, 174, 0.42) !important;
+}
+
+.theme-blossom .mock-saved-tabs {
+  background: #fef1f2 !important;
+  border-color: #fecdd3 !important;
+}
+
+.theme-blossom .mock-saved-tabs button {
+  color: #9f1239 !important;
+}
+
+.theme-blossom .mock-saved-tabs button.active {
+  background: #ffffff !important;
+  color: #db2777 !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04) !important;
+}
+
+.theme-snow .mock-saved-item {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.theme-snow .mock-saved-item:hover {
+  background: #f1f5f9 !important;
+}
+
+.theme-snow .mock-saved-item.active {
+  background: rgba(37, 211, 174, 0.08) !important;
+  border-color: rgba(37, 211, 174, 0.42) !important;
+}
+
+.theme-snow .mock-saved-tabs {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.theme-snow .mock-saved-tabs button {
+  color: #475569 !important;
+}
+
+.theme-snow .mock-saved-tabs button.active {
+  background: #ffffff !important;
+  color: #0284c7 !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04) !important;
+}
+
+.theme-blossom .mock-saved-detail h3,
+.theme-blossom .mock-saved-detail h4,
+.theme-blossom .mock-saved-detail p,
+.theme-blossom .mock-saved-detail span,
+.theme-blossom .mock-saved-detail li {
+  color: #4c0519 !important;
+}
+
+.theme-snow .mock-saved-detail h3,
+.theme-snow .mock-saved-detail h4,
+.theme-snow .mock-saved-detail p,
+.theme-snow .mock-saved-detail span,
+.theme-snow .mock-saved-detail li {
+  color: #0f172a !important;
+}
+
+/* Screen Capture Protection toggled ON dashed border */
+.capture-protection-active .active-assistant-panel {
+  border: 2px dashed #00a7f4 !important;
 }
 
 

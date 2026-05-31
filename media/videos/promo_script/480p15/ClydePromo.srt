@@ -1,0 +1,16 @@
+1
+00:00:00,000 --> 00:00:02,000
+Introducing Clyde.
+
+2
+00:00:05,333 --> 00:00:07,833
+Your real-time interview co-pilot.
+
+3
+00:00:10,933 --> 00:00:13,933
+Get instant, context-aware AI suggestions.
+
+4
+00:00:14,733 --> 00:00:17,733
+Level up your live conversations today.
+
