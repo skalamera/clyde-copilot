@@ -204,6 +204,7 @@ const MAX_HISTORY_MESSAGES = 8;
         }
       } else if (payload.sourceMode === 'all') {
         sources.push(...draftSessionContextSources(payload));
+        sources.push(...allUploadedKnowledgeSources());
         sources.push(...allSessionSources());
         sources.push(...questionBankSources({ ...payload, allQuestionBank: true }));
         sources.push(...pinnedKnowledgeSources(payload.settings));
@@ -352,6 +353,13 @@ const MAX_HISTORY_MESSAGES = 8;
       .map((id) => knowledgeManager.getKnowledgeItem(id))
       .filter(Boolean)
       .map(sourceFromKnowledge);
+  }
+
+  function allUploadedKnowledgeSources() {
+    if (!knowledgeManager?.listKnowledge) {
+      return [];
+    }
+    return knowledgeManager.listKnowledge({ type: 'upload' }).map(sourceFromKnowledge);
   }
 
   function systemKnowledgeSources() {

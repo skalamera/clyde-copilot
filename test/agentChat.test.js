@@ -221,11 +221,20 @@ test('active context includes entity-scoped files', async () => {
   assert.equal(result.message.content, 'Entity file included.');
 });
 
-test('pro all sources includes interview and meeting transcripts', async () => {
+test('pro all sources includes interview, meeting, and uploaded knowledge files', async () => {
   const calls = [];
   const agent = createAgentChat({
     settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model', pinnedKnowledgeIds: ['pin-all'] },
     knowledgeManager: {
+      listKnowledge: (filters) => {
+        assert.deepEqual(filters, { type: 'upload' });
+        return [{
+          id: 'upload-zendesk',
+          filename: 'My Zendesk Number.txt',
+          content: 'Zendesk Number. 42',
+          type: 'upload'
+        }];
+      },
       getKnowledgeItem: (id) => (
         id === 'pin-all'
           ? { id, filename: 'Pinned all.txt', content: 'Pinned context should be included with all sources.' }
@@ -236,13 +245,13 @@ test('pro all sources includes interview and meeting transcripts', async () => {
       getSessions: (filters) => {
         calls.push(filters);
         if (filters.mode === 'interview') {
-          return [{
+          return Array.from({ length: 45 }, (_, index) => ({
             id: 'i1',
             mode: 'interview',
             entity: { id: 'apollo', name: 'Apollo' },
-            title: 'Recruiter Screen',
-            transcript: [{ speaker: 'Interviewer', text: 'Apollo interview transcript.' }]
-          }];
+            title: `Recruiter Screen ${index + 1}`,
+            transcript: [{ speaker: 'Interviewer', text: `Apollo interview transcript ${index + 1}.` }]
+          }));
         }
         return [{
           id: 'm1',
@@ -254,10 +263,10 @@ test('pro all sources includes interview and meeting transcripts', async () => {
       }
     },
     generateChat: async (request) => {
-      assert.match(request.messages[0].content, /Apollo interview transcript/);
-      assert.match(request.messages[0].content, /Meeting transcript/);
-      assert.match(request.messages[0].content, /Pinned context should be included/);
-      return JSON.stringify({ message: { content: 'Both transcript types included.', citations: [] }, pendingAction: null });
+      assert.match(request.messages[0].content, /Apollo interview transcript 1/);
+      assert.match(request.messages[0].content, /My Zendesk Number\.txt/);
+      assert.match(request.messages[0].content, /Zendesk Number\. 42/);
+      return JSON.stringify({ message: { content: 'All local sources included.', citations: [] }, pendingAction: null });
     }
   });
 
@@ -269,7 +278,7 @@ test('pro all sources includes interview and meeting transcripts', async () => {
   });
 
   assert.deepEqual(calls, [{ mode: 'interview' }, { mode: 'meeting' }]);
-  assert.equal(result.message.content, 'Both transcript types included.');
+  assert.equal(result.message.content, 'All local sources included.');
 });
 
 test('pro active and all sources include system knowledge documents', async () => {
