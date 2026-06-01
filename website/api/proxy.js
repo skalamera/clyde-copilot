@@ -12,6 +12,33 @@ function isActiveSubscription(subscription) {
   return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
 }
 
+function addAdditionalPropertiesFalse(schema) {
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+  const copy = { ...schema };
+  if (copy.type === 'object') {
+    copy.additionalProperties = false;
+  }
+  if (copy.properties) {
+    const nextProps = {};
+    for (const [key, value] of Object.entries(copy.properties)) {
+      nextProps[key] = addAdditionalPropertiesFalse(value);
+    }
+    copy.properties = nextProps;
+  }
+  if (copy.anyOf && Array.isArray(copy.anyOf)) {
+    copy.anyOf = copy.anyOf.map(addAdditionalPropertiesFalse);
+  }
+  if (copy.allOf && Array.isArray(copy.allOf)) {
+    copy.allOf = copy.allOf.map(addAdditionalPropertiesFalse);
+  }
+  if (copy.items) {
+    copy.items = addAdditionalPropertiesFalse(copy.items);
+  }
+  return copy;
+}
+
 export default async function handler(request, response) {
   if (request.method !== 'POST') {
     response.setHeader('Allow', 'POST');
@@ -122,11 +149,12 @@ export default async function handler(request, response) {
       };
 
       if (jsonSchema && jsonSchema.schema) {
+        const strictSchema = addAdditionalPropertiesFalse(jsonSchema.schema);
         oaiPayload.response_format = {
           type: 'json_schema',
           json_schema: {
             name: jsonSchema.name || 'json_response',
-            schema: jsonSchema.schema,
+            schema: strictSchema,
             strict: true
           }
         };
