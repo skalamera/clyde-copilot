@@ -72,21 +72,88 @@ export default async function handler(request, response) {
     }
 
     // -----------------------------------------------------------------
-    // ROUTE B: Chat Proxy (Gemini 2.5 Flash)
+    // ROUTE B: Chat Proxy (Gemini 2.5 Flash / OpenAI GPT Fallback)
     // -----------------------------------------------------------------
     const body = await readJson(request);
-    const { contents, systemInstruction } = body;
+    const { contents, systemInstruction, model } = body;
 
     if (!contents || !Array.isArray(contents)) {
       sendJson(response, 400, { error: 'Valid chat contents are required.' });
       return;
     }
 
+    const inputModel = String(model || '').toLowerCase().trim();
+
+    // 1. OpenAI GPT Model Routing Path
+    if (inputModel.startsWith('gpt-')) {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        sendJson(response, 500, { error: 'Clyde server-managed OpenAI API key is not configured.' });
+        return;
+      }
+
+      const validGptModels = new Set(['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo']);
+      const targetModel = validGptModels.has(inputModel) ? inputModel : 'gpt-4o-mini';
+
+      const openaiMessages = [];
+      if (systemInstruction) {
+        const sysText = typeof systemInstruction === 'string'
+          ? systemInstruction
+          : (systemInstruction.parts?.[0]?.text || '');
+        if (sysText) {
+          openaiMessages.push({ role: 'system', content: sysText });
+        }
+      }
+
+      for (const item of contents) {
+        const role = item.role === 'model' || item.role === 'assistant' ? 'assistant' : 'user';
+        const content = Array.isArray(item.parts)
+          ? item.parts.map(p => p.text || '').join('')
+          : String(item.parts || '');
+        openaiMessages.push({ role, content });
+      }
+
+      const oaiPayload = {
+        model: targetModel,
+        messages: openaiMessages,
+        temperature: 0.2
+      };
+
+      const oaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(oaiPayload)
+      });
+
+      const oaiData = await oaiRes.json();
+      const contentText = oaiData?.choices?.[0]?.message?.content || '';
+      
+      const geminiCompatibleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: contentText }]
+            }
+          }
+        ]
+      };
+
+      sendJson(response, oaiRes.status, geminiCompatibleResponse);
+      return;
+    }
+
+    // 2. Google Gemini Model Routing Path
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
       sendJson(response, 500, { error: 'Clyde server-managed API key is not configured.' });
       return;
     }
+
+    const targetModel = inputModel.startsWith('gemini-') ? inputModel : 'gemini-2.5-flash';
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`;
 
     const geminiPayload = { contents };
     if (systemInstruction) {

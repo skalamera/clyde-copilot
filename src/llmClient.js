@@ -390,7 +390,8 @@ async function generateClydeCloud({ model, messages, jsonSchema, temperature, ma
     }
 
     const payload = {
-        contents: geminiContents
+        contents: geminiContents,
+        model: model
     };
 
     if (systemInstruction) {
