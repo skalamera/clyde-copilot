@@ -75,7 +75,7 @@ export default async function handler(request, response) {
     // ROUTE B: Chat Proxy (Gemini 2.5 Flash / OpenAI GPT Fallback)
     // -----------------------------------------------------------------
     const body = await readJson(request);
-    const { contents, systemInstruction, model } = body;
+    const { contents, systemInstruction, model, jsonSchema } = body;
 
     if (!contents || !Array.isArray(contents)) {
       sendJson(response, 400, { error: 'Valid chat contents are required.' });
@@ -118,9 +118,21 @@ export default async function handler(request, response) {
       const oaiPayload = {
         model: targetModel,
         messages: openaiMessages,
-        temperature: 0.2,
-        response_format: { type: 'json_object' }
+        temperature: 0.2
       };
+
+      if (jsonSchema && jsonSchema.schema) {
+        oaiPayload.response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: jsonSchema.name || 'json_response',
+            schema: jsonSchema.schema,
+            strict: true
+          }
+        };
+      } else {
+        oaiPayload.response_format = { type: 'json_object' };
+      }
 
       const oaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -155,7 +167,8 @@ export default async function handler(request, response) {
       return;
     }
 
-    const targetModel = inputModel.startsWith('gemini-') ? inputModel : 'gemini-2.5-flash';
+    const validGeminiModels = new Set(['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro']);
+    const targetModel = validGeminiModels.has(inputModel) ? inputModel : 'gemini-2.5-flash';
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`;
 
     const geminiPayload = { contents };
@@ -164,6 +177,15 @@ export default async function handler(request, response) {
         ? { parts: [{ text: systemInstruction }] }
         : systemInstruction;
     }
+
+    const generationConfig = {
+      temperature: 0.2,
+      responseMimeType: 'application/json'
+    };
+    if (jsonSchema && jsonSchema.schema) {
+      generationConfig.responseSchema = jsonSchema.schema;
+    }
+    geminiPayload.generationConfig = generationConfig;
 
     const geminiRes = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
