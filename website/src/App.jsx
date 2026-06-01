@@ -840,6 +840,17 @@ function TermsOfServicePage() {
 }
 
 function FullOverlayShowcase() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkSize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkSize();
+    window.addEventListener('resize', checkSize);
+    return () => window.removeEventListener('resize', checkSize);
+  }, []);
+
   return (
     <section className="section-band full-overlay-band" data-reveal>
       <div className="full-overlay-copy">
@@ -851,7 +862,32 @@ function FullOverlayShowcase() {
         </p>
       </div>
       <figure className="full-overlay-figure">
-        <img src="/Clyde Screenshots/Full Desktop Overlay View.svg" alt="Full Clyde desktop overlay showing a live question and answer card beside a relevant memory card from RAG files" loading="lazy" />
+        <div style={{ width: '100%', marginBottom: '24px' }}>
+          {isMobile ? (
+            <video 
+              key="mobile-video"
+              src="/Clyde Screenshots/website_mobile_vid.mp4" 
+              controls 
+              autoPlay 
+              muted 
+              loop 
+              playsInline
+              style={{ width: '100%', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.08)' }}
+            />
+          ) : (
+            <video 
+              key="desktop-video"
+              src="/Clyde Screenshots/website_desktop_vid.mp4" 
+              controls 
+              autoPlay 
+              muted 
+              loop 
+              playsInline
+              style={{ width: '100%', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.08)' }}
+            />
+          )}
+        </div>
+        <img src="/Clyde Screenshots/Full Desktop Overlay View 2.svg" alt="Full Clyde desktop overlay showing a live question and answer card beside a relevant memory card from RAG files" loading="lazy" />
         <figcaption>
           <strong>Example:</strong> Clyde hears a question, drafts a concise response, and surfaces supporting facts from relevant RAG files while the call is still happening.
         </figcaption>

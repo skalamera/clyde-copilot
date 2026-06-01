@@ -814,6 +814,7 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings, trans
   const firstEntity = entities[0] || null;
   const defaultEntity = mode === 'interview' ? (activeInterview || firstEntity) : (activeMeeting || firstEntity);
   const [destination, setDestination] = useState(defaultEntity ? 'existing' : 'new');
+  const [isSaving, setIsSaving] = useState(false);
   const [existingEntityId, setExistingEntityId] = useState(defaultEntity?.id || '');
   const [company, setCompany] = useState(activeInterview?.name || settings.currentCompany || '');
   const [role, setRole] = useState(activeInterview?.role || settings.currentRole || '');
@@ -847,46 +848,52 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings, trans
     ? (destination === 'existing' ? Boolean(existingEntityId) : Boolean(company.trim() && role.trim()))
     : (destination === 'existing' ? Boolean(existingEntityId) : Boolean(meetingName.trim()));
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
-    if (!canSubmit) {
+    if (isSaving || !canSubmit) {
       return;
     }
 
-    if (isInterview) {
-      onSave({
-        mode: 'interview',
+    setIsSaving(true);
+    try {
+      if (isInterview) {
+        await onSave({
+          mode: 'interview',
+          destination,
+          entity: destination === 'existing'
+            ? {
+              id: selectedEntity?.id || existingEntityId,
+              name: selectedEntity?.name || existingEntityId,
+              role: selectedEntity?.role || role || ''
+            }
+            : {
+              id: company.trim(),
+              name: company.trim(),
+              role: role.trim()
+            },
+          phase: phase.trim() || 'Interview #1',
+          sessionTitle: sessionTitle.trim(),
+          interviewerName: interviewerName.trim(),
+          interviewerTitle: interviewerTitle.trim(),
+          jobDescription: jobDescription.trim(),
+          date
+        });
+        return;
+      }
+
+      await onSave({
+        mode: 'meeting',
         destination,
-        entity: destination === 'existing'
-          ? {
-            id: selectedEntity?.id || existingEntityId,
-            name: selectedEntity?.name || existingEntityId,
-            role: selectedEntity?.role || role || ''
-          }
-          : {
-            id: company.trim(),
-            name: company.trim(),
-            role: role.trim()
-          },
-        phase: phase.trim() || 'Interview #1',
-        sessionTitle: sessionTitle.trim(),
-        interviewerName: interviewerName.trim(),
-        interviewerTitle: interviewerTitle.trim(),
-        jobDescription: jobDescription.trim(),
-        date
+        entity: selectedMeetingEntity,
+        title: meetingSessionTitle.trim() || 'Meeting session',
+        date,
+        attendees: settings.meetingAttendees || [],
+        notes: preview?.notes ? previewNotesToSavedNotes(preview.notes) : null
       });
-      return;
+    } catch (err) {
+      console.error(err);
+      setIsSaving(false);
     }
-
-    onSave({
-      mode: 'meeting',
-      destination,
-      entity: selectedMeetingEntity,
-      title: meetingSessionTitle.trim() || 'Meeting session',
-      date,
-      attendees: settings.meetingAttendees || [],
-      notes: preview?.notes ? previewNotesToSavedNotes(preview.notes) : null
-    });
   }
 
   useEffect(() => {
@@ -1188,8 +1195,15 @@ function PostSessionSaveModal({ entities, mode, onClose, onSave, settings, trans
             </div>
           )}
 
-          <button type="submit" className="primary-action" disabled={!canSubmit}>
-            Save transcript
+          <button type="submit" className="primary-action" disabled={isSaving || !canSubmit} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            {isSaving ? (
+              <>
+                <span className="btn-spinner"></span>
+                Saving...
+              </>
+            ) : (
+              'Save transcript'
+            )}
           </button>
         </form>
       </section>
@@ -2668,6 +2682,7 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
     } else if (view === 'week') {
       next.setDate(next.getDate() + (7 * delta));
     } else {
+      next.setDate(1);
       next.setMonth(next.getMonth() + delta);
     }
     setCurrentDate(next);
