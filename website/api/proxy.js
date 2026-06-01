@@ -22,7 +22,12 @@ function makeSchemaStrictForOpenAI(schema) {
     if (copy.properties) {
       // In OpenAI strict schemas, all defined properties must be listed in required array!
       copy.required = Object.keys(copy.properties);
+    } else {
+      delete copy.required;
     }
+  } else {
+    // If it is not an object type, it cannot have a required array in strict mode
+    delete copy.required;
   }
   if (copy.properties) {
     const nextProps = {};
@@ -40,6 +45,38 @@ function makeSchemaStrictForOpenAI(schema) {
   if (copy.items) {
     copy.items = makeSchemaStrictForOpenAI(copy.items);
   }
+  return copy;
+}
+
+function cleanSchemaForGemini(schema) {
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+  const copy = {};
+  const allowedKeys = new Set(['type', 'format', 'description', 'nullable', 'enum', 'properties', 'required', 'items']);
+  
+  for (const [key, value] of Object.entries(schema)) {
+    if (allowedKeys.has(key)) {
+      copy[key] = value;
+    }
+  }
+
+  if (copy.type) {
+    copy.type = String(copy.type).toUpperCase();
+  }
+
+  if (copy.properties) {
+    const nextProps = {};
+    for (const [key, value] of Object.entries(copy.properties)) {
+      nextProps[key] = cleanSchemaForGemini(value);
+    }
+    copy.properties = nextProps;
+  }
+
+  if (copy.items) {
+    copy.items = cleanSchemaForGemini(copy.items);
+  }
+
   return copy;
 }
 
@@ -233,7 +270,7 @@ export default async function handler(request, response) {
       responseMimeType: 'application/json'
     };
     if (jsonSchema && jsonSchema.schema) {
-      generationConfig.responseSchema = jsonSchema.schema;
+      generationConfig.responseSchema = cleanSchemaForGemini(jsonSchema.schema);
     }
     geminiPayload.generationConfig = generationConfig;
 
