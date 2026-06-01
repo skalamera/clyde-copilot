@@ -12,29 +12,33 @@ function isActiveSubscription(subscription) {
   return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
 }
 
-function addAdditionalPropertiesFalse(schema) {
+function makeSchemaStrictForOpenAI(schema) {
   if (!schema || typeof schema !== 'object') {
     return schema;
   }
   const copy = { ...schema };
   if (copy.type === 'object') {
     copy.additionalProperties = false;
+    if (copy.properties) {
+      // In OpenAI strict schemas, all defined properties must be listed in required array!
+      copy.required = Object.keys(copy.properties);
+    }
   }
   if (copy.properties) {
     const nextProps = {};
     for (const [key, value] of Object.entries(copy.properties)) {
-      nextProps[key] = addAdditionalPropertiesFalse(value);
+      nextProps[key] = makeSchemaStrictForOpenAI(value);
     }
     copy.properties = nextProps;
   }
   if (copy.anyOf && Array.isArray(copy.anyOf)) {
-    copy.anyOf = copy.anyOf.map(addAdditionalPropertiesFalse);
+    copy.anyOf = copy.anyOf.map(makeSchemaStrictForOpenAI);
   }
   if (copy.allOf && Array.isArray(copy.allOf)) {
-    copy.allOf = copy.allOf.map(addAdditionalPropertiesFalse);
+    copy.allOf = copy.allOf.map(makeSchemaStrictForOpenAI);
   }
   if (copy.items) {
-    copy.items = addAdditionalPropertiesFalse(copy.items);
+    copy.items = makeSchemaStrictForOpenAI(copy.items);
   }
   return copy;
 }
@@ -149,7 +153,7 @@ export default async function handler(request, response) {
       };
 
       if (jsonSchema && jsonSchema.schema) {
-        const strictSchema = addAdditionalPropertiesFalse(jsonSchema.schema);
+        const strictSchema = makeSchemaStrictForOpenAI(jsonSchema.schema);
         oaiPayload.response_format = {
           type: 'json_schema',
           json_schema: {
