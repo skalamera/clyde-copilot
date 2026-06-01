@@ -101,8 +101,10 @@ export default async function handler(request, response) {
           ? systemInstruction
           : (systemInstruction.parts?.[0]?.text || '');
         if (sysText) {
-          openaiMessages.push({ role: 'system', content: sysText });
+          openaiMessages.push({ role: 'system', content: sysText + "\n\nIMPORTANT: You must output the response in raw JSON format matching the schema." });
         }
+      } else {
+        openaiMessages.push({ role: 'system', content: "IMPORTANT: You must output the response in raw JSON format matching the schema." });
       }
 
       for (const item of contents) {
