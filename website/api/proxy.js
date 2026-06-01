@@ -116,7 +116,8 @@ export default async function handler(request, response) {
       const oaiPayload = {
         model: targetModel,
         messages: openaiMessages,
-        temperature: 0.2
+        temperature: 0.2,
+        response_format: { type: 'json_object' }
       };
 
       const oaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
