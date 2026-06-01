@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { sendJson, readJson } from './_billing.js';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 export default async function handler(request, response) {
   if (request.method !== 'POST') {
