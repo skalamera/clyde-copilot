@@ -10658,18 +10658,18 @@ function SoulStep({ selectedSoul, setSelectedSoul, soulCustomDescription, setSou
 }
 
 function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate }) {
-  const cloudLlm = draft.llmProvider && !['local', 'openai'].includes(draft.llmProvider);
+  const cloudLlm = draft.llmProvider && !['local', 'openai', 'clyde-cloud'].includes(draft.llmProvider);
   return (
     <div className="onboarding-form-grid">
       <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
-        Providers and hardware connect Clyde to AI brains and audio signals. Set up your language models (local or cloud APIs), configure audio engines, and select your microphone or system speaker devices so Clyde can listen to calls.
+        Providers and hardware connect Clyde to AI brains and audio signals. Set up your language models (local, Clyde managed, or custom cloud APIs), configure audio engines, and select your audio devices so Clyde can listen to calls.
       </p>
-      <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => update('llmProvider', event.target.value)}><option value="">Select provider</option><option value="local">Local LM Studio</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option></select></label>
+      <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => update('llmProvider', event.target.value)}><option value="">Select provider</option><option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option><option value="local">Local LM Studio (Offline)</option><option value="openai">OpenAI (Custom Key)</option><option value="anthropic">Anthropic (Custom Key)</option><option value="gemini">Google Gemini (Custom Key)</option></select></label>
       <label>Model<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" /></label>
       {draft.llmProvider === 'local' ? <label className="wide-field">Local LLM URL<input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" /></label> : null}
       {draft.llmProvider === 'openai' ? <label className="wide-field">OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
       {cloudLlm ? <label className="wide-field">API key<input type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} /></label> : null}
-      <label>Transcription provider<select value={draft.transcriptionProvider || ''} onChange={(event) => update('transcriptionProvider', event.target.value)}><option value="">Select provider</option><option value="local">Local Whisper</option><option value="openai">OpenAI Whisper</option></select></label>
+      <label>Transcription provider<select value={draft.transcriptionProvider || ''} onChange={(event) => update('transcriptionProvider', event.target.value)}><option value="">Select provider</option><option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option><option value="local">Local Whisper (Offline)</option><option value="openai">OpenAI Whisper (Custom Key)</option></select></label>
       {draft.transcriptionProvider === 'local' ? <label>Local transcription URL<input value={draft.localTranscriptionUrl || ''} onChange={(event) => update('localTranscriptionUrl', event.target.value)} placeholder="http://localhost:8000/v1/audio/transcriptions" /></label> : null}
       {draft.transcriptionProvider === 'openai' ? <label>OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
       <label>Audio engine<select value={draft.audioEngine || 'rust'} onChange={(event) => update('audioEngine', event.target.value)}><option value="rust">Rust native audio</option><option value="legacy">Legacy recorder</option></select></label>
@@ -11472,12 +11472,23 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               update('llmModel', '');
             }}>
               <option value="">Select an LLM provider</option>
-              <option value="local">Local LM Studio</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="gemini">Google Gemini</option>
+              <option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option>
+              <option value="local">Local LM Studio (Offline)</option>
+              <option value="openai">OpenAI (Custom Key)</option>
+              <option value="anthropic">Anthropic (Custom Key)</option>
+              <option value="gemini">Google Gemini (Custom Key)</option>
             </select>
           </label>
+          {draft.llmProvider === 'clyde-cloud' && !proEntitled && (
+            <div className="wide-field upgrade-pro-callout">
+              <strong>Clyde Managed Cloud requires Clyde Pro</strong>
+              <span>Open the website to upgrade, then refresh your subscription in Clyde.</span>
+              <div className="upgrade-pro-actions">
+                <UpgradeToProButton />
+                <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
+              </div>
+            </div>
+          )}
           <label>
             Model
             <input list="llmModelList" value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" />
@@ -11489,7 +11500,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
             </label>
           )}
-          {draft.llmProvider && !['local', 'openai'].includes(draft.llmProvider) && (
+          {draft.llmProvider && !['local', 'openai', 'clyde-cloud'].includes(draft.llmProvider) && (
             <label>
               API key
               <input autoComplete="new-password" type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} placeholder="Stored locally" />
@@ -11608,17 +11619,28 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             Transcription provider
             <select value={draft.transcriptionProvider || ''} onChange={(event) => update('transcriptionProvider', event.target.value)}>
               <option value="">Select a transcription provider</option>
-              <option value="local">Local Whisper</option>
-              <option value="openai">OpenAI Whisper</option>
+              <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
+              <option value="local">Local Whisper (Offline)</option>
+              <option value="openai">OpenAI Whisper (Custom Key)</option>
               <option value="openai-realtime-whisper">OpenAI Realtime Whisper</option>
             </select>
           </label>
+          {draft.transcriptionProvider === 'clyde-cloud-whisper' && !proEntitled && (
+            <div className="wide-field upgrade-pro-callout">
+              <strong>Clyde Managed Whisper requires Clyde Pro</strong>
+              <span>Open the website to upgrade, then refresh your subscription in Clyde.</span>
+              <div className="upgrade-pro-actions">
+                <UpgradeToProButton />
+                <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
+              </div>
+            </div>
+          )}
           {draft.transcriptionProvider === 'local' ? (
             <label>
               Transcription URL
               <input value={draft.localTranscriptionUrl || ''} onChange={(event) => update('localTranscriptionUrl', event.target.value)} placeholder="http://localhost:8000/v1/audio/transcriptions" />
             </label>
-          ) : draft.transcriptionProvider ? (
+          ) : (draft.transcriptionProvider && draft.transcriptionProvider !== 'clyde-cloud-whisper') ? (
             <label>
               OpenAI API key
               <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />

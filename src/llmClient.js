@@ -1,7 +1,9 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 async function generateChat({ provider, apiKey, model, messages, jsonSchema, temperature = 0.2, maxTokens = 800, axiosClient, localUrl, images = [] }) {
-    if (provider === 'gemini') {
+    if (provider === 'clyde-cloud') {
+        return generateClydeCloud({ model, messages, jsonSchema, temperature, maxTokens, axiosClient, images });
+    } else if (provider === 'gemini') {
         return generateGemini({ apiKey, model, messages, jsonSchema, temperature, maxTokens, images });
     } else if (provider === 'anthropic') {
         return generateAnthropic({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, images });
@@ -311,6 +313,81 @@ function mapToGeminiSchema(schema) {
     }
 
     return geminiSchema;
+}
+
+async function generateClydeCloud({ model, messages, jsonSchema, temperature, maxTokens, axiosClient, images }) {
+    let Store;
+    try {
+        Store = require('electron-store').default || require('electron-store');
+    } catch (e) {
+        throw new Error('electron-store is not available in this context.');
+    }
+    const store = new Store();
+    const accessToken = store.get('authAccessToken', '');
+
+    if (!accessToken) {
+        throw new Error('Please sign in to your Clyde account to use Clyde Managed Cloud.');
+    }
+
+    // 1. Build Gemini-style contents
+    const geminiContents = [];
+    let systemInstruction = undefined;
+    const normalizedImages = normalizeImages(images);
+    let imageAttached = false;
+
+    for (let index = 0; index < messages.length; index++) {
+        const msg = messages[index];
+        if (msg.role === 'system') {
+            systemInstruction = msg.content;
+        } else {
+            const isLastNonSystem = !imageAttached
+                && normalizedImages.length
+                && !messages.slice(index + 1).some((next) => next.role !== 'system' && next.role !== 'assistant');
+            const parts = isLastNonSystem
+                ? mapToGeminiParts(msg.content, normalizedImages[0])
+                : [{ text: msg.content }];
+            imageAttached = imageAttached || isLastNonSystem;
+            geminiContents.push({
+                role: msg.role === 'assistant' ? 'model' : 'user',
+                parts
+            });
+        }
+    }
+
+    const payload = {
+        contents: geminiContents
+    };
+
+    if (systemInstruction) {
+        payload.systemInstruction = systemInstruction;
+    }
+
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+    };
+
+    const url = 'https://clydeai.live/api/proxy-chat';
+    
+    try {
+        const response = await axiosClient.post(url, payload, { headers, timeout: 120000 });
+        
+        // Extract reply from Gemini format returned by proxy
+        const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!candidateText) {
+            if (response.data?.error) {
+                throw new Error(response.data.error.message || JSON.stringify(response.data.error));
+            }
+            throw new Error('No response content returned from Clyde Managed Cloud.');
+        }
+
+        return candidateText;
+    } catch (err) {
+        if (err.response && err.response.data && err.response.data.error) {
+            throw new Error(err.response.data.error);
+        }
+        throw err;
+    }
 }
 
 module.exports = {

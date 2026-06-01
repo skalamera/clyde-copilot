@@ -50,6 +50,9 @@ function createTranscriptionProcessor(options = {}) {
   if (provider === 'openai') {
       apiUrl = 'https://api.openai.com/v1/audio/transcriptions';
       model = 'whisper-1';
+  } else if (provider === 'clyde-cloud-whisper') {
+      apiUrl = 'https://clydeai.live/api/proxy-transcribe';
+      model = 'whisper-1';
   }
 
   const axiosClient = options.axiosClient;
@@ -152,6 +155,14 @@ function createTranscriptionProcessor(options = {}) {
       const headers = {};
       if (provider === 'openai') {
           headers['Authorization'] = `Bearer ${apiKey}`;
+      } else if (provider === 'clyde-cloud-whisper') {
+          let accessToken = '';
+          try {
+              const Store = require('electron-store').default || require('electron-store');
+              const store = new Store();
+              accessToken = store.get('authAccessToken', '');
+          } catch (e) {}
+          headers['Authorization'] = `Bearer ${accessToken}`;
       }
 
       const response = await axiosClient.post(apiUrl, formData, { headers, timeout });
