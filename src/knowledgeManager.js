@@ -147,10 +147,10 @@ function createKnowledgeManager(options = {}) {
       source: 'upload',
       extension,
       sizeBytes: stats.size,
-      ...(context.metadata || {}),
-      ...(context.mode ? { mode: normalizeMode(context.mode) } : {}),
-      ...(context.entityId ? { entityId: clean(context.entityId) } : {}),
-      ...(context.entityName ? { entityName: clean(context.entityName) } : {})
+      mode: context.mode ? normalizeMode(context.mode) : '',
+      entityId: context.entityId ? clean(context.entityId) : '',
+      entityName: context.entityName ? clean(context.entityName) : '',
+      ...(context.metadata || {})
     };
     const id = uploadKnowledgeId(resolvedPath, metadata);
 

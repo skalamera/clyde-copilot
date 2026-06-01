@@ -11,9 +11,34 @@ async function getEmbedding(text, options = {}) {
       }
     : resolveEmbeddingConfig(options);
   const provider = resolved.provider || 'gemini';
-  const apiKey = resolved.apiKey || process.env.GEMINI_API_KEY;
+  let apiKey = resolved.apiKey || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
+    // Clyde Managed Cloud Fallback: fetch embedding via Vercel proxy using local Supabase token!
+    try {
+      const Store = require('electron-store').default || require('electron-store');
+      const store = new Store();
+      const accessToken = store.get('authAccessToken', '');
+      
+      if (accessToken) {
+        const client = options.axiosClient || axios;
+        const response = await client.post('https://clydeai.live/api/proxy?type=embed', {
+          text
+        }, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        });
+        if (response.data && Array.isArray(response.data.embedding)) {
+          return response.data.embedding;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to retrieve cloud-managed embedding for RAG:', e);
+    }
+
     console.warn(`${provider.toUpperCase()} embedding API key is not set, skipping embedding generation`);
     return [];
   }

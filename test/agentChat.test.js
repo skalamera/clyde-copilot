@@ -176,7 +176,17 @@ test('pro active context scopes pinecone matches to the active Apollo entity', a
     sourceMode: 'active-context'
   });
 
-  assert.deepEqual(filters, [{ mode: { $eq: 'interview' }, entityId: { $eq: 'apollo' } }]);
+  assert.deepEqual(filters, [{
+    $or: [
+      {
+        mode: { $eq: 'interview' },
+        entityId: { $eq: 'apollo' }
+      },
+      {
+        entityId: { $in: ['', 'general'] }
+      }
+    ]
+  }]);
   assert.equal(result.message.content, 'Apollo only.');
 });
 

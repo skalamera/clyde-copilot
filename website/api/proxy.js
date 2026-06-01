@@ -7,6 +7,7 @@ export const config = {
 };
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent';
 
 function isActiveSubscription(subscription) {
   return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
@@ -132,15 +133,83 @@ export default async function handler(request, response) {
         body: rawBody
       });
 
-      const data = await oaiRes.json();
-      response.statusCode = oaiRes.status;
-      response.setHeader('Content-Type', 'application/json');
-      response.end(JSON.stringify(data));
+      const oaiRawText = await oaiRes.text();
+      console.log("OpenAI Proxy status:", oaiRes.status, "Raw response:", oaiRawText);
+
+      let oaiData;
+      try {
+        oaiData = JSON.parse(oaiRawText);
+      } catch (e) {
+        console.error("OpenAI JSON parse failed. Raw response:", oaiRawText);
+        sendJson(response, 500, {
+          error: `OpenAI response JSON parse failed. Status: ${oaiRes.status}. Raw text: ${oaiRawText.slice(0, 300)}`
+        });
+        return;
+      }
+
+      if (!oaiRes.ok) {
+        sendJson(response, oaiRes.status, oaiData);
+        return;
+      }
+
+      const contentText = oaiData?.choices?.[0]?.message?.content || '';
+      
+      const geminiCompatibleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: contentText }]
+            }
+          }
+        ]
+      };
+
+      sendJson(response, 200, geminiCompatibleResponse);
       return;
     }
 
     // -----------------------------------------------------------------
-    // ROUTE B: Chat Proxy (Gemini 2.5 Flash / OpenAI GPT Fallback)
+    // ROUTE B: Embedding Proxy (RAG Fallback)
+    // -----------------------------------------------------------------
+    if (type === 'embed') {
+      const body = await readJson(request);
+      const { text } = body;
+      if (!text) {
+        sendJson(response, 400, { error: 'Text is required for embedding generation.' });
+        return;
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        sendJson(response, 500, { error: 'Clyde server-managed Gemini API key is not configured.' });
+        return;
+      }
+
+      const embedPayload = {
+        content: {
+          parts: [{ text }]
+        }
+      };
+
+      const embedRes = await fetch(`${GEMINI_EMBED_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(embedPayload)
+      });
+
+      const embedData = await embedRes.json();
+      if (!embedRes.ok) {
+        sendJson(response, embedRes.status, embedData);
+        return;
+      }
+
+      const values = embedData?.embedding?.values || [];
+      sendJson(response, 200, { embedding: values });
+      return;
+    }
+
+    // -----------------------------------------------------------------
+    // ROUTE C: Chat Proxy (Gemini 2.5 Flash / OpenAI GPT Fallback)
     // -----------------------------------------------------------------
     const body = await readJson(request);
     const { contents, systemInstruction, model, jsonSchema } = body;

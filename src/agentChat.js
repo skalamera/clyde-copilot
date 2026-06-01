@@ -223,8 +223,15 @@ const MAX_HISTORY_MESSAGES = 8;
       const pineconeOptions = { topK: 5 };
       if (payload.sourceMode === 'active-context' && activeEntityId) {
         pineconeOptions.filter = {
-          mode: { $eq: activeMode },
-          entityId: { $eq: activeEntityId }
+          $or: [
+            {
+              mode: { $eq: activeMode },
+              entityId: { $eq: activeEntityId }
+            },
+            {
+              entityId: { $in: ['', 'general'] }
+            }
+          ]
         };
       }
 

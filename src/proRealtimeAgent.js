@@ -688,9 +688,17 @@ function createProRealtimeAgent(options = {}) {
       return null;
     }
 
+    const activeMode = mode === 'meeting' ? 'meeting' : 'interview';
     return {
-      mode: { $eq: mode === 'meeting' ? 'meeting' : 'interview' },
-      entityId: { $eq: entityId }
+      $or: [
+        {
+          mode: { $eq: activeMode },
+          entityId: { $eq: entityId }
+        },
+        {
+          entityId: { $in: ['', 'general'] }
+        }
+      ]
     };
   }
 

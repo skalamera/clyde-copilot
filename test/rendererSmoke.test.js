@@ -278,7 +278,7 @@ test('live panel no longer renders canned note controls', () => {
 test('settings expose OpenAI realtime Whisper transcription provider', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
 
-  assert.match(appSource, /<option value="openai-realtime-whisper">OpenAI Realtime Whisper<\/option>/);
+  assert.match(appSource, /<option value="openai-realtime-whisper">OpenAI Realtime Whisper \(Custom Key\)<\/option>/);
   assert.match(appSource, /<option value="">Select a transcription provider<\/option>/);
   assert.match(appSource, /draft\.transcriptionProvider === 'local' \?/);
   assert.match(appSource, /OpenAI API key/);

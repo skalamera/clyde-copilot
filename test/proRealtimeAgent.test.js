@@ -229,7 +229,17 @@ test('pro realtime agent scopes memory search to the active entity context', asy
   });
 
   const result = await run;
-  assert.deepEqual(filters, [{ mode: { $eq: 'interview' }, entityId: { $eq: 'apollo' } }]);
+  assert.deepEqual(filters, [{
+    $or: [
+      {
+        mode: { $eq: 'interview' },
+        entityId: { $eq: 'apollo' }
+      },
+      {
+        entityId: { $in: ['', 'general'] }
+      }
+    ]
+  }]);
   assert.equal(result.ok, true);
   assert.equal(ws.closed, undefined);
 });

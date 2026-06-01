@@ -11622,7 +11622,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
               <option value="local">Local Whisper (Offline)</option>
               <option value="openai">OpenAI Whisper (Custom Key)</option>
-              <option value="openai-realtime-whisper">OpenAI Realtime Whisper</option>
+              <option value="openai-realtime-whisper">OpenAI Realtime Whisper (Custom Key)</option>
             </select>
           </label>
           {draft.transcriptionProvider === 'clyde-cloud-whisper' && !proEntitled && (
