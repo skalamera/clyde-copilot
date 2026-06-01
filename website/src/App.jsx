@@ -209,6 +209,7 @@ function App() {
       {currentPage}
       <Footer navigate={navigate} onDownload={handleDownload} />
       {downloadOpen ? <DownloadModal onClose={() => setDownloadOpen(false)} /> : null}
+      <FloatingSupportChatbot />
     </div>
   );
 }
@@ -1383,6 +1384,327 @@ function AnimatedBackdrop() {
       <div className="particle-field">
         {Array.from({ length: 26 }).map((_, index) => <span key={index} style={{ '--i': index }} />)}
       </div>
+    </div>
+  );
+}
+
+function FloatingSupportChatbot() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: 'bot', text: "Hi! I'm Clyde's official AI assistant. Ask me anything about downloading, features, pricing, or local setup!" }
+  ]);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [showLeadForm, setShowLeadForm] = useState(false);
+  const [leadName, setLeadName] = useState('');
+  const [leadEmail, setLeadEmail] = useState('');
+  const [leadQuery, setLeadQuery] = useState('');
+  const [leadSuccess, setLeadSuccess] = useState(false);
+
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isOpen]);
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    const query = inputText.trim();
+    if (!query || isLoading) return;
+
+    setInputText('');
+    setMessages(prev => [...prev, { role: 'user', text: query }]);
+    setIsLoading(true);
+
+    try {
+      const res = await fetch('/api/support-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: query, type: 'message' })
+      });
+      const data = await res.json();
+      
+      if (data.reply) {
+        setMessages(prev => [...prev, { role: 'bot', text: data.reply }]);
+        
+        // Check if bot offered to connect to human/Stephen
+        if (data.reply.toLowerCase().includes('connect you with stephen') || data.reply.toLowerCase().includes('log a ticket')) {
+          setLeadQuery(query);
+          setTimeout(() => {
+            setShowLeadForm(true);
+          }, 1500);
+        }
+      } else {
+        setMessages(prev => [...prev, { role: 'bot', text: "I'm having trouble connecting to support. Would you like to leave a message? Click 'Contact Support' below." }]);
+      }
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'bot', text: "Connection error. Would you like to leave a message? Click 'Contact Support' below." }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLeadSubmit = async (e) => {
+    e.preventDefault();
+    if (!leadEmail.trim() || !leadQuery.trim()) return;
+
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/support-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'lead',
+          name: leadName,
+          email: leadEmail,
+          query: leadQuery
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLeadSuccess(true);
+        setTimeout(() => {
+          setShowLeadForm(false);
+          setLeadSuccess(false);
+          setLeadName('');
+          setLeadEmail('');
+          setLeadQuery('');
+          setMessages(prev => [...prev, { role: 'bot', text: "Successfully saved your request! Stephen will reach out to you shortly via email." }]);
+        }, 3000);
+      }
+    } catch (err) {
+      alert("Failed to submit support request. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 99999, fontFamily: 'Courier, monospace' }}>
+      {/* Floating Toggle Button */}
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          width: '56px',
+          height: '56px',
+          borderRadius: '50%',
+          background: 'linear-gradient(135deg, #00f5ff, #007aff)',
+          border: 'none',
+          boxShadow: '0 8px 24px rgba(0, 245, 255, 0.4)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#ffffff',
+          fontSize: '24px',
+          transition: 'transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+        title="Chat with Clyde Support"
+      >
+        👻
+      </button>
+
+      {/* Expandable Chat Window */}
+      {isOpen && (
+        <div 
+          style={{
+            width: '360px',
+            height: '520px',
+            position: 'absolute',
+            bottom: '72px',
+            right: '0',
+            background: 'rgba(10, 12, 16, 0.85)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderRadius: '24px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: '0 24px 48px rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            animation: 'slideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both'
+          }}
+        >
+          {/* Header */}
+          <div style={{ padding: '16px 20px', background: 'rgba(255, 255, 255, 0.03)', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '18px' }}>👻</span>
+              <div>
+                <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#00f5ff', fontWeight: 'bold' }}>Clyde Support Bot</h4>
+                <span style={{ fontSize: '0.68rem', color: '#888888' }}>24/7 AI Assistant</span>
+              </div>
+            </div>
+            <button 
+              onClick={() => setIsOpen(false)}
+              style={{ background: 'transparent', border: 'none', color: '#888888', cursor: 'pointer', fontSize: '16px' }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Content Area */}
+          {!showLeadForm ? (
+            <>
+              {/* Message History */}
+              <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {messages.map((m, idx) => (
+                  <div key={idx} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                    <div 
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: '16px',
+                        fontSize: '0.8rem',
+                        lineHeight: '1.4',
+                        background: m.role === 'user' ? 'rgba(0, 122, 255, 0.45)' : 'rgba(38, 38, 43, 0.6)',
+                        color: m.role === 'user' ? '#ffffff' : '#e5e5ea',
+                        border: '1px solid rgba(255, 255, 255, 0.04)',
+                        wordBreak: 'break-word'
+                      }}
+                    >
+                      {m.text}
+                    </div>
+                  </div>
+                ))}
+                {isLoading && (
+                  <div style={{ alignSelf: 'flex-start', background: 'rgba(38, 38, 43, 0.6)', padding: '10px 14px', borderRadius: '16px', fontSize: '0.8rem' }}>
+                    <span className="btn-spinner" style={{ width: '12px', height: '12px', marginRight: '6px' }}></span> Thinking...
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Chat Form */}
+              <form onSubmit={handleSendMessage} style={{ padding: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', gap: '8px' }}>
+                <input 
+                  type="text" 
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder="Ask a question..."
+                  disabled={isLoading}
+                  style={{
+                    flex: 1,
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '99px',
+                    padding: '8px 16px',
+                    fontSize: '0.8rem',
+                    color: '#ffffff',
+                    outline: 'none'
+                  }}
+                />
+                <button 
+                  type="submit" 
+                  disabled={isLoading || !inputText.trim()}
+                  style={{
+                    background: '#007aff',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '32px',
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ffffff',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ➔
+                </button>
+              </form>
+
+              {/* Direct Handoff Button */}
+              <button 
+                onClick={() => setShowLeadForm(true)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#888888',
+                  fontSize: '0.72rem',
+                  padding: '8px 0',
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  textDecoration: 'underline'
+                }}
+              >
+                Need to contact Stephen directly? Click here
+              </button>
+            </>
+          ) : (
+            /* Lead Generation Form */
+            <form onSubmit={handleLeadSubmit} style={{ flex: 1, padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', justifyContent: 'center' }}>
+              {leadSuccess ? (
+                <div style={{ textAlign: 'center', color: '#00f5ff', fontSize: '0.85rem' }}>
+                  <h3>✅ Message Logged</h3>
+                  <p>Thanks! Stephen will get back to you soon.</p>
+                </div>
+              ) : (
+                <>
+                  <h3 style={{ margin: 0, fontSize: '0.95rem', color: '#00f5ff', fontWeight: 'bold' }}>Contact Clyde Support</h3>
+                  <p style={{ margin: 0, fontSize: '0.72rem', color: '#888888', lineHeight: '1.4' }}>
+                    Leave your details, and your request will be securely synced to Stephen's support queue.
+                  </p>
+                  
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: '#ffffff' }}>
+                    Your Name
+                    <input 
+                      type="text" 
+                      required
+                      value={leadName}
+                      onChange={(e) => setLeadName(e.currentTarget.value)}
+                      placeholder="Jane Doe"
+                      style={{ padding: '8px 12px', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', color: '#ffffff', outline: 'none' }}
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: '#ffffff' }}>
+                    Email Address
+                    <input 
+                      type="email" 
+                      required
+                      value={leadEmail}
+                      onChange={(e) => setLeadEmail(e.currentTarget.value)}
+                      placeholder="jane@example.com"
+                      style={{ padding: '8px 12px', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', color: '#ffffff', outline: 'none' }}
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: '#ffffff' }}>
+                    Your Question
+                    <textarea 
+                      required
+                      value={leadQuery}
+                      onChange={(e) => setLeadQuery(e.currentTarget.value)}
+                      placeholder="How do I..."
+                      style={{ padding: '8px 12px', minHeight: '80px', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', color: '#ffffff', outline: 'none', resize: 'none' }}
+                    />
+                  </label>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <button 
+                      type="button" 
+                      onClick={() => setShowLeadForm(false)}
+                      style={{ flex: 1, padding: '10px 0', background: 'rgba(255, 255, 255, 0.08)', border: 'none', borderRadius: '8px', color: '#ffffff', cursor: 'pointer', fontSize: '0.8rem' }}
+                    >
+                      Back
+                    </button>
+                    <button 
+                      type="submit" 
+                      disabled={isLoading}
+                      style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg, #00f5ff, #007aff)', border: 'none', borderRadius: '8px', color: '#ffffff', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
+                    >
+                      {isLoading ? 'Sending...' : 'Submit'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }
