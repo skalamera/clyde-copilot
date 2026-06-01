@@ -315,7 +315,7 @@ function mapToGeminiSchema(schema) {
     return geminiSchema;
 }
 
-async function generateClydeCloud({ model, messages, jsonSchema, temperature, maxTokens, axiosClient, images }) {
+async function getFreshAccessToken() {
     let Store;
     try {
         Store = require('electron-store').default || require('electron-store');
@@ -323,11 +323,46 @@ async function generateClydeCloud({ model, messages, jsonSchema, temperature, ma
         throw new Error('electron-store is not available in this context.');
     }
     const store = new Store();
+    const userId = store.get('userId', '');
     const accessToken = store.get('authAccessToken', '');
+    const refreshToken = store.get('authRefreshToken', '');
+    const expiresAt = Number(store.get('authExpiresAt', 0));
 
-    if (!accessToken) {
+    if (!userId || !accessToken) {
         throw new Error('Please sign in to your Clyde account to use Clyde Managed Cloud.');
     }
+
+    // If still valid (with 2 minutes buffer), return it!
+    if (expiresAt && (expiresAt - Date.now() > 120000)) {
+        return accessToken;
+    }
+
+    if (!refreshToken) {
+        throw new Error('Clyde session expired. Please sign in again.');
+    }
+
+    try {
+        const { refreshSession } = require('./authClient');
+        const refreshed = await refreshSession({ refreshToken });
+        if (refreshed && refreshed.accessToken) {
+            store.set({
+                userId: refreshed.userId || '',
+                authEmail: refreshed.email || '',
+                authAccessToken: refreshed.accessToken || '',
+                authRefreshToken: refreshed.refreshToken || '',
+                authExpiresAt: refreshed.expiresAt || null
+            });
+            return refreshed.accessToken;
+        }
+    } catch (e) {
+        console.error('Failed to refresh Supabase session token:', e);
+    }
+
+    return accessToken; // fallback to existing token
+}
+
+async function generateClydeCloud({ model, messages, jsonSchema, temperature, maxTokens, axiosClient, images }) {
+    const accessToken = await getFreshAccessToken();
 
     // 1. Build Gemini-style contents
     const geminiContents = [];
@@ -384,7 +419,11 @@ async function generateClydeCloud({ model, messages, jsonSchema, temperature, ma
         return candidateText;
     } catch (err) {
         if (err.response && err.response.data && err.response.data.error) {
-            throw new Error(err.response.data.error);
+            const serverError = err.response.data.error;
+            const message = typeof serverError === 'object'
+                ? (serverError.message || JSON.stringify(serverError))
+                : String(serverError);
+            throw new Error(message);
         }
         throw err;
     }

@@ -90,7 +90,9 @@ export default async function handler(request, response) {
 
     const geminiPayload = { contents };
     if (systemInstruction) {
-      geminiPayload.systemInstruction = systemInstruction;
+      geminiPayload.systemInstruction = typeof systemInstruction === 'string'
+        ? { parts: [{ text: systemInstruction }] }
+        : systemInstruction;
     }
 
     const geminiRes = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {

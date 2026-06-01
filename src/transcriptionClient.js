@@ -156,12 +156,7 @@ function createTranscriptionProcessor(options = {}) {
       if (provider === 'openai') {
           headers['Authorization'] = `Bearer ${apiKey}`;
       } else if (provider === 'clyde-cloud-whisper') {
-          let accessToken = '';
-          try {
-              const Store = require('electron-store').default || require('electron-store');
-              const store = new Store();
-              accessToken = store.get('authAccessToken', '');
-          } catch (e) {}
+          const accessToken = await getFreshAccessToken();
           headers['Authorization'] = `Bearer ${accessToken}`;
       }
 
@@ -796,6 +791,52 @@ function resamplePcm16Mono(pcmAudio, fromSampleRate = DEFAULT_SAMPLE_RATE, toSam
   }
 
   return output;
+}
+
+async function getFreshAccessToken() {
+  let Store;
+  try {
+    Store = require('electron-store').default || require('electron-store');
+  } catch (e) {
+    return '';
+  }
+  const store = new Store();
+  const userId = store.get('userId', '');
+  const accessToken = store.get('authAccessToken', '');
+  const refreshToken = store.get('authRefreshToken', '');
+  const expiresAt = Number(store.get('authExpiresAt', 0));
+
+  if (!userId || !accessToken) {
+    return '';
+  }
+
+  // If still valid (with 2 minutes buffer), return it!
+  if (expiresAt && (expiresAt - Date.now() > 120000)) {
+    return accessToken;
+  }
+
+  if (!refreshToken) {
+    return '';
+  }
+
+  try {
+    const { refreshSession } = require('./authClient');
+    const refreshed = await refreshSession({ refreshToken });
+    if (refreshed && refreshed.accessToken) {
+      store.set({
+        userId: refreshed.userId || '',
+        authEmail: refreshed.email || '',
+        authAccessToken: refreshed.accessToken || '',
+        authRefreshToken: refreshed.refreshToken || '',
+        authExpiresAt: refreshed.expiresAt || null
+      });
+      return refreshed.accessToken;
+    }
+  } catch (e) {
+    console.error('Failed to refresh Supabase session token in transcription client:', e);
+  }
+
+  return accessToken;
 }
 
 module.exports = {
