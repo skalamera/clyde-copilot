@@ -143,7 +143,25 @@ export default async function handler(request, response) {
         body: JSON.stringify(oaiPayload)
       });
 
-      const oaiData = await oaiRes.json();
+      const oaiRawText = await oaiRes.text();
+      console.log("OpenAI Proxy status:", oaiRes.status, "Raw response:", oaiRawText);
+
+      let oaiData;
+      try {
+        oaiData = JSON.parse(oaiRawText);
+      } catch (e) {
+        console.error("OpenAI JSON parse failed. Raw response:", oaiRawText);
+        sendJson(response, 500, {
+          error: `OpenAI response JSON parse failed. Status: ${oaiRes.status}. Raw text: ${oaiRawText.slice(0, 300)}`
+        });
+        return;
+      }
+
+      if (!oaiRes.ok) {
+        sendJson(response, oaiRes.status, oaiData);
+        return;
+      }
+
       const contentText = oaiData?.choices?.[0]?.message?.content || '';
       
       const geminiCompatibleResponse = {
@@ -156,7 +174,7 @@ export default async function handler(request, response) {
         ]
       };
 
-      sendJson(response, oaiRes.status, geminiCompatibleResponse);
+      sendJson(response, 200, geminiCompatibleResponse);
       return;
     }
 
@@ -193,7 +211,20 @@ export default async function handler(request, response) {
       body: JSON.stringify(geminiPayload)
     });
 
-    const geminiData = await geminiRes.json();
+    const geminiRawText = await geminiRes.text();
+    console.log("Gemini Proxy status:", geminiRes.status, "Raw response:", geminiRawText);
+
+    let geminiData;
+    try {
+      geminiData = JSON.parse(geminiRawText);
+    } catch (e) {
+      console.error("Gemini JSON parse failed. Raw response:", geminiRawText);
+      sendJson(response, 500, {
+        error: `Gemini response JSON parse failed. Status: ${geminiRes.status}. Raw text: ${geminiRawText.slice(0, 300)}`
+      });
+      return;
+    }
+
     sendJson(response, geminiRes.status, geminiData);
 
   } catch (error) {
