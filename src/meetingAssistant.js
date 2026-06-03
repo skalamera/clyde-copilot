@@ -1818,7 +1818,7 @@ function hasLikelyCompleteInterviewerPrompt(text) {
 }
 
 function hasInterviewPromptCue(text) {
-  return /\b(can|could|would|what|why|how|when|where|who|which|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there|describe a|tell me about)\b/i.test(text);
+  return /\b(can|could|would|what|why|how|when|where|who|which|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there|describe a|tell me about|another example|go deeper|going deeper|elaborate|elaborate on|give another)\b/i.test(text);
 }
 
 function isInterviewerSetupChatter(text) {
