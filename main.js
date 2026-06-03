@@ -244,6 +244,7 @@ function loadSettings() {
 
     // Inject back into process.env so existing modules (like pineconeClient.js) can read them
     if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
+    if (settings.openAiApiKey) process.env.OPENAI_API_KEY = settings.openAiApiKey;
     if (settings.pineconeApiKey) process.env.PINECONE_API_KEY = settings.pineconeApiKey;
     if (settings.pineconeHost) process.env.PINECONE_HOST = settings.pineconeHost;
 
@@ -289,6 +290,7 @@ function saveSettings(newSettings, options = {}) {
     
     // Update process.env immediately
     if (settingsToStore.geminiApiKey) process.env.GEMINI_API_KEY = settingsToStore.geminiApiKey;
+    if (settingsToStore.openAiApiKey) process.env.OPENAI_API_KEY = settingsToStore.openAiApiKey;
     
     if ((settingsToStore.ragEnabled || settingsToStore.userTier === 'pro') && settingsToStore.pineconeApiKey) {
         process.env.PINECONE_API_KEY = settingsToStore.pineconeApiKey;
