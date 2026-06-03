@@ -11514,7 +11514,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           )}
           <div className="wide-field settings-section-label">
             <strong>Realtime voice agent</strong>
-            <small>Pro feature. Requires an OpenAI realtime model, such as gpt-realtime-2 or gpt-4o-mini-realtime-preview.</small>
+            <small>Pro feature. Requires an OpenAI realtime model, such as gpt-realtime-2.</small>
           </div>
           {!proEntitled ? (
             <div className="wide-field upgrade-pro-callout">
@@ -11551,17 +11551,8 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             <>
               <label>
                 Realtime agent model
-                <input
-                  list="realtime-models"
-                  value={draft.proRealtimeModel || ''}
-                  onChange={(event) => update('proRealtimeModel', event.target.value)}
-                  placeholder="gpt-realtime-2"
-                />
-                <datalist id="realtime-models">
-                  <option value="gpt-realtime-2" />
-                  <option value="gpt-4o-mini-realtime-preview" />
-                </datalist>
-                <small style={{ color: 'var(--muted)' }}>Must be an OpenAI realtime model (e.g., gpt-realtime-2 or gpt-4o-mini-realtime-preview).</small>
+                <input value={draft.proRealtimeModel || ''} onChange={(event) => update('proRealtimeModel', event.target.value)} placeholder="gpt-realtime-2" />
+                <small style={{ color: 'var(--muted)' }}>Must be an OpenAI realtime model.</small>
               </label>
               <label>
                 Realtime OpenAI API key
