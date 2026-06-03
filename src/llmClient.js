@@ -149,6 +149,28 @@ function attachImagesToLastUserMessage(messages = [], images = [], mapper) {
     return mapped;
 }
 
+function makeSchemaStrict(schema) {
+    if (!schema || typeof schema !== 'object') {
+        return schema;
+    }
+
+    const copy = Array.isArray(schema) ? [] : {};
+    
+    for (const [key, value] of Object.entries(schema)) {
+        if (typeof value === 'object' && value !== null) {
+            copy[key] = makeSchemaStrict(value);
+        } else {
+            copy[key] = value;
+        }
+    }
+
+    if (copy.type === 'object') {
+        copy.additionalProperties = false;
+    }
+
+    return copy;
+}
+
 async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images }) {
     const payload = {
         model,
@@ -162,7 +184,7 @@ async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature
             type: 'json_schema',
             json_schema: {
                 name: jsonSchema.name || 'json_response',
-                schema: jsonSchema.schema,
+                schema: makeSchemaStrict(jsonSchema.schema),
                 strict: true
             }
         };
