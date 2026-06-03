@@ -206,12 +206,14 @@ async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature
         const schemaToUse = isWrapper ? jsonSchema.schema : jsonSchema;
         const schemaName = isWrapper ? (jsonSchema.name || 'json_response') : 'json_response';
 
+        const isLocalStudio = apiKey === 'lm-studio';
+
         payload.response_format = {
             type: 'json_schema',
             json_schema: {
                 name: schemaName,
-                schema: makeSchemaStrict(schemaToUse),
-                strict: true
+                schema: isLocalStudio ? schemaToUse : makeSchemaStrict(schemaToUse),
+                strict: !isLocalStudio
             }
         };
     } else {

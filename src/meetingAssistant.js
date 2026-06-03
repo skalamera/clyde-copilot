@@ -2,6 +2,7 @@ const { detectResumeQuestion, extractLikelyInterviewQuestion, searchKnowledgeVec
 const { generateChat } = require('./llmClient');
 const { buildAssistantPrompt, getAssistantSchema, normalizeMode } = require('./assistantPrompts');
 const { createProRealtimeAgent } = require('./proRealtimeAgent');
+const { createGeminiLiveAgent } = require('./geminiLiveAgent');
 
 const DEFAULT_INTERVAL_MS = 30000;
 const DEFAULT_MAX_TURNS = 10;
@@ -35,15 +36,27 @@ function createMeetingAssistant(options = {}) {
   );
   const proFinalMemoryWaitMs = Math.max(0, Number(options.proFinalMemoryWaitMs ?? 350) || 0);
   const proMemorySearchIntervalMs = Number(options.proMemorySearchIntervalMs ?? 15000) || 15000;
-  const proAgent = options.proAgent || createProRealtimeAgent({
-    settings,
-    knowledgeManager: options.knowledgeManager,
-    logger,
-    sendStatus,
-    sendUpdate,
-    debugTrace,
-    timeoutMs: options.proAgentTimeoutMs || timeout
-  });
+  const isGemini = String(settings.proRealtimeModel || '').includes('gemini');
+  const proAgent = options.proAgent || (isGemini
+    ? createGeminiLiveAgent({
+        settings,
+        knowledgeManager: options.knowledgeManager,
+        logger,
+        sendStatus,
+        sendUpdate,
+        debugTrace,
+        timeoutMs: options.proAgentTimeoutMs || timeout
+      })
+    : createProRealtimeAgent({
+        settings,
+        knowledgeManager: options.knowledgeManager,
+        logger,
+        sendStatus,
+        sendUpdate,
+        debugTrace,
+        timeoutMs: options.proAgentTimeoutMs || timeout
+      })
+  );
 
   let transcriptTurns = [];
   let recentHistory = [];
@@ -1774,6 +1787,13 @@ function cleanText(value) {
 }
 
 function shouldUseProAgent(settings = {}, request = {}) {
+  const isGemini = String(settings.proRealtimeModel || '').includes('gemini');
+  if (isGemini) {
+    return settings.userTier === 'pro'
+      && settings.proAgentEnabled !== false
+      && !request.screenshot
+      && Boolean(settings.geminiApiKey || settings.llmApiKey || settings.transcriptionApiKey || process.env.GEMINI_API_KEY || process.env.GEMINI_LIVE_API_KEY);
+  }
   return settings.userTier === 'pro'
     && settings.proAgentEnabled !== false
     && !request.screenshot
