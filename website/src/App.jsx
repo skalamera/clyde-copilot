@@ -1011,7 +1011,7 @@ function FullOverlayShowcase() {
     }
   }
 
-  const tickerLogos = ['12.svg', '8.svg', '14.svg', '5.svg', '11.svg', '7.svg', '13.svg', '6.svg', '10.svg', '9.svg'];
+  const tickerLogos = ['12.svg', '8.svg', '14.svg', '5.svg', 'apple.svg', '11.svg', '7.svg', '13.svg', '6.svg', '10.svg', '9.svg'];
 
   return (
     <section className="section-band full-overlay-band" data-reveal>
