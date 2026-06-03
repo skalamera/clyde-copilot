@@ -2406,7 +2406,10 @@ function describeAssistantError(error) {
     : '';
 
   if (error && error.response) {
-    return `HTTP ${error.response.status} from ${error.config && error.config.url ? error.config.url : 'LM Studio assistant'}`;
+    const serverMessage = error.response.data && error.response.data.error && error.response.data.error.message
+      ? `: ${error.response.data.error.message}`
+      : '';
+    return `HTTP ${error.response.status}${serverMessage} from ${error.config && error.config.url ? error.config.url : 'LM Studio assistant'}`;
   }
 
   if (error && error.code) {
