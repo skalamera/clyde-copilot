@@ -182,7 +182,6 @@ function createProRealtimeAgent(options = {}) {
         toolsEnabled
       }),
       output_modalities: ['text'],
-      turn_detection: null,
       reasoning: { effort: payload.reasoningEffort || 'low' },
       tool_choice: toolsEnabled ? 'auto' : 'none',
       tools: toolsEnabled ? getProAgentTools() : []
@@ -190,6 +189,10 @@ function createProRealtimeAgent(options = {}) {
   }
 
   function appendAudioChunk(base64Data) {
+    if (settings.appMode === 'interview') {
+      return;
+    }
+
     if (socket && socket.readyState === openReadyState) {
       sendJson(socket, {
         type: 'input_audio_buffer.append',
@@ -364,6 +367,10 @@ function createProRealtimeAgent(options = {}) {
 
     if (event.type === 'input_audio_buffer.speech_started') {
       if (activeRun) {
+        if (settings.appMode === 'interview') {
+          logger.info?.('[Pro] Ignoring speech started VAD interruption in interview card mode.');
+          return;
+        }
         activeRun.text = '';
         if (typeof activeRun.payload.onInterruption === 'function') {
           activeRun.payload.onInterruption();
