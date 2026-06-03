@@ -182,6 +182,7 @@ function createProRealtimeAgent(options = {}) {
         toolsEnabled
       }),
       output_modalities: ['text'],
+      turn_detection: null,
       reasoning: { effort: payload.reasoningEffort || 'low' },
       tool_choice: toolsEnabled ? 'auto' : 'none',
       tools: toolsEnabled ? getProAgentTools() : []
