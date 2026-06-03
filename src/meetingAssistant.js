@@ -1188,7 +1188,7 @@ function createMeetingAssistant(options = {}) {
   }
 
   function appendAudioChunk(base64Audio) {
-    if (shouldUseProAgent(settings, {}) && settings.proAgentRawAudioVAD === true && proAgent && typeof proAgent.appendAudioChunk === 'function') {
+    if (shouldUseProAgent(settings, {}) && proAgent && typeof proAgent.appendAudioChunk === 'function') {
       proAgent.appendAudioChunk(base64Audio);
     }
   }
