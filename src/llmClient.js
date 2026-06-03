@@ -175,12 +175,18 @@ function makeSchemaStrict(schema) {
 }
 
 async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images }) {
+    const isReasoningModel = model.startsWith('o1') || model.startsWith('o3') || model.startsWith('gpt-5');
     const payload = {
         model,
-        temperature,
-        max_tokens: maxTokens,
         messages: attachImagesToLastUserMessage(messages, images, buildOpenAIMessageContent)
     };
+
+    if (isReasoningModel) {
+        payload.max_completion_tokens = maxTokens;
+    } else {
+        payload.temperature = temperature;
+        payload.max_tokens = maxTokens;
+    }
 
     if (jsonSchema) {
         const isWrapper = typeof jsonSchema.schema === 'object' && jsonSchema.schema !== null;
