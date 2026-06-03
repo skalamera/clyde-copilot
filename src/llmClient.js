@@ -195,7 +195,7 @@ async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature
     };
 
     if (isReasoningModel) {
-        payload.max_completion_tokens = maxTokens;
+        payload.max_completion_tokens = Math.max(maxTokens, 4000);
     } else {
         payload.temperature = temperature;
         payload.max_tokens = maxTokens;
