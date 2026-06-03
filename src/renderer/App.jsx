@@ -692,6 +692,8 @@ function buildInterviewPrepSuggestions(sessions = [], phaseBreakdown = []) {
 function NewOpportunityModal({ onClose, onSave }) {
   const [company, setCompany] = useState('');
   const [role, setRole] = useState('');
+  const [outcome, setOutcome] = useState('active');
+  const [jobDescription, setJobDescription] = useState('');
 
   return (
     <div className="drawer-backdrop" style={{ zIndex: 3000 }}>
@@ -712,11 +714,39 @@ function NewOpportunityModal({ onClose, onSave }) {
             Job Title *
             <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Senior Engineer" />
           </label>
+          <label>
+            Status
+            <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+              <option value="active">Active</option>
+              <option value="advanced">Advanced</option>
+              <option value="applied">Applied</option>
+              <option value="rejected">Rejected</option>
+              <option value="offer">Offer</option>
+            </select>
+          </label>
+          <label>
+            Job Description
+            <textarea
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              placeholder="Paste the job description here..."
+              style={{
+                height: '120px',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                padding: '8px',
+                background: '#0a1016',
+                color: '#fff',
+                border: '1px solid var(--line)',
+                borderRadius: '4px'
+              }}
+            />
+          </label>
         </div>
         <div className="drawer-actions">
           <button type="button" className="primary-action" onClick={() => {
-            if (!company || !role) { alert('Company and Role are required.'); return; }
-            onSave({ company, role });
+            if (!company || !role) { alert('Company Name and Job Title are required.'); return; }
+            onSave({ company, role, outcome, jobDescription });
           }}>
             Create Opportunity
           </button>
@@ -4590,8 +4620,11 @@ function App() {
               await api?.updateSessionEntity?.({
                 mode: 'interview',
                 entityId: data.company,
-                patch: { name: data.company, role: data.role, outcome: 'active' }
+                patch: { name: data.company, role: data.role, outcome: data.outcome || 'active' }
               });
+              if (data.jobDescription && data.jobDescription.trim()) {
+                await api?.setCompanyJobDescription?.(data.company, data.jobDescription.trim());
+              }
               setNewOpportunityOpen(false);
               reloadSessions('interview');
             }} 

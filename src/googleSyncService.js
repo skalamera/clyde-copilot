@@ -77,7 +77,7 @@ function createGoogleSyncService(options = {}) {
           messages: [
             {
               role: 'system',
-              content: 'You are an assistant that analyzes emails to determine if they represent an update to a job application or interview process. You must return a JSON object with the following fields:\n- isUpdate: boolean (true if the email is a status update, rejection, offer, or interview invitation for a job)\n- companyName: string (the name of the company, if applicable)\n- outcome: string ("advanced", "rejected", "offer", or null)\n\nSTRICT GUIDELINES:\n1. companyName must contain ONLY the actual name of the hiring company. Do NOT include any trailing punctuation, sentences, snippet text, or words (e.g. return "Miter", never "Miter. After reviewing your application"). Never set companyName to our own app name ("Clyde").\n2. outcome must be classified accurately based on the email content:\n   - Set to "rejected" if the email contains rejection/negative language (e.g. "not moving forward", "decided to pass", "cannot proceed", "not proceeding", "unsuccessful", "unfortunately", "declined").\n   - Set to "advanced" if the email is positive or requests next steps (e.g. "moving forward", "schedule an interview", "invitation to interview", "next round", "onsite", "technical screen").\n   - Set to "offer" if the email represents a job offer.\n   - Otherwise, set to null.\n3. Make sure to distinguish between the sender and recipient roles.'
+              content: 'You are an assistant that analyzes emails to determine if they represent an update to a job application or interview process. You must return a JSON object with the following fields:\n- isUpdate: boolean (true if the email is a status update, rejection, offer, or interview invitation for a job)\n- companyName: string (the name of the company, if applicable)\n- outcome: string ("applied", "advanced", "rejected", "offer", or null)\n\nSTRICT GUIDELINES:\n1. companyName must contain ONLY the actual name of the hiring company. Do NOT include any trailing punctuation, sentences, snippet text, or words (e.g. return "Miter", never "Miter. After reviewing your application"). Never set companyName to our own app name ("Clyde").\n2. outcome must be classified accurately based on the email content:\n   - Set to "applied" if the email is an application confirmation, submission receipt, or thank-you-for-applying confirmation.\n   - Set to "rejected" if the email contains rejection/negative language (e.g. "not moving forward", "decided to pass", "cannot proceed", "not proceeding", "unsuccessful", "unfortunately", "declined").\n   - Set to "advanced" if the email is positive or requests next steps (e.g. "moving forward", "schedule an interview", "invitation to interview", "next round", "onsite", "technical screen").\n   - Set to "offer" if the email represents a job offer.\n   - Otherwise, set to null.\n3. Make sure to distinguish between the sender and recipient roles.'
             },
             {
               role: 'user',
@@ -89,7 +89,7 @@ function createGoogleSyncService(options = {}) {
             properties: {
               isUpdate: { type: 'boolean' },
               companyName: { type: 'string' },
-              outcome: { type: 'string', enum: ['advanced', 'rejected', 'offer'] }
+              outcome: { type: 'string', enum: ['applied', 'advanced', 'rejected', 'offer'] }
             },
             required: ['isUpdate', 'companyName']
           }
