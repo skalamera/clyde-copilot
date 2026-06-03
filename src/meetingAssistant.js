@@ -686,11 +686,13 @@ function createMeetingAssistant(options = {}) {
         sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
       } else if (text) {
         logger.log('Ignored non-JSON assistant response or empty array:', text);
+        trace('assistant.fallback.ignored', { text });
         // Fast retry: The model failed to answer the question, so we reset the timers to let it try again on the next audio chunk
         lastRunAt = 0;
         lastDigest = '';
         sendStatus({ state: 'warning', message: 'Model returned empty answers. Will auto-retry...' });
       } else {
+        trace('assistant.fallback.empty', { message: 'LM Studio or provider returned an empty assistant message.' });
         sendStatus({
           state: 'warning',
           message: 'LM Studio returned an empty assistant message. Increase LM_STUDIO_ASSISTANT_MAX_TOKENS or disable model reasoning.'
