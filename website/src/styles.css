@@ -2852,3 +2852,106 @@ img {
     font-size: 38px;
   }
 }
+
+/* Logo Ticker Section */
+.logo-ticker-container {
+  width: 100vw;
+  margin-left: calc(-50vw + 50%);
+  margin-right: calc(-50vw + 50%);
+  padding: 60px 0 30px 0;
+  background: var(--bg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+}
+
+.logo-ticker-title {
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  margin-bottom: 32px;
+  text-align: center;
+  font-weight: 500;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.logo-ticker {
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  display: flex;
+}
+
+/* Blur fades on left & right sides */
+.logo-ticker::before,
+.logo-ticker::after {
+  content: "";
+  height: 100%;
+  width: 15%;
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.logo-ticker::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg) 0%, transparent 100%);
+}
+
+.logo-ticker::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg) 0%, transparent 100%);
+}
+
+.logo-ticker-track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  animation: scroll-ticker 35s linear infinite;
+}
+
+/* High-contrast and elegant company logos styling */
+.logo-ticker-track img {
+  height: 44px;
+  margin: 0 40px;
+  object-fit: contain;
+  opacity: 0.82;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  filter: grayscale(1) brightness(1.5) contrast(1);
+}
+
+.logo-ticker-track img:hover {
+  opacity: 1;
+  filter: none;
+  transform: scale(1.05);
+}
+
+@keyframes scroll-ticker {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+/* Mobile responsive scaling */
+@media (max-width: 768px) {
+  .logo-ticker-container {
+    padding: 40px 0 20px 0;
+  }
+  .logo-ticker-title {
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+  }
+  .logo-ticker-track img {
+    height: 30px;
+    margin: 0 24px;
+  }
+}

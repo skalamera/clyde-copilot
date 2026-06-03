@@ -1011,8 +1011,23 @@ function FullOverlayShowcase() {
     }
   }
 
+  const tickerLogos = ['12.svg', '8.svg', '14.svg', '5.svg', '11.svg', '7.svg', '13.svg', '6.svg', '10.svg', '9.svg'];
+
   return (
     <section className="section-band full-overlay-band" data-reveal>
+      <div className="logo-ticker-container">
+        <p className="logo-ticker-title">Chosen By Top Candidates Worldwide</p>
+        <div className="logo-ticker">
+          <div className="logo-ticker-track">
+            {tickerLogos.map((logo, i) => (
+              <img key={`logo-1-${i}`} src={`/logos/company logos/${logo}`} alt="Company Logo" />
+            ))}
+            {tickerLogos.map((logo, i) => (
+              <img key={`logo-2-${i}`} src={`/logos/company logos/${logo}`} alt="Company Logo" />
+            ))}
+          </div>
+        </div>
+      </div>
       <div className="full-overlay-copy">
         <span className="eyebrow">Live capture mode</span>
         <h2>Live answer cards that stay out of the way.</h2>
