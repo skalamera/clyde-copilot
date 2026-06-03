@@ -180,11 +180,15 @@ async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature
     };
 
     if (jsonSchema) {
+        const isWrapper = typeof jsonSchema.schema === 'object' && jsonSchema.schema !== null;
+        const schemaToUse = isWrapper ? jsonSchema.schema : jsonSchema;
+        const schemaName = isWrapper ? (jsonSchema.name || 'json_response') : 'json_response';
+
         payload.response_format = {
             type: 'json_schema',
             json_schema: {
-                name: jsonSchema.name || 'json_response',
-                schema: makeSchemaStrict(jsonSchema.schema),
+                name: schemaName,
+                schema: makeSchemaStrict(schemaToUse),
                 strict: true
             }
         };
@@ -229,13 +233,17 @@ async function generateAnthropic({ apiKey, model, messages, jsonSchema, temperat
     };
 
     if (jsonSchema) {
+        const isWrapper = typeof jsonSchema.schema === 'object' && jsonSchema.schema !== null;
+        const schemaToUse = isWrapper ? jsonSchema.schema : jsonSchema;
+        const schemaName = isWrapper ? (jsonSchema.name || 'json_response') : 'json_response';
+
         // Use Anthropic's tool_choice for structured output
         payload.tools = [{
-            name: jsonSchema.name || 'json_response',
+            name: schemaName,
             description: 'Returns the structured JSON response.',
-            input_schema: jsonSchema.schema
+            input_schema: schemaToUse
         }];
-        payload.tool_choice = { type: 'tool', name: jsonSchema.name || 'json_response' };
+        payload.tool_choice = { type: 'tool', name: schemaName };
     }
 
     const headers = {
@@ -295,8 +303,11 @@ async function generateGemini({ apiKey, model, messages, jsonSchema, temperature
     };
 
     if (jsonSchema) {
+        const isWrapper = typeof jsonSchema.schema === 'object' && jsonSchema.schema !== null;
+        const schemaToUse = isWrapper ? jsonSchema.schema : jsonSchema;
+
         // Map JSON Schema to Gemini Schema Type
-        generationConfig.responseSchema = mapToGeminiSchema(jsonSchema.schema);
+        generationConfig.responseSchema = mapToGeminiSchema(schemaToUse);
     }
 
     const request = {
