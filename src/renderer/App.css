@@ -4852,6 +4852,12 @@ h1 {
   color: var(--cyan);
 }
 
+.outcome-badge.applied {
+  background: rgba(155, 140, 255, 0.14);
+  border-color: rgba(155, 140, 255, 0.42);
+  color: var(--violet);
+}
+
 .outcome-badge.rejected {
   background: rgba(255, 92, 122, 0.14);
   border-color: rgba(255, 92, 122, 0.42);

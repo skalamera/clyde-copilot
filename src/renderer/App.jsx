@@ -296,13 +296,14 @@ function confidenceBand(value) {
 }
 
 function normalizeOpportunityOutcome(value) {
-  return ['active', 'advanced', 'rejected', 'offer'].includes(value) ? value : 'active';
+  return ['active', 'advanced', 'applied', 'rejected', 'offer'].includes(value) ? value : 'active';
 }
 
 function getOutcomeLabel(value) {
   return {
     active: 'Active',
     advanced: 'Advanced',
+    applied: 'Applied',
     rejected: 'Rejected',
     offer: 'Offer'
   }[normalizeOpportunityOutcome(value)];
@@ -1472,6 +1473,7 @@ function EditEntityModal({ entity, onClose, onSave }) {
             <select value={outcome} onChange={(event) => setOutcome(event.target.value)}>
               <option value="active">Active</option>
               <option value="advanced">Advanced</option>
+              <option value="applied">Applied</option>
               <option value="rejected">Rejected</option>
               <option value="offer">Offer</option>
             </select>
@@ -1615,12 +1617,18 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [railWidth, setRailWidth] = useState(390);
-  const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ rejected: false, offer: false });
+  const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ applied: true, rejected: true, offer: true });
 
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeEntities = mode === 'interview'
-    ? entities.filter((entity) => !isClosedOpportunityOutcome(entity.outcome))
+    ? entities.filter((entity) => {
+        const out = normalizeOpportunityOutcome(entity.outcome);
+        return out !== 'rejected' && out !== 'offer' && out !== 'applied';
+      })
     : entities;
+  const appliedEntities = mode === 'interview'
+    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'applied')
+    : [];
   const rejectedEntities = mode === 'interview'
     ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'rejected')
     : [];
@@ -1808,6 +1816,14 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
               )}
               {mode === 'interview' ? (
                 <>
+                  <OpportunitySection
+                    collapsed={collapsedOutcomeSections.applied}
+                    count={appliedEntities.length}
+                    entities={appliedEntities}
+                    onToggle={() => toggleOutcomeSection('applied')}
+                    renderEntityRow={renderEntityRow}
+                    title="Applied"
+                  />
                   <OpportunitySection
                     collapsed={collapsedOutcomeSections.rejected}
                     count={rejectedEntities.length}
@@ -9218,7 +9234,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
-  const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ rejected: false, offer: false });
+  const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ applied: true, rejected: true, offer: true });
   const [railWidth, setRailWidth] = useState(390);
   const actionMenuRef = useRef(null);
   const editMenuRef = useRef(null);
@@ -9227,8 +9243,14 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
   const calibrationSummary = useOutcomeCalibrationSummary(api, mode, selected);
   const nowMs = useNowMs();
   const activeEntities = mode === 'interview'
-    ? entities.filter((entity) => !isClosedOpportunityOutcome(entity.outcome))
+    ? entities.filter((entity) => {
+        const out = normalizeOpportunityOutcome(entity.outcome);
+        return out !== 'rejected' && out !== 'offer' && out !== 'applied';
+      })
     : entities;
+  const appliedEntities = mode === 'interview'
+    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'applied')
+    : [];
   const rejectedEntities = mode === 'interview'
     ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'rejected')
     : [];
@@ -9428,6 +9450,14 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
               )}
               {mode === 'interview' ? (
                 <>
+                  <OpportunitySection
+                    collapsed={collapsedOutcomeSections.applied}
+                    count={appliedEntities.length}
+                    entities={appliedEntities}
+                    onToggle={() => toggleOutcomeSection('applied')}
+                    renderEntityRow={renderEntityRow}
+                    title="Applied"
+                  />
                   <OpportunitySection
                     collapsed={collapsedOutcomeSections.rejected}
                     count={rejectedEntities.length}
