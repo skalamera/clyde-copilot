@@ -1971,8 +1971,8 @@ function isDuplicateRecentDisplayedQuestion(displayedQuestion, targetQuestion) {
 }
 
 function classifyProGatePrompt(text) {
-  const value = stripTrailingAcknowledgement(stripLeadingQuestionFiller(normalizeUtteranceText(text)));
-  const prompt = stripTrailingAcknowledgement(extractLatestInterviewerPrompt(value));
+  const latestPrompt = extractLatestInterviewerPrompt(text);
+  const prompt = stripTrailingAcknowledgement(stripLeadingQuestionFiller(normalizeUtteranceText(latestPrompt)));
 
   if (!prompt) {
     return { complete: false, hasStrongTerminal: false, reason: 'empty' };

@@ -139,6 +139,12 @@ function isOpenAiTranscriptionProvider(provider) {
     return provider === 'openai' || provider === 'openai-realtime-whisper';
 }
 
+function isCloudTranscriptionProvider(provider) {
+    return provider === 'openai' 
+        || provider === 'openai-realtime-whisper' 
+        || provider === 'clyde-cloud-whisper';
+}
+
 function shouldUseRustAudioEngine(settings = loadSettings()) {
     return (settings.audioEngine || (process.platform === 'win32' ? 'rust' : 'legacy')) === 'rust';
 }
@@ -1157,8 +1163,12 @@ function buildCallPreflightContext(settings = loadSettings()) {
         health: JSON.parse(JSON.stringify(healthState)),
         models: {
             transcriptionProvider: settings.transcriptionProvider || 'Not selected',
-            transcriptionModel: isOpenAiTranscriptionProvider(settings.transcriptionProvider)
-                ? (settings.transcriptionProvider === 'openai-realtime-whisper' ? 'gpt-realtime-whisper' : 'OpenAI Cloud Transcription')
+            transcriptionModel: isCloudTranscriptionProvider(settings.transcriptionProvider)
+                ? (settings.transcriptionProvider === 'openai-realtime-whisper' 
+                    ? 'gpt-realtime-whisper' 
+                    : settings.transcriptionProvider === 'clyde-cloud-whisper' 
+                        ? 'Clyde Managed Whisper (Pro Only)' 
+                        : 'OpenAI Cloud Transcription')
                 : settings.localTranscriptionUrl || 'Not selected',
             assistantProvider: settings.llmProvider || 'Not selected',
             assistantModel: settings.llmProvider === 'local' ? (settings.llmModel || 'Local model not selected') : (settings.llmModel || settings.llmProvider || 'Not selected'),
@@ -1487,10 +1497,12 @@ function checkAudioHealth(settings = loadSettings()) {
 }
 
 async function checkWhisperHealth(settings) {
-    if (isOpenAiTranscriptionProvider(settings.transcriptionProvider)) {
+    if (isCloudTranscriptionProvider(settings.transcriptionProvider)) {
         const detail = settings.transcriptionProvider === 'openai-realtime-whisper'
             ? 'Using OpenAI Realtime Whisper.'
-            : 'Using OpenAI Cloud Transcription API.';
+            : settings.transcriptionProvider === 'clyde-cloud-whisper'
+                ? 'Using Clyde Managed Cloud Whisper (Pro).'
+                : 'Using OpenAI Cloud Transcription API.';
         updateHealth('whisper', { state: 'ready', detail });
         return;
     }

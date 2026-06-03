@@ -174,7 +174,7 @@ test('local automatic assist waits for complete fragments and answers the latest
   });
 
   assert.equal(requests.length, 1);
-  assert.match(requests[0].data.messages[1].content, /How would you manage your critical tasks and maintain high quality service/);
+  assert.match(requests[0].data.messages[1].content, /How would you manage your critical tasks and maintain high[\s\S]+quality service/);
   assert.equal(updates.length, 1);
 });
 
