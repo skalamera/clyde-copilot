@@ -1823,11 +1823,29 @@ function hasInterviewPromptCue(text) {
 
 function isInterviewerSetupChatter(text) {
   const value = normalizeUtteranceText(text).toLowerCase();
-  return /\bi have some questions\b/.test(value)
+  
+  const hasSetupChatter = /\bi have some questions\b/.test(value)
     || /\bquestions\b.*\btell me about a time\b.*\btype questions\b/.test(value)
     || /\bi'?m looking for\b.*\bspecific examples\b/.test(value)
     || /\bwhat exactly you did versus the team\b/.test(value)
     || /\bwhat the impact was\b.*\bthings like that\b/.test(value);
+
+  if (!hasSetupChatter) {
+    return false;
+  }
+
+  // If the text contains setup-chatter, but has transitioned into an actual question/command cue
+  // at the end followed by at least 8 words, do NOT classify it as setup-chatter.
+  const questionMatches = value.match(/(walk me through|tell me about|how would you|how do you|can you describe|can you walk me|have you had|do you have|is there a time|was there a time|what did you put in place|how do you prioritize|audited and or optimized|integrate|integrating|integrate gen ai)\s+(.+)$/i);
+  if (questionMatches) {
+    const afterCue = questionMatches[2].trim();
+    const wordCount = afterCue.split(/\s+/).filter(Boolean).length;
+    if (wordCount >= 8) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function isTinyUserFiller(text) {
@@ -2013,7 +2031,7 @@ function classifyProGatePrompt(text) {
   const hasCommandRequest = /\b(tell me|walk me|talk me|describe|explain|share|give me|show me)\b/i.test(prompt);
   const hasFollowUpRequest = /\b(another example|go(?:ing)? deeper|more detail|what happened|what was the outcome|what came next)\b/i.test(prompt);
 
-  if ((startsWithQuestionWord || hasCommandRequest || hasFollowUpRequest) && wordCount >= 10) {
+  if ((startsWithQuestionWord || hasCommandRequest || hasFollowUpRequest) && wordCount >= 6) {
     return { complete: true, hasStrongTerminal, reason: 'stable-question-shape' };
   }
 
