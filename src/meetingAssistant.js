@@ -280,7 +280,9 @@ function createMeetingAssistant(options = {}) {
       manualPrompt,
       selectedSources,
       llmProvider: settings.llmProvider || 'local',
+      llmKeyType: settings.llmProvider === 'clyde-cloud' ? 'managed' : (settings.llmProvider === 'local' ? 'local' : 'custom-key'),
       transcriptionProvider: settings.transcriptionProvider || 'local',
+      transcriptionKeyType: settings.transcriptionProvider === 'clyde-cloud-whisper' ? 'managed' : (settings.transcriptionProvider === 'local' ? 'local' : 'custom-key'),
       gptRealtimeUsed: !!proCandidate
     });
 

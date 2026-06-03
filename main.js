@@ -1650,8 +1650,10 @@ function startSessionTrace(settings = loadSettings()) {
     writeSessionTrace('capture.start', {
         appMode: settings.appMode,
         transcriptionProvider: settings.transcriptionProvider,
+        transcriptionKeyType: settings.transcriptionProvider === 'clyde-cloud-whisper' ? 'managed' : (settings.transcriptionProvider === 'local' ? 'local' : 'custom-key'),
         llmProvider: settings.llmProvider,
         llmModel: settings.llmModel,
+        llmKeyType: settings.llmProvider === 'clyde-cloud' ? 'managed' : (settings.llmProvider === 'local' ? 'local' : 'custom-key'),
         proAgentEnabled: settings.proAgentEnabled,
         proRealtimeModel: settings.proRealtimeModel,
         userTier: settings.userTier,
