@@ -80,7 +80,7 @@ test('posts rolling transcript to LM Studio chat completions', async () => {
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, 'http://localhost:1234/v1/chat/completions');
   assert.equal(requests[0].data.model, 'gemma-4-e4b');
-  assert.equal(requests[0].data.max_tokens, 800);
+  assert.equal(requests[0].data.max_tokens, 1500);
   assert.deepEqual(requests[0].data.response_format.json_schema.schema.properties, {
     answers: { 
       type: 'array', 
