@@ -2085,9 +2085,25 @@ function isDanglingPromptFragment(text) {
     return true;
   }
 
-  return /\b(and|or|but|if|than|because|unless|although|between|with|from|to|for|in|of|on|at|by|about|through|into|using|via|across|under|over|around|before|after|while|where|when|whether|the|a|an|difference|different|versus|vs)\s*$/i.test(value)
-    || /\b(who|what|when|where|why|how|which|that|they|you|we|it)\s*$/i.test(value)
+  if (/\b(and|or|but|if|than|because|unless|although|between|with|from|to|for|in|of|on|at|by|about|through|into|using|via|across|under|over|around|before|after|while|where|when|whether|the|a|an|difference|different|versus|vs)\s*$/i.test(value)) {
+    return true;
+  }
+
+  const endsWithPronounOrDeterminer = /\b(who|what|when|where|why|how|which|that|they|you|we|it)\s*$/i.test(value)
     || /\b(a|an|the|this|that|those|these|your|their|our|its)\s*$/i.test(value);
+
+  if (endsWithPronounOrDeterminer) {
+    if (/\b(that|it)\s*$/i.test(value)) {
+      const hasActionableQuestionWord = /\b(how|what|why|who|when|where|which|do|did|does|can|could|would|should|is|are|was|were|have|has|had)\b/i.test(value);
+      const words = value.split(/\s+/).filter(Boolean);
+      if (hasActionableQuestionWord && words.length >= 5) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  return false;
 }
 
 function hasOpenPurposeClause(text) {
