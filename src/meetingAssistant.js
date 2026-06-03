@@ -278,7 +278,10 @@ function createMeetingAssistant(options = {}) {
       commandPreview: requestIntent,
       digest,
       manualPrompt,
-      selectedSources
+      selectedSources,
+      llmProvider: settings.llmProvider || 'local',
+      transcriptionProvider: settings.transcriptionProvider || 'local',
+      gptRealtimeUsed: !!proCandidate
     });
 
     try {
