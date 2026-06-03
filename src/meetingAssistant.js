@@ -2081,7 +2081,7 @@ function isDanglingPromptFragment(text) {
     || /\b(?:api[-\s]?based\s+)?integration\s*$/i.test(value)
     || /\bif\s+you\s+do\s+have(?:\s+\w+){0,2}\s*$/i.test(value)
     || /\bbetween\b(?!.*\b(?:and|another|other|internal|external)\b)/i.test(value)
-    || /^how\s+do\s+you\s+evaluate\s+whether\b(?!.*\bwalk\s+me\s+through\b)/i.test(value)) {
+    || /^how\s+do\s+you\s+evaluate\s+whether\b(?!.*\b(?:walk|talk|run|take|me)?\s*through\b)/i.test(value)) {
     return true;
   }
 
