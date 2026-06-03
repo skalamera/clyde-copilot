@@ -2,6 +2,53 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Pinecone } = require('@pinecone-database/pinecone');
 const axios = require('axios');
 
+async function retryWithBackoff(fn, retries = 3, delay = 1000) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries <= 0) {
+      throw error;
+    }
+    const isRateLimit = error.status === 429 || 
+                        (error.message && error.message.includes('429')) || 
+                        (error.response && error.response.status === 429);
+    
+    if (isRateLimit) {
+      console.warn(`[Embedding] Rate limit hit (429). Retrying in ${delay}ms... (${retries} retries left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return retryWithBackoff(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
+async function getCloudManagedFallback(text, options = {}) {
+  try {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+    const accessToken = store.get('authAccessToken', '');
+    
+    if (accessToken) {
+      const client = options.axiosClient || axios;
+      const response = await client.post('https://clydeai.live/api/proxy?type=embed', {
+        text
+      }, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      });
+      if (response.data && Array.isArray(response.data.embedding)) {
+        return response.data.embedding;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to retrieve cloud-managed embedding fallback:', e);
+  }
+  return null;
+}
+
 async function getEmbedding(text, options = {}) {
   const resolved = options.provider
     ? {
@@ -14,29 +61,9 @@ async function getEmbedding(text, options = {}) {
   let apiKey = resolved.apiKey || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    // Clyde Managed Cloud Fallback: fetch embedding via Vercel proxy using local Supabase token!
-    try {
-      const Store = require('electron-store').default || require('electron-store');
-      const store = new Store();
-      const accessToken = store.get('authAccessToken', '');
-      
-      if (accessToken) {
-        const client = options.axiosClient || axios;
-        const response = await client.post('https://clydeai.live/api/proxy?type=embed', {
-          text
-        }, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 15000
-        });
-        if (response.data && Array.isArray(response.data.embedding)) {
-          return response.data.embedding;
-        }
-      }
-    } catch (e) {
-      console.error('Failed to retrieve cloud-managed embedding for RAG:', e);
+    const fallbackEmbedding = await getCloudManagedFallback(text, options);
+    if (fallbackEmbedding) {
+      return fallbackEmbedding;
     }
 
     console.warn(`${provider.toUpperCase()} embedding API key is not set, skipping embedding generation`);
@@ -45,23 +72,47 @@ async function getEmbedding(text, options = {}) {
 
   if (provider === 'openai') {
     const client = options.axiosClient || axios;
-    const response = await client.post('https://api.openai.com/v1/embeddings', {
-      model: resolved.model || 'text-embedding-3-small',
-      input: text
-    }, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    try {
+      const response = await retryWithBackoff(async () => {
+        return await client.post('https://api.openai.com/v1/embeddings', {
+          model: resolved.model || 'text-embedding-3-small',
+          input: text
+        }, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }, 3, 1000);
 
-    return response.data?.data?.[0]?.embedding || [];
+      return response.data?.data?.[0]?.embedding || [];
+    } catch (err) {
+      console.error('[Embedding] OpenAI embedding failed, attempting Clyde Managed Cloud fallback...', err);
+      const fallbackEmbedding = await getCloudManagedFallback(text, options);
+      if (fallbackEmbedding) {
+        return fallbackEmbedding;
+      }
+      throw err;
+    }
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const embeddingModel = genAI.getGenerativeModel({ model: resolved.model || "gemini-embedding-2" });
-  const result = await embeddingModel.embedContent(text);
-  return result.embedding.values;
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const embeddingModel = genAI.getGenerativeModel({ model: resolved.model || "gemini-embedding-2" });
+    
+    const result = await retryWithBackoff(async () => {
+      return await embeddingModel.embedContent(text);
+    }, 3, 1000);
+
+    return result.embedding.values;
+  } catch (err) {
+    console.error('[Embedding] Gemini embedding failed, attempting Clyde Managed Cloud fallback...', err);
+    const fallbackEmbedding = await getCloudManagedFallback(text, options);
+    if (fallbackEmbedding) {
+      return fallbackEmbedding;
+    }
+    throw err;
+  }
 }
 
 function resolveEmbeddingConfig(settings = {}) {
