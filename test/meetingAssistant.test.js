@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
+const { extractLikelyInterviewQuestion: realExtractLikelyInterviewQuestion } = require('../src/pineconeClient');
+
 const {
   createMeetingAssistant,
   describeAssistantError,
@@ -131,6 +133,87 @@ test('normalizes LM Studio base URL before posting chat completions', async () =
 
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, 'http://localhost:1234/v1/chat/completions');
+});
+
+test('local automatic assist waits for complete fragments and answers the latest question', async () => {
+  const requests = [];
+  const updates = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'gemma-4-e4b'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"answers": [{"question":"How would you manage critical tasks under pressure?", "bullets": ["Prioritize by impact.", "Protect service quality.", "Communicate tradeoffs."]}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 12000,
+    sendUpdate: (update) => updates.push(update)
+  });
+
+  const first = await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'How would you manage your critical tasks and maintain high'
+  });
+  assert.equal(first.skipped, 'waiting-for-complete-question');
+  assert.equal(requests.length, 0);
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: "quality service when you're working under pressure to meet tight deadlines?"
+  });
+
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].data.messages[1].content, /How would you manage your critical tasks and maintain high quality service/);
+  assert.equal(updates.length, 1);
+});
+
+test('local automatic assist bypasses rate limit for a distinct complete question', async () => {
+  const requests = [];
+
+  const assistant = createMeetingAssistant({
+    settings: {
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'gemma-4-e4b'
+    },
+    axiosClient: {
+      post: async (url, data) => {
+        requests.push({ url, data });
+        return {
+          data: {
+            choices: [{
+              message: { content: '{"answers": [{"question":"Q", "bullets": ["A"]}]}' }
+            }]
+          }
+        };
+      }
+    },
+    intervalMs: 12000
+  });
+
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'How do you handle self-service and documentation?'
+  });
+  await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Have you explored using AI agents like Fin to deflect common queries?'
+  });
+
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].data.messages[1].content, /How do you handle self-service and documentation/);
+  assert.match(requests[1].data.messages[1].content, /Have you explored using AI agents like Fin/);
 });
 
 test('interviewer questions request uses the supplied full transcript', async () => {
@@ -305,7 +388,8 @@ test('reruns intent detection when a final question fragment arrives during an i
             ? 'If you were to get the job, what would your 30 sixty ninety day plan look like?'
             : null;
         },
-        searchResumeVectors: async () => []
+        searchResumeVectors: async () => [],
+        extractLikelyInterviewQuestion: realExtractLikelyInterviewQuestion
       }
     };
 
@@ -390,7 +474,8 @@ test('runs intent detection only after interviewer utterance settles', async () 
             ? 'Why do you think you would be a good fit for this particular role.'
             : null;
         },
-        searchResumeVectors: async () => []
+        searchResumeVectors: async () => [],
+        extractLikelyInterviewQuestion: realExtractLikelyInterviewQuestion
       }
     };
 
@@ -1894,7 +1979,8 @@ test('keeps settled interviewer questions separate when a new question starts qu
 
           return null;
         },
-        searchResumeVectors: async () => []
+        searchResumeVectors: async () => [],
+        extractLikelyInterviewQuestion: realExtractLikelyInterviewQuestion
       }
     };
 
@@ -2272,7 +2358,8 @@ test('does not retrieve Pinecone context when RAG is disabled', async () => {
         searchResumeVectors: async () => {
           searchCalls++;
           return [{ text: 'Pinecone fact' }];
-        }
+        },
+        extractLikelyInterviewQuestion: realExtractLikelyInterviewQuestion
       }
     };
 

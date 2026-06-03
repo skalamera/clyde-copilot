@@ -145,6 +145,11 @@ const agenticCapabilities = [
 function App() {
   const [path, setPath] = useState(() => normalizePath(window.location.pathname));
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [upgradeNotice, setUpgradeNotice] = useState('');
+
+  function showUpgradeNotice() {
+    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.');
+  }
 
   useEffect(() => {
     const handlePop = () => setPath(normalizePath(window.location.pathname));
@@ -192,6 +197,8 @@ function App() {
 
   const currentPage = path === '/how-it-works'
     ? <HowItWorksPage onDownload={handleDownload} />
+    : path === '/pricing'
+      ? <PricingPage showUpgradeNotice={showUpgradeNotice} />
     : path === '/privacy-policy'
       ? <PrivacyPolicyPage />
       : path === '/terms-of-service'
@@ -205,7 +212,7 @@ function App() {
   return (
     <div className="site-shell">
       <AnimatedBackdrop />
-      <Header path={path} navigate={navigate} onDownload={handleDownload} />
+      <Header path={path} navigate={navigate} onDownload={handleDownload} upgradeNotice={upgradeNotice} showUpgradeNotice={showUpgradeNotice} />
       {currentPage}
       <Footer navigate={navigate} onDownload={handleDownload} />
       {downloadOpen ? <DownloadModal onClose={() => setDownloadOpen(false)} /> : null}
@@ -214,13 +221,7 @@ function App() {
   );
 }
 
-function Header({ navigate, onDownload, path }) {
-  const [upgradeNotice, setUpgradeNotice] = useState('');
-
-  function showUpgradeNotice() {
-    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.');
-  }
-
+function Header({ navigate, onDownload, path, upgradeNotice, showUpgradeNotice }) {
   return (
     <header className="site-header">
       <a className="brand-link" href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }}>
@@ -229,6 +230,7 @@ function Header({ navigate, onDownload, path }) {
       <nav aria-label="Primary navigation">
         <a href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }} className={path === '/' ? 'active' : ''}>Home</a>
         <a href="/how-it-works" onClick={(event) => { event.preventDefault(); navigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
+        <a href="/pricing" onClick={(event) => { event.preventDefault(); navigate('/pricing'); }} className={path === '/pricing' ? 'active' : ''}>Pricing</a>
         <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); navigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
         <a href="#faq">FAQ</a>
       </nav>
@@ -346,6 +348,133 @@ function LandingPage({ navigate, onDownload }) {
 
       <FaqSection />
       <FinalCta onDownload={onDownload} />
+    </main>
+  );
+}
+
+function PricingPage({ showUpgradeNotice }) {
+  const [annual, setAnnual] = useState(true);
+
+  const tiers = [
+    {
+      name: 'Free',
+      priceMonthly: 0,
+      priceAnnual: 0,
+      description: 'Start with Clyde Assistant: floating chat, active-context questions, basic context, and secure private operation.',
+      cta: 'Download Free',
+      ctaClass: 'secondary',
+      features: [
+        { label: 'Undetectable floating HUD', free: true, pro: true },
+        { label: 'Active-context help', free: true, pro: true },
+        { label: 'Private & local operation', free: true, pro: true },
+        { label: 'Meeting notes & action items', free: true, pro: true },
+        { label: 'RAG across old sessions', free: false, pro: true },
+        { label: 'Broad conversation memory', free: false, pro: true },
+        { label: 'Gmail & Calendar scanning', free: false, pro: true },
+        { label: 'Autonomous opportunity updates', free: false, pro: true },
+        { label: '0-100 rating scorecards', free: false, pro: true },
+        { label: 'Phase trend analysis', free: false, pro: true }
+      ],
+    },
+    {
+      name: 'Pro',
+      priceMonthly: 29.99,
+      priceAnnual: 24.99,
+      description: 'Unlock Clyde Pro Agent: deeper memory, RAG across sessions, inbox scans, mock interview scorecards, and calibrated trends.',
+      cta: 'Upgrade to Pro',
+      ctaClass: 'primary',
+      popular: true,
+      features: [
+        { label: 'Undetectable floating HUD', free: true, pro: true },
+        { label: 'Active-context help', free: true, pro: true },
+        { label: 'Private & local operation', free: true, pro: true },
+        { label: 'Meeting notes & action items', free: true, pro: true },
+        { label: 'RAG across old sessions', free: false, pro: true },
+        { label: 'Broad conversation memory', free: false, pro: true },
+        { label: 'Gmail & Calendar scanning', free: false, pro: true },
+        { label: 'Autonomous opportunity updates', free: false, pro: true },
+        { label: '0-100 rating scorecards', free: false, pro: true },
+        { label: 'Phase trend analysis', free: false, pro: true }
+      ],
+    },
+  ];
+
+  const price = (tier) => {
+    if (tier.priceMonthly === 0) return 'Free';
+    const amount = annual ? tier.priceAnnual : tier.priceMonthly;
+    return (
+      <>
+        <span className="currency">$</span>{amount}
+      </>
+    );
+  };
+
+  const period = (tier) => {
+    if (tier.priceMonthly === 0) return '';
+    return annual ? '/month, billed annually' : '/month';
+  };
+
+  return (
+    <main>
+      <section className="pricing-section">
+        <div className="pricing-header" data-reveal>
+          <h1>Sleek, Private AI for your Job Search.</h1>
+          <p>Start with Clyde Assistant, or unlock the agentic layer with Clyde Pro.</p>
+        </div>
+
+        {/* Billing Toggle */}
+        <div className="billing-toggle" data-reveal>
+          <button className={!annual ? 'active' : ''} onClick={() => setAnnual(false)}>
+            Monthly
+          </button>
+          <button className={annual ? 'active' : ''} onClick={() => setAnnual(true)}>
+            Annual
+            <span className="discount-badge">Save 16%</span>
+          </button>
+        </div>
+
+        {/* Pricing Cards */}
+        <div className="pricing-grid" data-reveal>
+          {tiers.map((tier) => (
+            <div
+              key={tier.name}
+              className={`pricing-card glass-card ${tier.name === 'Pro' ? 'pro' : ''}`}
+            >
+              {tier.popular ? <span className="popular-badge">Most Popular</span> : null}
+              <div className="tier-name">{tier.name}</div>
+              <div className="price">{price(tier)}</div>
+              <div className="price-period">{period(tier)}</div>
+              <div className="description">{tier.description}</div>
+
+              <ul className="feature-list">
+                {tier.features.map((feat, i) => (
+                  <li key={i}>
+                    {feat[tier.name.toLowerCase()] ? (
+                      <span className={`check ${tier.name.toLowerCase()}`}>✓</span>
+                    ) : (
+                      <span className="check free" style={{ background: 'transparent', color: 'var(--muted-2)' }}>–</span>
+                    )}
+                    {feat.label}
+                  </li>
+                ))}
+              </ul>
+
+              <button
+                className={`cta-btn ${tier.ctaClass}`}
+                onClick={() => {
+                  if (tier.name === 'Pro') {
+                    showUpgradeNotice();
+                  } else {
+                    window.location.href = downloadHref;
+                  }
+                }}
+              >
+                {tier.cta}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
@@ -842,6 +971,17 @@ function TermsOfServicePage() {
 
 function FullOverlayShowcase() {
   const [isMobile, setIsMobile] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(0);
+  const [touchEndX, setTouchEndX] = useState(0);
+
+  const slides = [
+    { src: '/Clyde Screenshots/google meet.svg', logo: '/logos/google meet logo.svg', caption: 'Google Meet' },
+    { src: '/Clyde Screenshots/zoom.svg',        logo: '/logos/zoom logo.svg',        caption: 'zoom' },
+    { src: '/Clyde Screenshots/teams.svg',       logo: '/logos/teams logo.svg',       caption: 'Teams' },
+  ];
+
+  const SWIPE_THRESHOLD = 50;
 
   useEffect(() => {
     const checkSize = () => {
@@ -852,18 +992,33 @@ function FullOverlayShowcase() {
     return () => window.removeEventListener('resize', checkSize);
   }, []);
 
+  function goToSlide(index) {
+    setCurrentSlide((index + slides.length) % slides.length);
+  }
+
+  function handleTouchStart(e) {
+    setTouchStartX(e.touches[0].clientX);
+  }
+
+  function handleTouchMove(e) {
+    setTouchEndX(e.touches[0].clientX);
+  }
+
+  function handleTouchEnd() {
+    const diff = touchStartX - touchEndX;
+    if (Math.abs(diff) > SWIPE_THRESHOLD) {
+      goToSlide(currentSlide + (diff > 0 ? 1 : -1));
+    }
+  }
+
   return (
     <section className="section-band full-overlay-band" data-reveal>
       <div className="full-overlay-copy">
         <span className="eyebrow">Live capture mode</span>
         <h2>Live answer cards that stay out of the way.</h2>
-        <p>
-          Clyde can surface transparent, glanceable suggestions during a call so you get help without covering the meeting or breaking focus.
-          It can also display relevant memory from RAG files, notes, or previous sessions beside the suggested answer.
-        </p>
       </div>
       <figure className="full-overlay-figure">
-        <div style={{ width: '100%', marginBottom: '24px' }}>
+        <div style={{ width: '100%', marginBottom: '36px' }}>
           {isMobile ? (
             <video 
               key="mobile-video"
@@ -887,11 +1042,56 @@ function FullOverlayShowcase() {
               style={{ width: '100%', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.08)' }}
             />
           )}
+          <figcaption className="video-caption">
+            Clyde can surface transparent, glanceable suggestions during a call so you get help without covering the meeting or breaking focus.
+            It can also display relevant memory from RAG files, notes, or previous sessions beside the suggested answer.
+          </figcaption>
         </div>
-        <img src="/Clyde Screenshots/Full Desktop Overlay View 2.svg" alt="Full Clyde desktop overlay showing a live question and answer card beside a relevant memory card from RAG files" loading="lazy" />
-        <figcaption>
-          <strong>Example:</strong> Clyde hears a question, drafts a concise response, and surfaces supporting facts from relevant RAG files while the call is still happening.
-        </figcaption>
+
+        {/* Platform Logo Above Carousel */}
+        <div className="carousel-platform-header">
+          <img 
+            src={slides[currentSlide].logo} 
+            alt={`${slides[currentSlide].caption} Logo`} 
+            className="carousel-platform-logo" 
+          />
+        </div>
+
+        {/* Carousel */}
+        <div className="carousel-container"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div className="carousel-track" style={{ transform: `translateX(-${currentSlide * 100}%)` }}>
+            {slides.map((slide, i) => (
+              <div className="carousel-slide" key={i}>
+                <img src={slide.src} alt={`Clyde overlay on ${slide.caption}`} className="carousel-screenshot" loading="lazy" />
+              </div>
+            ))}
+          </div>
+
+          {/* Arrow buttons */}
+          <button className="carousel-arrow carousel-arrow--prev" type="button" onClick={() => goToSlide(currentSlide - 1)} aria-label="Previous screenshot">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button className="carousel-arrow carousel-arrow--next" type="button" onClick={() => goToSlide(currentSlide + 1)} aria-label="Next screenshot">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+          </button>
+
+          {/* Dot indicators */}
+          <div className="carousel-dots">
+            {slides.map((_, i) => (
+              <button
+                key={i}
+                className={`carousel-dot${i === currentSlide ? ' active' : ''}`}
+                type="button"
+                onClick={() => goToSlide(i)}
+                aria-label={`Go to slide ${i + 1}`}
+              />
+            ))}
+          </div>
+        </div>
       </figure>
     </section>
   );

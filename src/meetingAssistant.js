@@ -59,6 +59,7 @@ function createMeetingAssistant(options = {}) {
   let currentContext = {};
   let newlyAccumulatedTurns = 0;
   let queuedForcedRun = null;
+  let lastAutomaticTargetQuestion = '';
   const partialQuestionGate = new Map();
   const partialQuestionTimers = new Map();
   const latestProRunTextByGroup = new Map();
@@ -234,13 +235,6 @@ function createMeetingAssistant(options = {}) {
       return { ok: true, skipped: 'in-flight' };
     }
 
-    const now = Date.now();
-
-    if (!proCandidate && !force && now - lastRunAt < intervalMs) {
-      trace('assistant.run.skip', { reason: 'rate-limited', intervalMs, elapsedMs: now - lastRunAt });
-      return { ok: true, skipped: 'rate-limited' };
-    }
-
     const suppliedTranscriptDigest = transcriptDigest(requestOptions.transcript);
     const digest = suppliedTranscriptDigest
       ? suppliedTranscriptDigest
@@ -248,6 +242,27 @@ function createMeetingAssistant(options = {}) {
           ? recentHistory.slice(-6).map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
           : intentTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
     const digestMaxIntentTurnId = getMaxIntentTurnId(intentTurns);
+    const now = Date.now();
+    const automaticInterviewRequest = isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion);
+    const promptCompletion = classifyProGatePrompt(digest);
+    const localCompleteQuestion = automaticInterviewRequest && !proCandidate
+      ? cleanText(extractLikelyInterviewQuestion(digest) || (promptCompletion.complete && promptCompletion.hasStrongTerminal ? extractLatestInterviewerPrompt(digest) : ''))
+      : '';
+    const canBypassRateLimitForNewQuestion = Boolean(
+      localCompleteQuestion
+      && (!lastAutomaticTargetQuestion || !isSameOrNearDuplicateQuestion(lastAutomaticTargetQuestion, localCompleteQuestion))
+    );
+
+    if (!proCandidate && !force && now - lastRunAt < intervalMs && !canBypassRateLimitForNewQuestion) {
+      trace('assistant.run.skip', {
+        reason: 'rate-limited',
+        intervalMs,
+        elapsedMs: now - lastRunAt,
+        latestQuestion: localCompleteQuestion,
+        lastAutomaticTargetQuestion
+      });
+      return { ok: true, skipped: 'rate-limited' };
+    }
 
     // Only check for unchanged if it's NOT a forced suggestion request
     if (!isSuggestionRequest && (!digest || digest === lastDigest)) {
@@ -289,11 +304,11 @@ function createMeetingAssistant(options = {}) {
       } else if (mode === 'meeting') {
         targetQuestion = '';
       } else {
-        const localInterviewQuestion = isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion) && typeof extractLikelyInterviewQuestion === 'function'
+        const localInterviewQuestion = proCandidate && automaticInterviewRequest && typeof extractLikelyInterviewQuestion === 'function'
           ? extractLikelyInterviewQuestion(digest)
-          : '';
+          : localCompleteQuestion;
 
-        if (isAutomaticInterviewAssist(mode, isSuggestionRequest, isManualQuestion) && !localInterviewQuestion && !hasLikelyCompleteInterviewerPrompt(digest)) {
+        if (automaticInterviewRequest && !localInterviewQuestion && !hasLikelyCompleteInterviewerPrompt(digest)) {
           logger.log(`[Intent] Waiting for a complete interviewer question before generating an answer card. Latest prompt: "${extractLatestInterviewerPrompt(digest).slice(0, 240)}"`);
           inFlight = false;
           return { ok: true, skipped: 'waiting-for-complete-question' };
@@ -303,6 +318,22 @@ function createMeetingAssistant(options = {}) {
           targetQuestion = cleanText(requestOptions.targetQuestion) || localInterviewQuestion || extractLatestInterviewerPrompt(digest);
           logger.log(`[Intent] Sending complete interviewer prompt directly to Clyde Pro: "${targetQuestion.slice(0, 240)}"`);
           trace('assistant.intent.target_question', { targetQuestion, source: 'pro-local-complete-prompt' });
+        } else if (automaticInterviewRequest && localInterviewQuestion) {
+          targetQuestion = localInterviewQuestion;
+          logger.log(`[Intent] Using latest complete interviewer question: "${targetQuestion.slice(0, 240)}"`);
+          trace('assistant.intent.target_question', { targetQuestion, source: 'local-complete-prompt' });
+          if (hasPinecone && shouldUseRag) {
+            try {
+              const vectors = await searchKnowledgeVectors(targetQuestion, settings, { topK: 3 });
+              if (vectors && vectors.length > 0) {
+                logger.log(`[RAG] Injecting Pinecone context into LM Studio prompt.`);
+                ragContext = "Relevant facts from the user's resume and past projects:\n" +
+                  vectors.map(v => `- ${v.text}`).join('\n');
+              }
+            } catch (e) {
+              logger.error('[RAG] Retrieval error for complete local question:', e);
+            }
+          }
         } else {
           try {
             const extractedQuestion = await detectResumeQuestion(digest);
@@ -341,6 +372,9 @@ function createMeetingAssistant(options = {}) {
       // If we got this far, a question was found (or it's a forced suggestion request), so we update the timers
       lastRunAt = now;
       lastDigest = digest;
+      if (automaticInterviewRequest && targetQuestion) {
+        lastAutomaticTargetQuestion = targetQuestion;
+      }
 
       const command = resolveAssistantCommand({
         mode,
@@ -1132,6 +1166,7 @@ function createMeetingAssistant(options = {}) {
     latestProRunTextByGroup.clear();
     displayedProRunTextByGroup.clear();
     recentDisplayedProRuns = [];
+    lastAutomaticTargetQuestion = '';
     clearProPromptHistory();
     for (const timer of partialQuestionTimers.values()) {
       clearTimeout(timer);
@@ -2014,6 +2049,7 @@ function isDanglingPromptFragment(text) {
     || /\bhigh ticket count(?:\s+but\s+you\s+notice(?:\s+\w+){0,3})?\s*$/i.test(value)
     || /\bhow do you typically go about managing that or turning\s*$/i.test(value)
     || /\bcritical tasks(?:\s+maintain)?\s*$/i.test(value)
+    || /\bmaintain(?:\s+high)?\s*$/i.test(value)
     || /\bsupport func(?:tion)?(?:\s+i benchmark(?:\s+\w+){0,4})?\s*$/i.test(value)
     || /\bas\s+(?:an?|the)\s+\w+\s*$/i.test(value)
     || /\blike\s+[A-Z][\w-]*\s*$/.test(value)
