@@ -13,7 +13,8 @@ async function generateChat({ provider, apiKey, model, messages, jsonSchema, tem
             return await generateGemini({ apiKey, model, messages, jsonSchema, temperature, maxTokens, images });
         } catch (error) {
             if (model !== 'gemini-2.5-flash' && model !== 'gemini-3.5-flash') {
-                console.warn(`Gemini run with model "${model}" failed. Retrying with stable model "gemini-2.5-flash":`, error.message);
+                const errMsg = error.response?.data?.error?.message || error.message;
+                console.warn(`Gemini run with model "${model}" failed. Retrying with stable model "gemini-2.5-flash": ${errMsg}`);
                 return await generateGemini({ apiKey, model: 'gemini-2.5-flash', messages, jsonSchema, temperature, maxTokens, images });
             }
             throw error;
@@ -23,7 +24,8 @@ async function generateChat({ provider, apiKey, model, messages, jsonSchema, tem
             return await generateAnthropic({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, images });
         } catch (error) {
             if (model !== 'claude-3-5-haiku-latest') {
-                console.warn(`Anthropic run with model "${model}" failed. Retrying with stable model "claude-3-5-haiku-latest":`, error.message);
+                const errMsg = error.response?.data?.error?.message || error.message;
+                console.warn(`Anthropic run with model "${model}" failed. Retrying with stable model "claude-3-5-haiku-latest": ${errMsg}`);
                 return await generateAnthropic({ apiKey, model: 'claude-3-5-haiku-latest', messages, jsonSchema, temperature, maxTokens, axiosClient, images });
             }
             throw error;
@@ -34,7 +36,8 @@ async function generateChat({ provider, apiKey, model, messages, jsonSchema, tem
         } catch (error) {
             const isModelError = error.response && (error.response.status === 400 || error.response.status === 404);
             if (isModelError && model !== 'gpt-4o-mini') {
-                console.warn(`OpenAI run with model "${model}" failed. Retrying with stable model "gpt-4o-mini":`, error.message);
+                const errMsg = error.response?.data?.error?.message || error.message;
+                console.warn(`OpenAI run with model "${model}" failed. Retrying with stable model "gpt-4o-mini": ${errMsg}`);
                 return await generateOpenAI({ apiKey, model: 'gpt-4o-mini', messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions', images });
             }
             throw error;
