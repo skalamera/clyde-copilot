@@ -169,6 +169,19 @@ function makeSchemaStrict(schema) {
 
     if (copy.type === 'object') {
         copy.additionalProperties = false;
+        
+        // OpenAI strict mode compliance: If strict=true is requested, 
+        // every property in 'properties' must be listed in 'required'.
+        if (copy.properties && !Array.isArray(copy.required)) {
+            copy.required = Object.keys(copy.properties);
+        } else if (copy.properties && Array.isArray(copy.required)) {
+            const requiredSet = new Set(copy.required);
+            for (const propName of Object.keys(copy.properties)) {
+                if (!requiredSet.has(propName)) {
+                    copy.required.push(propName);
+                }
+            }
+        }
     }
 
     return copy;
