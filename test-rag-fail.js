@@ -7,9 +7,13 @@ async function run() {
         const configPath = 'C:\\Users\\skala\\AppData\\Roaming\\clyde\\config.json';
         const settings = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         
-        // Force settings to use OpenAI Custom Key and gpt-4o
+        // Force settings to use OpenAI Custom Key and gpt-5-nano-2025-08-07
         settings.llmProvider = 'openai';
-        settings.llmModel = 'gpt-4o';
+        settings.llmModel = 'gpt-5-nano-2025-08-07';
+        
+        console.log('App Mode:', settings.appMode);
+        console.log('LLM Provider:', settings.llmProvider);
+        console.log('LLM Model:', settings.llmModel);
         
         const { searchKnowledgeVectors } = require('./src/pineconeClient');
         const { createMeetingAssistant } = require('./src/meetingAssistant');
@@ -76,11 +80,11 @@ async function run() {
             { role: 'user', content: question }
         ];
         
-        console.log('Sending request to OpenAI...');
+        console.log('Sending request to OpenAI with model: gpt-5-nano-2025-08-07 ...');
         const result = await generateChat({
             provider: 'openai',
             apiKey: settings.openAiApiKey,
-            model: 'gpt-4o',
+            model: 'gpt-5-nano-2025-08-07',
             messages,
             jsonSchema: schema,
             temperature: 0.2,
@@ -88,7 +92,7 @@ async function run() {
             axiosClient: axios
         });
         
-        console.log('Success! Result size:', result.length);
+        console.log('Success! Result size:', result.length, 'Result text:', result);
     } catch (error) {
         console.error('Error occurred in runner!');
         if (error.response) {
@@ -101,5 +105,3 @@ async function run() {
 }
 
 run();
-export_api_key = process.env.PINECONE_API_KEY;
-export_host = process.env.PINECONE_HOST;

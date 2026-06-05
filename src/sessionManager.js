@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { normalizeTranscriptRating } = require('./trendAnalysis');
 
-const OPPORTUNITY_OUTCOMES = new Set(['active', 'advanced', 'rejected', 'offer']);
+const OPPORTUNITY_OUTCOMES = new Set(['applied', 'active', 'advanced', 'rejected', 'offer']);
 
 function createSessionManager({ appPath }) {
   if (!appPath) {

@@ -976,9 +976,9 @@ function FullOverlayShowcase() {
   const [touchEndX, setTouchEndX] = useState(0);
 
   const slides = [
-    { src: '/Clyde Screenshots/google meet.svg', logo: '/logos/google meet logo.svg', caption: 'Google Meet' },
-    { src: '/Clyde Screenshots/zoom.svg',        logo: '/logos/zoom logo.svg',        caption: 'zoom' },
-    { src: '/Clyde Screenshots/teams.svg',       logo: '/logos/teams logo.svg',       caption: 'Teams' },
+    { src: '/Clyde Screenshots/google meet 2.svg', logo: '/logos/google meet logo.svg', caption: 'Google Meet' },
+    { src: '/Clyde Screenshots/zoom 2.svg',        logo: '/logos/zoom logo.svg',        caption: 'zoom' },
+    { src: '/Clyde Screenshots/teams 2.svg',       logo: '/logos/teams logo.svg',       caption: 'Teams' },
   ];
 
   const SWIPE_THRESHOLD = 50;
@@ -1317,7 +1317,7 @@ function LiveAvatarPracticeDemo() {
         throw new Error(payload.error || 'LiveAvatar token endpoint is not available.');
       }
 
-      const session = new LiveAvatarSession(payload.sessionToken);
+      const session = new LiveAvatarSession(payload.sessionToken, { voiceChat: true });
       sessionRef.current = session;
       session.on(SessionEvent.SESSION_STREAM_READY, () => {
         if (videoRef.current) {
@@ -1500,7 +1500,7 @@ function HomeScreenFeature() {
         <p>Clyde keeps the home screen minimal: your next meetings, active context, captured notes, and agent actions stay visible without turning the app into a dashboard maze.</p>
       </div>
       <div className="home-screen-showcase">
-        <img src="/Clyde Screenshots/Home Screen.svg" alt="Clyde home screen showing a clean, minimal opportunity workspace" loading="lazy" />
+        <img src="/Clyde Screenshots/home_screen.svg" alt="Clyde home screen showing a clean, minimal opportunity workspace" loading="lazy" />
         <div className="home-screen-notes">
           <span>Minimal by design</span>
           <h3>Fast to understand. Hard to clutter.</h3>

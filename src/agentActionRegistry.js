@@ -1,4 +1,4 @@
-const VALID_OUTCOMES = new Set(['active', 'advanced', 'rejected', 'offer']);
+const VALID_OUTCOMES = new Set(['active', 'advanced', 'applied', 'rejected', 'offer']);
 
 function createAgentActionRegistry(options = {}) {
   const sessionManager = options.sessionManager;

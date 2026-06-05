@@ -1,8 +1,8 @@
 const axios = require('axios');
 
 function resolveAuthConfig(config = {}) {
-  const url = String(config.url || process.env.CLYDE_SUPABASE_URL || '').replace(/\/$/, '');
-  const apiKey = String(config.apiKey || process.env.CLYDE_SUPABASE_ANON_KEY || process.env.CLYDE_SUPABASE_PUBLISHABLE_KEY || '').trim();
+  const url = String(config.url || process.env.CLYDE_SUPABASE_URL || 'https://ijcoheaovypykliffqwh.supabase.co').replace(/\/$/, '');
+  const apiKey = String(config.apiKey || process.env.CLYDE_SUPABASE_ANON_KEY || process.env.CLYDE_SUPABASE_PUBLISHABLE_KEY || 'eyJhbG...8by8').trim();
   if (!url) {
     throw new Error('CLYDE_SUPABASE_URL is not configured.');
   }

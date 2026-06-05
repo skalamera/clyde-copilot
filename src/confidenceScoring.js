@@ -20,7 +20,7 @@ function clampConfidenceScore(value) {
 
 function normalizeOutcome(value) {
   const outcome = String(value || '').trim().toLowerCase();
-  return ['active', 'advanced', 'offer', 'rejected'].includes(outcome) ? outcome : 'active';
+  return ['active', 'advanced', 'applied', 'offer', 'rejected'].includes(outcome) ? outcome : 'active';
 }
 
 function getSessionTime(session, fallbackIndex) {

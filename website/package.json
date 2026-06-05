@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "dev:local": "node ./scripts/dev-local.mjs",
+    "dev:local": "node --env-file .env ./scripts/dev-local.mjs",
     "dev:vercel": "vercel dev --listen 127.0.0.1:5174",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"

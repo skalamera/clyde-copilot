@@ -68,6 +68,7 @@ const {
     summarizeOutcomeCalibrationExamples
 } = require('./src/outcomeLearning');
 const demoData = require('./src/demoData');
+const { startExtensionServer, stopExtensionServer, isExtensionServerRunning } = require('./src/extensionServer');
 
 let mainWindow;
 let normalBounds = null;
@@ -2119,6 +2120,19 @@ function createWindow () {
     startGoogleSyncTimer(settings);
     startGoogleSyncOnLaunch(settings);
 
+    // Start the local API server for Jayobee extension integration
+    startExtensionServer({
+        interviewManager,
+        sessionManager,
+        knowledgeManager,
+        questionBankManager,
+        loadSettings,
+        saveSettings,
+        publicSettings
+    }, mainWindow).catch((err) => {
+        console.error('Failed to start extension server:', err.message);
+    });
+
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     if (!store.get('knowledgeBackfillDone_v2')) {
@@ -4089,6 +4103,7 @@ app.on('window-all-closed', () => {
         clearInterval(processMonitorInterval);
         processMonitorInterval = null;
     }
+    stopExtensionServer();
     app.quit();
   }
 });

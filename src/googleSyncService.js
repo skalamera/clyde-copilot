@@ -77,7 +77,7 @@ function createGoogleSyncService(options = {}) {
           messages: [
             {
               role: 'system',
-              content: 'You are an assistant that analyzes emails to determine if they represent an update to a job application or interview process. You must return a JSON object with the following fields:\n- isUpdate: boolean (true if the email is a status update, rejection, offer, or interview invitation for a job)\n- companyName: string (the name of the company, if applicable)\n- outcome: string ("applied", "advanced", "rejected", "offer", or null)\n\nSTRICT GUIDELINES:\n1. companyName must contain ONLY the actual name of the hiring company. Do NOT include any trailing punctuation, sentences, snippet text, or words (e.g. return "Miter", never "Miter. After reviewing your application"). Never set companyName to our own app name ("Clyde").\n2. outcome must be classified accurately based on the email content:\n   - Set to "applied" if the email is an application confirmation, submission receipt, or thank-you-for-applying confirmation.\n   - Set to "rejected" if the email contains rejection/negative language (e.g. "not moving forward", "decided to pass", "cannot proceed", "not proceeding", "unsuccessful", "unfortunately", "declined").\n   - Set to "advanced" if the email is positive or requests next steps (e.g. "moving forward", "schedule an interview", "invitation to interview", "next round", "onsite", "technical screen").\n   - Set to "offer" if the email represents a job offer.\n   - Otherwise, set to null.\n3. Make sure to distinguish between the sender and recipient roles.'
+              content: 'You are an assistant that analyzes emails to determine if they represent an update to a job application or interview process. You must return a JSON object with the following fields:\n- isUpdate: boolean (true if the email is a status update, rejection, offer, or interview invitation for a job)\n- companyName: string (the name of the company, if applicable)\n- outcome: string ("applied", "advanced", "rejected", "offer", or null)\n\nSTRICT GUIDELINES:\n1. companyName must contain ONLY the actual name of the hiring company. Do NOT include any trailing punctuation, sentences, snippet text, or words (e.g. return "Miter", never "Miter. After reviewing your application"). Never set companyName to our own app name ("Clyde").\n2. outcome must be classified accurately based on the email content:\n   - Set to "applied" if the email is an application confirmation, submission receipt, or thank-you-for-applying confirmation.\n   - Set to "rejected" if the email contains rejection/negative language (e.g. "not moving forward", "decided to pass", "cannot proceed", "not proceeding", "unsuccessful", "unfortunately", "declined").\n   - Set to "advanced" if the email is positive or requests next steps (e.g. "moving forward", "schedule an interview", "invitation to interview", "next round", "onsite", "technical screen").\n   - Set to "offer" if the email represents a job offer.\n   - Otherwise, set to null.\n3. Make sure to distinguish between the sender and recipient roles.\n4. Safety Gating: The email MUST be strictly related to a professional corporate job application or recruiting process. Do NOT include loan applications, banking payments, apartment leases, software subscriptions, credit cards, retail purchases, or standard customer support tickets. If it is a non-job email, set isUpdate to false.'
             },
             {
               role: 'user',
@@ -156,7 +156,9 @@ function createGoogleSyncService(options = {}) {
         source: gmailSource(message),
         payload: { name: inferredCompanyName, company: inferredCompanyName, outcome: 'rejected' }
       }));
-    } else if (entity && shouldSuggestOutcome(entity, 'advanced') && /(next round|move forward|moving forward|advance|advanced|onsite|final round|technical screen|confirm|confirmed|scheduled)/i.test(normalized)) {
+    } else if (entity && shouldSuggestOutcome(entity, 'advanced') 
+               && /(next round|move forward|moving forward|advance|advanced|onsite|final round|technical screen|confirm|confirmed|scheduled)/i.test(normalized)
+               && !/\b(thanks for applying|thank you for applying|received your application|application received|received application|application submission|confirmation of application|application was sent|application has been sent|successfully applied|applied to|submitted your application|thanks for your application|thank you for your application|applied for the role|applied for the position|confirm receipt of your application|not moving forward|will not be moving forward|won t be moving forward|no longer moving forward|move forward with other candidates|move forward with other applicants|other candidates|not selected|not proceed|unfortunately|rejected|declined|pass|another candidate)\b/i.test(normalized)) {
       proposals.push(buildProposal({
         sourceType: 'gmail',
         sourceId: message.id,
@@ -166,7 +168,9 @@ function createGoogleSyncService(options = {}) {
         source: gmailSource(message),
         payload: { entityName: entity.name, outcome: 'advanced', outcomeReason: message.subject || 'Gmail update', outcomeDate: dateFromMessage(message) }
       }));
-    } else if (!entity && inferredCompanyName && isUsableCompanyName(inferredCompanyName) && /(next round|move forward|moving forward|advance|advanced|onsite|final round|technical screen|confirm|confirmed|scheduled)/i.test(normalized)) {
+    } else if (!entity && inferredCompanyName && isUsableCompanyName(inferredCompanyName) 
+               && /(next round|move forward|moving forward|advance|advanced|onsite|final round|technical screen|confirm|confirmed|scheduled)/i.test(normalized)
+               && !/\b(thanks for applying|thank you for applying|received your application|application received|received application|application submission|confirmation of application|application was sent|application has been sent|successfully applied|applied to|submitted your application|thanks for your application|thank you for your application|applied for the role|applied for the position|confirm receipt of your application|not moving forward|will not be moving forward|won t be moving forward|no longer moving forward|move forward with other candidates|move forward with other applicants|other candidates|not selected|not proceed|unfortunately|rejected|declined|pass|another candidate)\b/i.test(normalized)) {
       proposals.push(buildProposal({
         sourceType: 'gmail',
         sourceId: message.id,
@@ -180,26 +184,38 @@ function createGoogleSyncService(options = {}) {
 
     if (entity && isInterviewMeetingRequest(normalized)) {
       const meeting = extractInterviewMeetingRequest(message, text, entity.name, now());
-      proposals.push(buildProposal({
-        sourceType: 'gmail',
-        sourceId: message.id,
-        actionType: 'addInterviewMeetingRequest',
-        label: `Add ${meeting.title} to Clyde calendar`,
-        summary: `Gmail found an interview meeting request for ${entity.name}.`,
-        source: gmailSource(message),
-        payload: meeting
-      }));
-    } else if (!entity && /(interview|schedule|next step|video meeting|zoom|google meet|interest in)/i.test(normalized)) {
+      if (meeting.date) {
+        proposals.push(buildProposal({
+          sourceType: 'gmail',
+          sourceId: message.id,
+          actionType: 'addInterviewMeetingRequest',
+          label: `Add ${meeting.title} to Clyde calendar`,
+          summary: `Gmail found an interview meeting request for ${entity.name}.`,
+          source: gmailSource(message),
+          payload: meeting
+        }));
+      }
+    } else if (!entity && proposals.length === 0 && /(interview|schedule|next step|video meeting|zoom|google meet|interest in|thanks for applying|thank you for applying|received your application|application received|received application|application submission|confirmation of application|application was sent|application has been sent|successfully applied|applied to|submitted your application|thanks for your application|thank you for your application|applied for the role|applied for the position|confirm receipt of your application)/i.test(normalized)) {
       const newCompanyName = inferredCompanyName;
       if (newCompanyName && isUsableCompanyName(newCompanyName)) {
+        const role = extractNewCompanyRole(message, text);
+        const isAppliedConfirm = /(thanks for applying|thank you for applying|received your application|application received|received application|application submission|confirmation of application|application was sent|application has been sent|successfully applied|applied to|submitted your application|thanks for your application|thank you for your application|applied for the role|applied for the position|confirm receipt of your application)/i.test(normalized);
+        
         proposals.push(buildProposal({
           sourceType: 'gmail',
           sourceId: message.id,
           actionType: 'createOpportunity',
-          label: `Add ${newCompanyName} to Clyde`,
-          summary: `Gmail found a new interview opportunity with ${newCompanyName}.`,
+          label: isAppliedConfirm ? `Add ${newCompanyName} as applied` : `Add ${newCompanyName} to Clyde`,
+          summary: isAppliedConfirm 
+            ? `Gmail found an application confirmation for ${newCompanyName}.`
+            : `Gmail found a new interview opportunity with ${newCompanyName}.`,
           source: gmailSource(message),
-          payload: { name: newCompanyName, company: newCompanyName }
+          payload: { 
+            name: newCompanyName, 
+            company: newCompanyName,
+            role: role || undefined,
+            outcome: isAppliedConfirm ? 'applied' : 'active'
+          }
         }));
       }
     }
@@ -372,8 +388,23 @@ function createGoogleSyncService(options = {}) {
   function isJobProcessEmail(message = {}, normalizedText = '') {
     const subject = normalizeText(message.subject || '');
     const from = normalizeText(message.from || '');
+
+    // Safety gate: completely ignore any automated job alerts/recommendations
+    const isJobAlert = /\b(job alert|jobalert|jobalerts|job recommendations|new jobs|jobs alert)\b/i.test(subject)
+      || /\b(jobalerts-noreply|jobalert|jobalerts|job-alerts|job-alert)\b/i.test(from);
+    if (isJobAlert) {
+      return false;
+    }
+
+    // Safety gate: completely exclude personal finance, loans, billing, transactions or other non-job terms
+    const isFinancialOrNonJob = /\b(loan|loans|mortgage|credit card|credit score|debt|payment confirmation|loan payment|on-time payment|billing statement|payment on-time|scam|scams|scammer|scammers|fraud|beware|phishing|warning)\b/i.test(normalizedText)
+      || /\b(loan|billing|invoice|payment|receipt|scam|scams|scammer|scammers|fraud|beware|phishing|warning)\b/i.test(subject);
+    if (isFinancialOrNonJob) {
+      return false;
+    }
+
     const looksBulk = /\b(newsletter|digest|daily update|weekly update|auction|auctions|ending today|new jobs|more jobs|job alert|jobalert|jobs alert|hiring for|promoted|sponsored|unsubscribe|security issues|modern css)\b/.test(normalizedText)
-      || /\b(linkedin|jobalert|job alert|themmbmarket|thembmarket)\b/.test(from);
+      || /\b(linkedin|jobalert|job alert|themmbmarket|thembmarket|newsletter|newsletters)\b/.test(from);
     const strongProcessSignal = /\b(your application|application update|thank you for applying|thanks for applying|applied for|applying for|candidate|interview|onsite|technical screen|phone screen|final round|next round|next steps|availability|available|schedule|scheduling|recruiter|hiring manager|offer)\b/.test(normalizedText);
     const directThreadSignal = /\b(next steps|interview confirmation|invitation|virtual onsite|onsite|technical screen|phone screen)\b/.test(subject);
     if (looksBulk && !/\b(your application|application update|interview|onsite|technical screen|phone screen|final round|recruiter)\b/.test(normalizedText)) {
@@ -389,6 +420,12 @@ function createGoogleSyncService(options = {}) {
   }
 
   function isCalendarInterviewRelevant(normalizedText) {
+    // Safety check: Exclude bulk/leads, marketing alerts, or general opportunities
+    const isOpportunityOrAlert = /\b(opportunity|opportunities|alert|digest|newsletter|marketing|lead|leads|sponsored|promoted|new job|more jobs)\b/i.test(normalizedText);
+    if (isOpportunityOrAlert) {
+      return false;
+    }
+
     const hasInterview = /\b(interview|onsite|technical screen|phone screen|final round|next round|recruiter|hiring manager|candidate|job)\b/.test(normalizedText);
     const hasMeetingSignal = /\b(zoom|google meet|teams|meet|meeting|call|screen|interview|onsite)\b/.test(normalizedText);
     return hasInterview && hasMeetingSignal;
@@ -422,14 +459,27 @@ function createGoogleSyncService(options = {}) {
 
   function extractMeetingDate(text, referenceDate) {
     const value = clean(text);
-    const weekday = value.match(/\b(?:next\s+)?(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\b/i);
-    const time = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\s*(?:EDT|EST|CDT|CST|MDT|MST|PDT|PST)?\b/i);
-    if (!weekday || !time) {
+    const weekdayMatch = value.match(/\b(?:next\s+)?(Sunday|Sun|Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Thursday|Thu|Thur|Thurs|Friday|Fri|Saturday|Sat)\b/i);
+    const time = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\s*(?:EDT|EST|CDT|CST|MDT|MST|PDT|PST|US\/Eastern|US\/Pacific|US\/Central|US\/Mountain)?\b/i);
+    if (!weekdayMatch || !time) {
       return '';
     }
+    const weekdayStr = weekdayMatch[1].toLowerCase();
     const base = referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime()) ? new Date(referenceDate) : new Date();
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const target = days.indexOf(weekday[1].toLowerCase());
+    
+    let target = -1;
+    if (weekdayStr.startsWith('sun')) target = 0;
+    else if (weekdayStr.startsWith('mon')) target = 1;
+    else if (weekdayStr.startsWith('tue')) target = 2;
+    else if (weekdayStr.startsWith('wed')) target = 3;
+    else if (weekdayStr.startsWith('thu')) target = 4;
+    else if (weekdayStr.startsWith('fri')) target = 5;
+    else if (weekdayStr.startsWith('sat')) target = 6;
+    
+    if (target === -1) {
+      return '';
+    }
+
     let delta = (target - base.getDay() + 7) % 7;
     if (delta === 0) {
       delta = 7;
@@ -497,8 +547,21 @@ function extractNewCompanyName(message, text) {
       }
     }
 
-    const fromMatch = message.from?.match(/@([a-zA-Z0-9-]+)\./);
-    const domainCompany = fromMatch ? fromMatch[1] : null;
+    let domainCompany = null;
+    const emailMatch = message.from?.match(/<([^>]+)>/) || message.from?.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    const email = emailMatch ? emailMatch[1] : message.from;
+    const domain = email?.split('@')[1];
+    if (domain) {
+      const IGNORED_DOMAINS = new Set(['mail', 'email', 'notification', 'notifications', 'jobvite', 'greenhouse', 'lever', 'ashby', 'ashbyco', 'smartrecruiters', 'workday', 'rippling', 'icims', 'taleo', 'adp', 'rooster', 'roosterinc']);
+      const parts = domain.split('.');
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        if (!IGNORED_DOMAINS.has(lower) && !['com', 'org', 'co', 'io', 'net', 'edu', 'gov', 'uk', 'de', 'fr', 'us', 'ca'].includes(lower)) {
+          domainCompany = part;
+          break;
+        }
+      }
+    }
 
     const interestMatch = text.match(/interest in(?: the.*? at)?\s+([A-Z][a-zA-Z0-9]+)/);
     if (interestMatch && interestMatch[1]) {
@@ -516,6 +579,41 @@ function extractNewCompanyName(message, text) {
     }
 
     return null;
+  }
+
+  function extractNewCompanyRole(message, text) {
+    const value = clean(text);
+    
+    // Pattern 1: ...for the [Role] role/position/job at [Company]
+    const pattern1 = value.match(/\b(?:for the|for our)\s+([^,.\n]+?)\s+(?:role|position|job)\s+at\s+([A-Z][a-zA-Z0-9&.\- ]+)/i);
+    if (pattern1 && pattern1[1]) {
+      return pattern1[1].trim();
+    }
+
+    // Pattern 2: ...application for [Role] at [Company]
+    const pattern2 = value.match(/\b(?:application for|applying for)\s+([^,.\n]+?)\s+at\s+([A-Z][a-zA-Z0-9&.\- ]+)/i);
+    if (pattern2 && pattern2[1]) {
+      return pattern2[1].trim();
+    }
+
+    // Pattern 3: ...fit for the [Role] position
+    const pattern3 = value.match(/\bfit for the\s+([^,.\n]+?)\s+(?:role|position|job)\b/i);
+    if (pattern3 && pattern3[1]) {
+      return pattern3[1].trim();
+    }
+
+    // Pattern 4: Subject line matches: "Thanks for applying: [Role]" or similar
+    const pattern4 = clean(message.subject || '').match(/^(?:(?:thanks for applying|application confirmation|submission confirmation|application received):\s*)?([^,.\n\-:|]+)/i);
+    if (pattern4 && pattern4[1]) {
+      const subjectTrimmed = pattern4[1].trim();
+      // Verify it doesn't just equal the company name
+      const company = extractNewCompanyName(message, text);
+      if (company && subjectTrimmed.toLowerCase() !== company.toLowerCase() && !subjectTrimmed.toLowerCase().includes('thanks for') && !subjectTrimmed.toLowerCase().includes('thank you')) {
+        return subjectTrimmed;
+      }
+    }
+
+    return '';
   }
 
   return {
@@ -590,7 +688,7 @@ function resolveSyncLlmConfig(settings = {}) {
 
 function normalizeOutcome(value) {
   const normalized = normalizeText(value);
-  if (['active', 'advanced', 'rejected', 'offer'].includes(normalized)) {
+  if (['active', 'advanced', 'applied', 'rejected', 'offer'].includes(normalized)) {
     return normalized;
   }
   return '';

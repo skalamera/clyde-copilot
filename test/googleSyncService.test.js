@@ -453,3 +453,130 @@ test('google sync strips HTML formatting and decodes entities in event descripti
   assert.equal(proposals[0].action.payload.description, 'Interviewer\nKenny Keesee\n & more');
   assert.equal(proposals[0].action.payload.meetingUrl, 'https://meet.google.com/abc-defg-hij');
 });
+
+test('google sync ignores scammers newsletter warnings and meeting requests with no date', async () => {
+  const service = createGoogleSyncService({
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
+    sessionManager: {
+      getSessionEntities: (mode) => [{ id: 'google', name: 'Google' }]
+    },
+    googleClient: {},
+    now: () => new Date('2026-06-05T12:00:00.000Z')
+  });
+
+  // Scam / Beware warning newsletter
+  const messageScam = {
+    id: 'm-scam',
+    subject: 'Today: Beware of the job scammers',
+    from: 'Business Insider <newsletter@email.businessinsider.com>',
+    snippet: 'Warning signs of online recruitment scams. We interviewed specialists to schedule safe checks.'
+  };
+  const proposalsScam = await service.proposalsFromGmailMessage(messageScam, {});
+  assert.equal(proposalsScam.length, 0);
+
+  // Email matching interview/schedule but having NO valid date in text
+  const messageNoDate = {
+    id: 'm-no-date',
+    subject: 'Google Interview schedule request',
+    from: 'Peggy <recruiting@google.com>',
+    snippet: 'Hi Stephen, we would love to set up an interview with Google. Please let us know your availability. Zoom meeting link will follow.'
+  };
+  const proposalsNoDate = await service.proposalsFromGmailMessage(messageNoDate, {});
+  // Should NOT generate an addInterviewMeetingRequest proposal since there is no date/time extracted
+  const hasCalendarProposal = proposalsNoDate.some(p => p.action.actionType === 'addInterviewMeetingRequest');
+  assert.equal(hasCalendarProposal, false);
+});
+
+test('google sync extracts company name from subdomain with ATS platforms', async () => {
+  const service = createGoogleSyncService({
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
+    sessionManager: createSessionManager(),
+    googleClient: {},
+    now: () => new Date('2026-06-05T12:00:00.000Z')
+  });
+
+  const proposals = await service.proposalsFromGmailMessage({
+    id: 'm-nutanix',
+    subject: 'Nutanix Update',
+    from: 'Nutanix Recruiting Team <notification@jobvite.nutanix.com>',
+    snippet: 'Thank you for your application to Nutanix. We have decided to move forward with other candidates.'
+  }, {});
+
+  assert.equal(proposals.length, 1);
+  assert.equal(proposals[0].action.payload.name, 'Nutanix');
+  assert.equal(proposals[0].action.payload.outcome, 'rejected');
+});
+
+test('google sync does not mark application sent confirmations as advanced', async () => {
+  const service = createGoogleSyncService({
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
+    sessionManager: {
+      getSessionEntities: () => [{ id: 'wiza', name: 'Wiza' }]
+    },
+    googleClient: {},
+    now: () => new Date('2026-06-05T12:00:00.000Z')
+  });
+
+  const proposals = await service.proposalsFromGmailMessage({
+    id: 'm-wiza',
+    subject: 'Stephen, your application was sent to Wiza',
+    from: 'LinkedIn <jobs-noreply@linkedin.com>',
+    snippet: 'Your application was sent to Wiza. The recruiter will review your details soon.'
+  }, {});
+
+  // Should NOT generate an advanced update proposal
+  const hasAdvancedProposal = proposals.some(p => p.action.actionType === 'updateOpportunity' && p.action.payload.outcome === 'advanced');
+  assert.equal(hasAdvancedProposal, false);
+});
+
+test('google sync does not falsely suggest advanced when a rejection contains move forward', async () => {
+  const service = createGoogleSyncService({
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
+    sessionManager: {
+      getSessionEntities: () => [{ id: 'nutanix', name: 'Nutanix', outcome: 'applied' }]
+    },
+    googleClient: {},
+    now: () => new Date('2026-06-05T12:00:00.000Z')
+  });
+
+  const proposals = await service.proposalsFromGmailMessage({
+    id: 'm-rejection-move-forward',
+    subject: 'Nutanix Update',
+    from: 'Nutanix Recruiting Team <recruiting@nutanix.com>',
+    snippet: 'After reviewing your application, we have decided to move forward with other candidates.'
+  }, {});
+
+  // It should suggest marking Nutanix as REJECTED, not advanced
+  const advanced = proposals.find(p => p.action.actionType === 'updateOpportunity' && p.action.payload.outcome === 'advanced');
+  const rejected = proposals.find(p => p.action.actionType === 'updateOpportunity' && p.action.payload.outcome === 'rejected');
+  
+  assert.equal(advanced, undefined);
+  assert.ok(rejected);
+});
+
+test('google sync creates new opportunities as applied with extracted role for confirmation emails', async () => {
+  const service = createGoogleSyncService({
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
+    sessionManager: createSessionManager(),
+    googleClient: {},
+    now: () => new Date('2026-06-05T12:00:00.000Z')
+  });
+
+  const proposals = await service.proposalsFromGmailMessage({
+    id: 'm-casca',
+    subject: 'Thanks for applying to Casca!',
+    from: 'Casca Hiring Team <no-reply@ashbyhq.com>',
+    snippet: 'Thank you for applying for the Director of Customer Support role at Casca! We appreciate your interest in joining the team.'
+  }, {});
+
+  assert.equal(proposals.length, 1);
+  assert.equal(proposals[0].action.actionType, 'createOpportunity');
+  assert.equal(proposals[0].action.payload.name, 'Casca');
+  assert.equal(proposals[0].action.payload.role, 'Director of Customer Support');
+  assert.equal(proposals[0].action.payload.outcome, 'applied');
+  assert.equal(proposals[0].action.label, 'Add Casca as applied');
+});
+
+
+
+

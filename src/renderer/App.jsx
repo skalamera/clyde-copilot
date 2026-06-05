@@ -2061,12 +2061,12 @@ function formatSigned(value) {
 
 function TrendOverviewDashboard({ entities = [], sessions = [], onSelectEntity }) {
   const opportunityRows = useMemo(() => buildTrendOverviewRows(entities, sessions), [entities, sessions]);
-  const activeRows = opportunityRows.filter((row) => ['active', 'advanced'].includes(row.outcome));
+  const activeRows = opportunityRows.filter((row) => ['applied', 'active', 'advanced'].includes(row.outcome));
   const ratedRows = activeRows.filter((row) => row.latestRating !== null);
   const averageConfidence = average(activeRows.map((row) => row.confidence).filter((value) => value > 0));
   const averageLatestRating = average(ratedRows.map((row) => row.latestRating));
   const totalAnalyzedSessions = activeRows.reduce((sum, row) => sum + row.ratedSessionCount, 0);
-  const outcomeCounts = ['active', 'advanced', 'offer', 'rejected'].map((outcome) => ({
+  const outcomeCounts = ['applied', 'active', 'advanced', 'offer', 'rejected'].map((outcome) => ({
     outcome,
     label: getOutcomeLabel(outcome),
     count: opportunityRows.filter((row) => row.outcome === outcome).length
@@ -2778,10 +2778,12 @@ function CalendarView({ entities, events, onSaveEvent, onDeleteEvent, onEditEven
 
   const getWeekDays = (date) => {
     const curr = new Date(date);
-    const first = curr.getDate() - curr.getDay();
+    const dayOfWeek = curr.getDay();
     const days = [];
     for (let i = 0; i < 7; i++) {
-      days.push(new Date(curr.setDate(first + i)));
+      const d = new Date(curr);
+      d.setDate(curr.getDate() - dayOfWeek + i);
+      days.push(d);
     }
     return days;
   };
@@ -9591,7 +9593,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
                 </button>
                 {statusMenuOpen ? (
                   <div className="timeline-action-menu status-menu">
-                    {['active', 'advanced', 'rejected', 'offer'].map((outcome) => (
+                    {['applied', 'active', 'advanced', 'rejected', 'offer'].map((outcome) => (
                       <button key={outcome} type="button" onClick={() => updateSelectedOutcome(outcome)}>{getOutcomeLabel(outcome)}</button>
                     ))}
                   </div>
@@ -10786,7 +10788,23 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
       
       <label className="toggle-row wide-field question-bank-global-toggle">
         <span className="switch-control">
-          <input type="checkbox" checked={Boolean(draft.proAgentEnabled)} onChange={(event) => update('proAgentEnabled', event.target.checked)} />
+          <input 
+            type="checkbox" 
+            checked={Boolean(draft.proAgentEnabled)} 
+            onChange={(event) => {
+              const checked = event.target.checked;
+              update('proAgentEnabled', checked);
+              if (checked) {
+                if (!draft.proRealtimeModel) {
+                  update('proRealtimeModel', 'gpt-realtime-2');
+                }
+                update('transcriptionProvider', 'openai-realtime-whisper');
+                if (draft.openAiApiKey) {
+                  update('transcriptionApiKey', draft.openAiApiKey);
+                }
+              }
+            }} 
+          />
           <span className="switch-slider" />
         </span>
         <span className="switch-label">Enable GPT Realtime 2 agent</span>
@@ -10794,13 +10812,11 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
 
       <label>Realtime model<input value={draft.proRealtimeModel || 'gpt-realtime-2'} onChange={(event) => update('proRealtimeModel', event.target.value)} /></label>
       
-      <label className="toggle-row question-bank-global-toggle">
-        <span className="switch-control">
-          <input type="checkbox" checked={draft.transcriptionProvider === 'openai-realtime-whisper'} onChange={(event) => update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : 'openai')} />
-          <span className="switch-slider" />
-        </span>
-        <span className="switch-label">Use OpenAI Realtime Whisper</span>
-      </label>
+      {draft.proAgentEnabled && (
+        <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', display: 'block', width: '100%', boxSizing: 'border-box' }}>
+          ✓ OpenAI Realtime Whisper has been enabled.
+        </div>
+      )}
     </div>
   );
 }
@@ -11599,9 +11615,16 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   if (!proEntitled) {
                     return;
                   }
-                  update('proAgentEnabled', event.target.checked);
-                  if (event.target.checked && !draft.proRealtimeModel) {
-                    update('proRealtimeModel', 'gpt-realtime-2');
+                  const checked = event.target.checked;
+                  update('proAgentEnabled', checked);
+                  if (checked) {
+                    if (!draft.proRealtimeModel) {
+                      update('proRealtimeModel', 'gpt-realtime-2');
+                    }
+                    update('transcriptionProvider', 'openai-realtime-whisper');
+                    if (draft.openAiApiKey) {
+                      update('transcriptionApiKey', draft.openAiApiKey);
+                    }
                   }
                 }}
               />
@@ -11619,21 +11642,22 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </label>
               <label>
                 Realtime OpenAI API key
-                <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
+                <input 
+                  autoComplete="new-password" 
+                  type="password" 
+                  value={draft.openAiApiKey || ''} 
+                  onChange={(event) => {
+                    update('openAiApiKey', event.target.value);
+                    if (draft.proAgentEnabled) {
+                      update('transcriptionApiKey', event.target.value);
+                    }
+                  }} 
+                  placeholder="Stored locally" 
+                />
               </label>
-              <label className="toggle-row wide-field question-bank-global-toggle">
-                <span className="switch-control">
-                  <input
-                    type="checkbox"
-                    checked={draft.transcriptionProvider === 'openai-realtime-whisper'}
-                    onChange={(event) => {
-                      update('transcriptionProvider', event.target.checked ? 'openai-realtime-whisper' : '');
-                    }}
-                  />
-                  <span className="switch-slider" />
-                </span>
-                <span className="switch-label">Use OpenAI Realtime Whisper for lowest-latency live transcription with the same API key</span>
-              </label>
+              <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500' }}>
+                ✓ OpenAI Realtime Whisper has been enabled with the same API key.
+              </div>
             </>
           )}
         </div>
@@ -11680,7 +11704,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           )}
           <label>
             Transcription provider
-            <select value={draft.transcriptionProvider || ''} onChange={(event) => update('transcriptionProvider', event.target.value)}>
+            <select value={draft.transcriptionProvider || ''} disabled={Boolean(draft.proAgentEnabled)} onChange={(event) => update('transcriptionProvider', event.target.value)}>
               <option value="">Select a transcription provider</option>
               <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
               <option value="local">Local Whisper (Offline)</option>
@@ -11706,7 +11730,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           ) : (draft.transcriptionProvider && draft.transcriptionProvider !== 'clyde-cloud-whisper') ? (
             <label>
               OpenAI API key
-              <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
+              <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} disabled={Boolean(draft.proAgentEnabled)} onChange={(event) => { update('openAiApiKey', event.target.value); update('transcriptionApiKey', event.target.value); }} placeholder="Stored locally" />
             </label>
           ) : null}
         </div>
