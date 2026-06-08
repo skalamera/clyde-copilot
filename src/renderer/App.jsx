@@ -7,7 +7,29 @@ import {
   isTrendAnalysisComplete
 } from './trendAnalysisClient.js';
 
-const logoUrl = new URL('../../clyde-free-logo-textonly.svg', import.meta.url).href;
+const logoUrl = new URL('../../clyde-header-logo.svg', import.meta.url).href;
+const logoDefaultUrl = new URL('../../clyde-header-logo-midnight-blue.svg', import.meta.url).href;
+const logoForestUrl = new URL('../../clyde-header-logo-emerald-forest.svg', import.meta.url).href;
+const logoCyberpunkUrl = new URL('../../clyde-header-logo-neon-cyberpunk.svg', import.meta.url).href;
+const logoSlateUrl = new URL('../../clyde-header-logo-nordic-slate.svg', import.meta.url).href;
+const logoSnowUrl = new URL('../../clyde-header-logo-nordic-snow-light.svg', import.meta.url).href;
+const logoAmberUrl = new URL('../../clyde-header-logo-retro-amber.svg', import.meta.url).href;
+const logoBlossomUrl = new URL('../../clyde-header-logo-sakura-blossom-light.svg', import.meta.url).href;
+
+function getThemeLogoUrl(theme) {
+  switch (theme) {
+    case 'forest': return logoForestUrl;
+    case 'cyberpunk': return logoCyberpunkUrl;
+    case 'slate': return logoSlateUrl;
+    case 'snow': return logoSnowUrl;
+    case 'amber': return logoAmberUrl;
+    case 'blossom': return logoBlossomUrl;
+    case 'default':
+    default:
+      return logoDefaultUrl;
+  }
+}
+
 const freeSidebarLogoUrl = new URL('../../clydefree.svg', import.meta.url).href;
 const proLogoUrl = new URL('../../clyde_pro.svg', import.meta.url).href;
 const proBadgeUrl = new URL('../../clyde_pro_badge.svg', import.meta.url).href;
@@ -5400,7 +5422,7 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
           <header className="title-bar">
           <div className="title-brand">
             <img
-              src={settings?.userTier === 'pro' ? proTitleBarLogoUrl : logoUrl}
+              src={getThemeLogoUrl(settings?.theme || 'default')}
               alt=""
               className={`brand-mark ${settings?.userTier === 'pro' ? 'brand-mark-pro' : 'brand-mark-free'}`}
             />
@@ -6958,7 +6980,7 @@ function WorkspaceNav({
       <div className="workspace-nav-inner">
         {collapsed ? (
           <div className="workspace-nav-logo-card" aria-label={isProTier ? 'Clyde Pro' : 'Clyde'}>
-            <img src={isProTier ? proSidebarLogoUrl : freeSidebarLogoUrl} alt="" />
+            <img src={getThemeLogoUrl(settings?.theme || 'default')} alt="" />
           </div>
         ) : (
           <section className={nextUpcomingEvent ? 'workspace-nav-event' : 'workspace-nav-event workspace-nav-empty'} aria-label="Next upcoming event">
