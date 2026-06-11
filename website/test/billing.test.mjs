@@ -6,14 +6,14 @@ import path from 'node:path';
 const apiRoot = path.resolve('website/api');
 
 test('entitlements reconciles Stripe by email when the Supabase subscription row is missing', () => {
-  const source = fs.readFileSync(path.join(apiRoot, 'entitlements.js'), 'utf8');
+  const source = fs.readFileSync(path.join(apiRoot, 'billing.js'), 'utf8');
 
   assert.match(source, /reconcileSubscriptionByEmail/);
   assert.match(source, /record = await reconcileSubscriptionByEmail\(user\)/);
 });
 
 test('checkout reuses an existing Stripe customer by email and stores user metadata', () => {
-  const source = fs.readFileSync(path.join(apiRoot, 'create-checkout-session.js'), 'utf8');
+  const source = fs.readFileSync(path.join(apiRoot, 'billing.js'), 'utf8');
 
   assert.match(source, /stripe\.customers\.list\(\{ email, limit: 1 \}\)/);
   assert.match(source, /stripe\.customers\.update\(customerId/);
@@ -30,7 +30,7 @@ test('signup endpoint rejects duplicate Supabase emails before account creation'
 });
 
 test('Pro signup checkout rejects duplicate email and starts subscription with user metadata', () => {
-  const source = fs.readFileSync(path.join(apiRoot, 'create-pro-signup-checkout.js'), 'utf8');
+  const source = fs.readFileSync(path.join(apiRoot, 'billing.js'), 'utf8');
 
   assert.match(source, /listSupabaseUsersByEmail\(email\)/);
   assert.match(source, /sendJson\(res, 409/);
@@ -61,7 +61,7 @@ test('Stripe webhook invites the Supabase user after checkout is complete', () =
 });
 
 test('checkout activation endpoint verifies paid checkout and sends invite', () => {
-  const source = fs.readFileSync(path.join(apiRoot, 'activate-pro-checkout.js'), 'utf8');
+  const source = fs.readFileSync(path.join(apiRoot, 'billing.js'), 'utf8');
   const billingSource = fs.readFileSync(path.join(apiRoot, '_billing.js'), 'utf8');
 
   assert.match(source, /activatePaidCheckoutSession\(body\.sessionId\)/);

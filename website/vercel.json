@@ -5,6 +5,26 @@
   "trailingSlash": false,
   "rewrites": [
     {
+      "source": "/api/create-checkout-session",
+      "destination": "/api/billing?action=create-checkout-session"
+    },
+    {
+      "source": "/api/create-billing-portal-session",
+      "destination": "/api/billing?action=create-billing-portal-session"
+    },
+    {
+      "source": "/api/create-pro-signup-checkout",
+      "destination": "/api/billing?action=create-pro-signup-checkout"
+    },
+    {
+      "source": "/api/activate-pro-checkout",
+      "destination": "/api/billing?action=activate-pro-checkout"
+    },
+    {
+      "source": "/api/entitlements",
+      "destination": "/api/billing?action=entitlements"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },

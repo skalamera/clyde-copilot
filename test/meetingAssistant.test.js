@@ -389,7 +389,7 @@ test('reruns intent detection when a final question fragment arrives during an i
             : null;
         },
         searchResumeVectors: async () => [],
-        extractLikelyInterviewQuestion: realExtractLikelyInterviewQuestion
+        extractLikelyInterviewQuestion: () => null
       }
     };
 
@@ -475,7 +475,7 @@ test('runs intent detection only after interviewer utterance settles', async () 
             : null;
         },
         searchResumeVectors: async () => [],
-        extractLikelyInterviewQuestion: realExtractLikelyInterviewQuestion
+        extractLikelyInterviewQuestion: () => null
       }
     };
 
@@ -953,7 +953,7 @@ test('pro gate combines realtime final fragments before answering', async () => 
   await assistant.addTranscript({ speaker: 'System Audio', text: 'between customer experience platform', itemId: 'api-4' });
   await assistant.addTranscript({
     speaker: 'System Audio',
-    text: 'another internal system. I know you kind of already talked through that',
+    text: 'another internal system. I know you kind of already talked through this',
     itemId: 'api-5'
   });
   await assistant.addTranscript({ speaker: 'System Audio', text: 'Um, but if you do have', itemId: 'api-6' });
@@ -967,7 +967,7 @@ test('pro gate combines realtime final fragments before answering', async () => 
   await waitFor(() => proPayloads.length === 1, 1000);
   assert.equal(
     proPayloads[0].targetQuestion,
-    'Can you describe a time you designed or maintained an API-based integration between customer experience platform and another internal system. I know you kind of already talked through that Um, but if you do have Are there maybe another example or going deeper into that one?'
+    'Can you describe a time you designed or maintained an API-based integration between customer experience platform and another internal system. I know you kind of already talked through this Um, but if you do have Are there maybe another example or going deeper into that one?'
   );
 });
 
@@ -1069,7 +1069,7 @@ test('pro gate ignores interviewer setup chatter before the first actual questio
 
   await assistant.addPartialTranscript({
     speaker: 'System Audio',
-    text: "I have some questions I will go through. They're mostly like tell me about a time when type questions. I'm looking for like specific examples so I can get an understanding of what exactly you did versus the team and what the impact was and things like that.",
+    text: "I have some questions I will go through. They're mostly like questions about a time when type questions. I'm looking for like specific examples so I can get an understanding of what exactly you did versus the team and what the impact was and things like that.",
     partial: true,
     itemId: 'setup'
   });
@@ -1537,7 +1537,7 @@ test('pro gate treats another example going deeper as a complete follow-up promp
   await assistant.addTranscript({ speaker: 'System Audio', text: 'between customer experience platform', itemId: 'api-4' });
   await assistant.addTranscript({
     speaker: 'System Audio',
-    text: 'another internal system. I know you kind of already talked through that',
+    text: 'another internal system. I know you kind of already talked through this',
     itemId: 'api-5'
   });
   await assistant.addTranscript({ speaker: 'System Audio', text: 'But if you do have either', itemId: 'api-6' });
@@ -1551,7 +1551,7 @@ test('pro gate treats another example going deeper as a complete follow-up promp
   await waitFor(() => proPayloads.length === 1, 1500);
   assert.equal(
     proPayloads[0].targetQuestion,
-    'Can you describe a time you designed or maintained an API based integration between customer experience platform and another internal system. I know you kind of already talked through that But if you do have either maybe another example or going deeper into that one'
+    'Can you describe a time you designed or maintained an API based integration between customer experience platform and another internal system. I know you kind of already talked through this But if you do have either maybe another example or going deeper into that one'
   );
 });
 
