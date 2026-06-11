@@ -37,6 +37,25 @@ export function getStripe() {
   return new Stripe(secret, { apiVersion: '2025-11-17.clover' });
 }
 
+/**
+ * Resolves the Stripe price ID for a billing period.
+ * - 'annual'  -> STRIPE_CLYDE_PRO_PRICE_ID_ANNUAL
+ * - 'monthly' -> STRIPE_CLYDE_PRO_PRICE_ID_MONTHLY
+ * Falls back to the legacy STRIPE_CLYDE_PRO_PRICE_ID so existing deployments
+ * keep working until both period-specific prices are configured.
+ */
+export function getProPriceId(billingPeriod = 'monthly') {
+  const period = String(billingPeriod || 'monthly').toLowerCase() === 'annual' ? 'annual' : 'monthly';
+  const specific = period === 'annual'
+    ? process.env.STRIPE_CLYDE_PRO_PRICE_ID_ANNUAL
+    : process.env.STRIPE_CLYDE_PRO_PRICE_ID_MONTHLY;
+  const price = specific || process.env.STRIPE_CLYDE_PRO_PRICE_ID;
+  if (!price) {
+    throw new Error(`Stripe price for the ${period} plan is not configured (STRIPE_CLYDE_PRO_PRICE_ID_${period.toUpperCase()} or STRIPE_CLYDE_PRO_PRICE_ID).`);
+  }
+  return price;
+}
+
 export function getAppUrl(req) {
   const configured = process.env.CLYDE_APP_URL || process.env.VITE_PUBLIC_APP_URL;
   if (configured) {

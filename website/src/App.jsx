@@ -238,7 +238,7 @@ function Header({ navigate, onDownload, path, upgradeNotice, showUpgradeNotice }
         <a href="#faq">FAQ</a>
       </nav>
       <div className="header-actions">
-        <button className="header-cta header-pro-cta" type="button" onClick={showUpgradeNotice}>Upgrade to Pro</button>
+        <button className="header-cta header-pro-cta" type="button" onClick={() => navigate('/pricing')}>Upgrade to Pro</button>
         <a className="header-cta" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
       </div>
       {upgradeNotice ? <span className="header-checkout-status">{upgradeNotice}</span> : null}
@@ -357,6 +357,39 @@ function LandingPage({ navigate, onDownload }) {
 
 function PricingPage({ showUpgradeNotice }) {
   const [annual, setAnnual] = useState(true);
+  const [proCheckout, setProCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
+
+  async function startProCheckout(event) {
+    event.preventDefault();
+    const email = proCheckout.email.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setProCheckout((s) => ({ ...s, error: 'Enter a valid email address.', notice: '' }));
+      return;
+    }
+    setProCheckout((s) => ({ ...s, busy: true, error: '', notice: '' }));
+    try {
+      const response = await fetch('/api/create-pro-signup-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, billingPeriod: annual ? 'annual' : 'monthly' })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        setProCheckout((s) => ({
+          ...s,
+          busy: false,
+          notice: 'An account already exists for this email. Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.'
+        }));
+        return;
+      }
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error || 'Checkout could not be started. Please try again.');
+      }
+      window.location.href = payload.url;
+    } catch (error) {
+      setProCheckout((s) => ({ ...s, busy: false, error: error.message || 'Checkout could not be started.' }));
+    }
+  }
 
   const tiers = [
     {
@@ -462,18 +495,37 @@ function PricingPage({ showUpgradeNotice }) {
                 ))}
               </ul>
 
-              <button
-                className={`cta-btn ${tier.ctaClass}`}
-                onClick={() => {
-                  if (tier.name === 'Pro') {
-                    showUpgradeNotice();
-                  } else {
-                    window.location.href = downloadHref;
-                  }
-                }}
-              >
-                {tier.cta}
-              </button>
+              {tier.name === 'Pro' && proCheckout.open ? (
+                <form className="pro-checkout-form" onSubmit={startProCheckout}>
+                  <input
+                    type="email"
+                    placeholder="you@email.com"
+                    value={proCheckout.email}
+                    disabled={proCheckout.busy}
+                    autoFocus
+                    onChange={(event) => setProCheckout((s) => ({ ...s, email: event.target.value }))}
+                  />
+                  <button className={`cta-btn ${tier.ctaClass}`} type="submit" disabled={proCheckout.busy}>
+                    {proCheckout.busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
+                    {proCheckout.busy ? 'Opening checkout...' : `Continue to Checkout (${annual ? 'Annual' : 'Monthly'})`}
+                  </button>
+                  {proCheckout.error ? <p className="checkout-status checkout-error">{proCheckout.error}</p> : null}
+                  {proCheckout.notice ? <p className="checkout-status">{proCheckout.notice}</p> : null}
+                </form>
+              ) : (
+                <button
+                  className={`cta-btn ${tier.ctaClass}`}
+                  onClick={() => {
+                    if (tier.name === 'Pro') {
+                      setProCheckout((s) => ({ ...s, open: true, error: '', notice: '' }));
+                    } else {
+                      window.location.href = downloadHref;
+                    }
+                  }}
+                >
+                  {tier.cta}
+                </button>
+              )}
             </div>
           ))}
         </div>

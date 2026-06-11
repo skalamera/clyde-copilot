@@ -1,4 +1,4 @@
-import { getAppUrl, getStripe, readJson, requireSupabaseUser, sendJson } from './_billing.js';
+import { getAppUrl, getProPriceId, getStripe, readJson, requireSupabaseUser, sendJson } from './_billing.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,11 +13,7 @@ export default async function handler(req, res) {
     const email = String(body.email || user.email || '').trim();
     const appUrl = getAppUrl(req);
     const stripe = getStripe();
-    const price = process.env.STRIPE_CLYDE_PRO_PRICE_ID;
-
-    if (!price) {
-      throw new Error('STRIPE_CLYDE_PRO_PRICE_ID is not configured.');
-    }
+    const price = getProPriceId(body.billingPeriod);
 
     let customerId = '';
     if (email) {

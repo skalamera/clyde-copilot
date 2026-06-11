@@ -32,6 +32,38 @@ function normalizeTier(value) {
   return value === 'pro' ? 'pro' : 'free';
 }
 
+// Pro entitlements must be revalidated against the server periodically.
+// If the cached entitlement is older than MAX_ENTITLEMENT_AGE_MS, or the
+// subscription period ended more than EXPIRY_GRACE_MS ago without a refresh,
+// the local tier silently degrades to free until the next successful
+// refresh-entitlements call. This stops a tampered/stale local settings file
+// from granting Pro forever while tolerating offline stretches and Stripe
+// renewal timing.
+const MAX_ENTITLEMENT_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const EXPIRY_GRACE_MS = 3 * 24 * 60 * 60 * 1000; // 3 days past period end
+
+function isEntitlementStale(input = {}, now = Date.now()) {
+  if (normalizeTier(input.tier || input.userTier) !== 'pro') {
+    return false;
+  }
+
+  const checkedAtMs = input.checkedAt ? Date.parse(input.checkedAt) : NaN;
+  if (Number.isNaN(checkedAtMs)) {
+    // Pro with no verification timestamp at all: never refreshed → stale.
+    return true;
+  }
+  if (now - checkedAtMs > MAX_ENTITLEMENT_AGE_MS) {
+    return true;
+  }
+
+  const expiresAtMs = input.expiresAt ? Date.parse(input.expiresAt) : NaN;
+  if (!Number.isNaN(expiresAtMs) && now - expiresAtMs > EXPIRY_GRACE_MS) {
+    return true;
+  }
+
+  return false;
+}
+
 function buildEntitlements(input = {}) {
   const tier = normalizeTier(input.tier || input.userTier);
   const status = input.status || (tier === 'pro' ? 'active' : 'free');
@@ -84,8 +116,8 @@ function requireFeature(entitlements, feature) {
   throw error;
 }
 
-function entitlementsFromSettings(settings = {}) {
-  return buildEntitlements({
+function entitlementsFromSettings(settings = {}, now = Date.now()) {
+  const input = {
     userId: settings.userId || '',
     tier: settings.userTier || settings.tier || 'free',
     status: settings.subscriptionStatus || (settings.userTier === 'pro' ? 'active' : 'free'),
@@ -93,7 +125,20 @@ function entitlementsFromSettings(settings = {}) {
     features: settings.entitlementFeatures || [],
     expiresAt: settings.entitlementsExpiresAt || null,
     checkedAt: settings.entitlementsCheckedAt || null
-  });
+  };
+
+  if (isEntitlementStale(input, now)) {
+    // Stale/unverified Pro entitlement: degrade to free until the next
+    // successful server refresh (refresh-entitlements IPC) re-validates it.
+    return buildEntitlements({
+      userId: input.userId,
+      tier: 'free',
+      status: 'stale',
+      checkedAt: input.checkedAt
+    });
+  }
+
+  return buildEntitlements(input);
 }
 
 function applyEntitlementsToSettings(settings = {}, entitlements = entitlementsFromSettings(settings)) {
@@ -118,6 +163,7 @@ module.exports = {
   PRO_FEATURES,
   FEATURE_SETS,
   normalizeTier,
+  isEntitlementStale,
   buildEntitlements,
   canUseFeature,
   requireFeature,

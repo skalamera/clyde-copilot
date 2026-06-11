@@ -1,4 +1,4 @@
-import { getAppUrl, getStripe, listSupabaseUsersByEmail, normalizeEmail, sendJson } from './_billing.js';
+import { getAppUrl, getProPriceId, getStripe, listSupabaseUsersByEmail, normalizeEmail, sendJson } from './_billing.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -9,15 +9,12 @@ export default async function handler(req, res) {
   try {
     const body = await readJsonBody(req);
     const email = normalizeEmail(body.email);
-    const price = process.env.STRIPE_CLYDE_PRO_PRICE_ID;
 
     if (!email) {
       sendJson(res, 400, { error: 'Email is required.' });
       return;
     }
-    if (!price) {
-      throw new Error('STRIPE_CLYDE_PRO_PRICE_ID is not configured.');
-    }
+    const price = getProPriceId(body.billingPeriod);
 
     const existing = await listSupabaseUsersByEmail(email);
     if (existing.length > 0) {

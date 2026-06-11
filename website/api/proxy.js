@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { findSubscriptionByUserId, requireSupabaseUser, sendJson, readJson } from './_billing.js';
 
 export const config = {
@@ -9,9 +10,75 @@ export const config = {
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SIGNED_LICENSE_RE = /^clyde_lic_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{16,})$/i;
+
 function isActiveSubscription(subscription) {
   return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
 }
+
+/**
+ * Verifies a signed license token of the form `clyde_lic_<userId>.<hmac>`.
+ * The HMAC is computed server-side with CLYDE_LICENSE_SIGNING_SECRET (see
+ * api/license-token.js), so the token cannot be forged from a known/guessed
+ * user UUID alone. Returns { id } on success, null on failure.
+ */
+function verifySignedLicenseToken(token) {
+  const secret = process.env.CLYDE_LICENSE_SIGNING_SECRET;
+  if (!secret) {
+    return null;
+  }
+  const match = SIGNED_LICENSE_RE.exec(token);
+  if (!match) {
+    return null;
+  }
+  const userId = match[1].toLowerCase();
+  const provided = match[2];
+  const expected = crypto.createHmac('sha256', secret).update(userId).digest('base64url');
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+    return null;
+  }
+  return { id: userId };
+}
+
+// ---------------------------------------------------------------------------
+// Per-user sliding-window rate limiting (in-memory, per serverless instance).
+// This is a best-effort abuse brake on the server-managed API keys, not a
+// billing-grade quota system. Tune via env without redeploying code paths.
+// ---------------------------------------------------------------------------
+const RATE_LIMITS_PER_MINUTE = {
+  chat: Number(process.env.CLYDE_PROXY_CHAT_RPM || 60),
+  embed: Number(process.env.CLYDE_PROXY_EMBED_RPM || 120),
+  transcribe: Number(process.env.CLYDE_PROXY_TRANSCRIBE_RPM || 120)
+};
+const RATE_WINDOW_MS = 60_000;
+const rateBuckets = new Map();
+
+function checkRateLimit(userId, type) {
+  const limit = RATE_LIMITS_PER_MINUTE[type] || RATE_LIMITS_PER_MINUTE.chat;
+  const now = Date.now();
+  const key = `${userId}:${type}`;
+  let bucket = rateBuckets.get(key);
+  if (!bucket || now - bucket.windowStart >= RATE_WINDOW_MS) {
+    bucket = { windowStart: now, count: 0 };
+    rateBuckets.set(key, bucket);
+  }
+  bucket.count += 1;
+  // Opportunistic cleanup so the map cannot grow without bound.
+  if (rateBuckets.size > 5000) {
+    for (const [k, v] of rateBuckets) {
+      if (now - v.windowStart >= RATE_WINDOW_MS) {
+        rateBuckets.delete(k);
+      }
+    }
+  }
+  return bucket.count <= limit;
+}
+
+// Exported for tests.
+export { verifySignedLicenseToken, checkRateLimit };
 
 function makeSchemaStrictForOpenAI(schema) {
   if (!schema || typeof schema !== 'object') {
@@ -89,7 +156,12 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 1. Authenticate user (Supports Supabase Session JWT or direct User UUID as License Token)
+    // 1. Authenticate user. Accepted credentials, in order of preference:
+    //    a) Signed license token (clyde_lic_<uuid>.<hmac>, minted by /api/license-token)
+    //    b) Supabase session JWT
+    //    c) LEGACY: bare user UUID — only when CLYDE_ALLOW_UUID_LICENSE=true.
+    //       Bare UUIDs are guessable/leakable and grant use of server-managed
+    //       API keys, so this path is disabled by default.
     let user = null;
     const authHeader = String(request.headers.authorization || '');
     const authToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
@@ -99,8 +171,19 @@ export default async function handler(request, response) {
       return;
     }
 
-    if (authToken.length === 36 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authToken)) {
-      user = { id: authToken };
+    const signedUser = verifySignedLicenseToken(authToken);
+    if (signedUser) {
+      user = signedUser;
+    } else if (UUID_RE.test(authToken)) {
+      if (process.env.CLYDE_ALLOW_UUID_LICENSE === 'true') {
+        console.warn('Proxy auth: legacy bare-UUID license token accepted (CLYDE_ALLOW_UUID_LICENSE=true). Migrate to signed license tokens.');
+        user = { id: authToken.toLowerCase() };
+      } else {
+        sendJson(response, 401, {
+          error: 'Bare user IDs are no longer accepted as license tokens. Generate a license token from your Clyde account (Settings > Account) and use that instead.'
+        });
+        return;
+      }
     } else {
       try {
         user = await requireSupabaseUser(request);
@@ -125,6 +208,13 @@ export default async function handler(request, response) {
     // Determine proxy routing type (query param or fallback)
     const urlObj = new URL(request.url, `http://${request.headers.host}`);
     const type = urlObj.searchParams.get('type') || 'chat';
+
+    // 3. Rate limit per user per route type
+    if (!checkRateLimit(user.id, type)) {
+      response.setHeader('Retry-After', '60');
+      sendJson(response, 429, { error: 'Rate limit exceeded for Clyde-managed cloud API. Please slow down and retry shortly.' });
+      return;
+    }
 
     // -----------------------------------------------------------------
     // ROUTE A: Transcription Proxy

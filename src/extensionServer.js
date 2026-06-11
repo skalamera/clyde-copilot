@@ -51,12 +51,45 @@ function parseBody(request) {
   });
 }
 
+/**
+ * Origin guard for the local API.
+ *
+ * The server binds to 127.0.0.1, but web pages running in a local browser can
+ * still fire fetch()/XHR at localhost ports (drive-by localhost attacks).
+ * Policy:
+ *   - Requests with NO Origin header are allowed (extension service-worker
+ *     fetches, curl, local tooling, the Clyde app itself).
+ *   - Requests with a chrome-extension:// / moz-extension:// origin are allowed.
+ *   - Requests with an http(s):// origin (i.e. coming from a web page) are
+ *     REJECTED — no website should ever talk to this API directly.
+ */
+function isOriginAllowed(request) {
+  const origin = String(request.headers.origin || '').trim().toLowerCase();
+  if (!origin || origin === 'null') {
+    return true;
+  }
+  return origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://');
+}
+
+function corsHeadersFor(request) {
+  const origin = String(request.headers.origin || '').trim();
+  return {
+    // Echo only trusted extension origins; web origins never get CORS approval.
+    'Access-Control-Allow-Origin': isOriginAllowed(request) && origin ? origin : 'null',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    Vary: 'Origin'
+  };
+}
+
 function jsonResponse(response, statusCode, data) {
   response.writeHead(statusCode, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    ...(response.clydeCorsHeaders || {
+      'Access-Control-Allow-Origin': 'null',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    })
   });
   response.end(JSON.stringify(data));
 }
@@ -420,12 +453,21 @@ async function dispatch(request, response) {
   const { pathname } = urlParts(request);
   const method = request.method.toUpperCase();
 
+  // Attach computed CORS headers for this request so jsonResponse can use them.
+  response.clydeCorsHeaders = corsHeadersFor(request);
+
+  // Block requests originating from web pages (drive-by localhost attacks).
+  if (!isOriginAllowed(request)) {
+    return jsonResponse(response, 403, {
+      status: 'error',
+      error: 'Forbidden: web page origins are not allowed to access the Clyde local API.'
+    });
+  }
+
   // CORS preflight
   if (method === 'OPTIONS') {
     response.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      ...response.clydeCorsHeaders,
       'Access-Control-Max-Age': '86400'
     });
     return response.end();
