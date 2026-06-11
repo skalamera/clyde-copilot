@@ -261,6 +261,58 @@ async function handleCreateJob(request, response) {
 }
 
 /**
+ * POST /api/jobs/status
+ * Synchronizes a job's tracker status (Applied, Interviewing, Rejected) back to Clyde Desktop.
+ *
+ * Body: { company: string, status: string }
+ */
+async function handleUpdateJobStatus(request, response) {
+  const { sessionManager } = managers;
+  try {
+    const body = await parseBody(request);
+    const company = (body.company || '').trim();
+    const status = (body.status || '').trim().toLowerCase();
+
+    if (!company || !status) {
+      return jsonResponse(response, 400, {
+        status: 'error',
+        error: 'company and status are required'
+      });
+    }
+
+    const entityId = entityIdFromName(company);
+    
+    // Map Clyde Go's status to sessionManager OPPORTUNITY_OUTCOMES
+    let outcome = 'applied';
+    if (status === 'interviewing') {
+      outcome = 'active';
+    } else if (status === 'rejected') {
+      outcome = 'rejected';
+    } else if (status === 'applied') {
+      outcome = 'applied';
+    } else if (status === 'none') {
+      outcome = 'applied'; // fallback
+    }
+
+    sessionManager.updateEntity('interview', entityId, {
+      outcome: outcome
+    });
+
+    // Notify renderer so UI refreshes
+    trySendIpc('session-data-changed', { entityId, company, action: 'status-updated', status: outcome });
+
+    return jsonResponse(response, 200, {
+      status: 'ok',
+      company,
+      entityId,
+      status: outcome
+    });
+  } catch (err) {
+    return jsonResponse(response, 500, { status: 'error', error: err.message });
+  }
+}
+
+/**
  * POST /api/documents
  * Saves tailored resumes, cover letters, or STAR+R sheets into
  * Clyde's knowledge_base so they are available for real-time interview assistance.
@@ -444,6 +496,7 @@ const ROUTES = new Map([
   ['GET /api/settings', handleGetSettings],
   ['POST /api/settings', handleUpdateSettings],
   ['POST /api/jobs', handleCreateJob],
+  ['POST /api/jobs/status', handleUpdateJobStatus],
   ['POST /api/documents', handleCreateDocument],
   ['POST /api/cockpit/active', handleSetActiveCockpit]
 ]);
