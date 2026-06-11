@@ -11,3 +11,8 @@ native/audio-engine/target/
 *.exe
 .antigravitycli/
 
+
+# Scratch audio/log files
+/*.wav
+/renderer-dev.log
+*.log

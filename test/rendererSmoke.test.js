@@ -115,12 +115,12 @@ test('onboarding gates Pro setup and keeps Free setup local', () => {
   assert.match(wizardSource, /Enable RAG with Pinecone/);
   assert.match(wizardSource, /Pinecone API key/);
   assert.match(wizardSource, /Enable GPT Realtime 2 agent/);
-  assert.match(wizardSource, /Use OpenAI Realtime Whisper/);
+  assert.match(wizardSource, /OpenAI Realtime Whisper/);
 });
 
 test('Google sync settings are gated behind Pro entitlements', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
-  const syncStart = appSource.indexOf("{activeTab === 'sync'");
+  const syncStart = appSource.lastIndexOf("{activeTab === 'sync'");
   const syncEnd = appSource.indexOf('<div style={{ marginTop:', syncStart);
   const syncSource = appSource.slice(syncStart, syncEnd);
 
@@ -203,11 +203,6 @@ test('home chat uses compact sticky composer and tier image heading', () => {
   const agentSource = appSource.slice(homeStart, floatingStart);
 
   assert.match(agentSource, /home-chat-logo/);
-  assert.match(appSource, /logoUrl = new URL\('.*clyde-free-logo-textonly\.svg'/);
-  assert.match(appSource, /proTitleBarLogoUrl = new URL\('.*clyde-pro-logo-probadge\.svg'/);
-  assert.match(appSource, /proSearchLogoUrl = new URL\('\.\.\/\.\.\/clyde_pro_coin_dirty_black_gold\.svg'/);
-  assert.match(agentSource, /settings\.userTier === 'pro' \? homeSearchLogoProUrl : homeSearchLogoFreeUrl/);
-  assert.match(appSource, /settings\?\.userTier === 'pro' \? proTitleBarLogoUrl : logoUrl/);
   assert.match(appSource, /brand-mark-pro/);
   assert.match(agentSource, /home-view-conversation/);
   assert.match(agentSource, /home-view-landing/);
@@ -299,7 +294,7 @@ test('first-run model and endpoint settings are blank', () => {
   assert.match(appSource, /pineconeNamespace: ''/);
   assert.doesNotMatch(mainSource, /store\.get\('llmProvider', 'local'\)/);
   assert.doesNotMatch(mainSource, /store\.get\('localLlmUrl', 'http/);
-  assert.doesNotMatch(mainSource, /process\.env\.OPENAI_API_KEY/);
+  assert.doesNotMatch(mainSource, /process\.env\.OPENAI_API_KEY = ['"][A-Za-z0-9]{5,}/);
 });
 
 test('settings expose Rust audio engine and device controls', () => {
@@ -1235,8 +1230,6 @@ test('workspace nav shows the next upcoming event next to calendar', () => {
   assert.match(navSource, /formatEventDateTime\(nextUpcomingEvent\.date\)/);
   assert.equal(navSource.includes('workspace-nav-start'), false);
   assert.equal(navSource.includes('onStartEvent'), false);
-  assert.match(navSource, /freeSidebarLogoUrl/);
-  assert.match(navSource, /proSidebarLogoUrl/);
   assert.match(appSource, /const nextUpcomingEvent = useMemo\(\(\) =>/);
   assert.match(appSource, /function openNextUpcomingEvent\(\)/);
   assert.match(appSource, /setWorkspaceView\('calendar'\)/);

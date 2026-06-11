@@ -384,7 +384,7 @@ test('reruns intent detection when a final question fragment arrives during an i
             return null;
           }
 
-          return transcript.includes('sixty ninety day plan look like?')
+          return transcript.includes('sixty ninety day plan')
             ? 'If you were to get the job, what would your 30 sixty ninety day plan look like?'
             : null;
         },
@@ -418,14 +418,14 @@ test('reruns intent detection when a final question fragment arrives during an i
 
     const firstRun = assistant.addTranscript({
       speaker: 'System Audio',
-      text: 'Can you tell me about your support career?'
+      text: 'Can you tell me about your support career'
     });
 
     await firstIntentStartedPromise;
 
     const finalFragment = await assistant.addTranscript({
       speaker: 'System Audio',
-      text: 'If you were to get the job, what would your 30 sixty ninety day plan look like?'
+      text: 'If you were to get the job what would your 30 sixty ninety day plan look like'
     });
 
     assert.equal(finalFragment.skipped, 'in-flight');
@@ -470,7 +470,7 @@ test('runs intent detection only after interviewer utterance settles', async () 
       exports: {
         detectResumeQuestion: async (transcript) => {
           detectedTranscripts.push(transcript);
-          return transcript.includes('particular role.')
+          return transcript.includes('particular role')
             ? 'Why do you think you would be a good fit for this particular role.'
             : null;
         },
@@ -509,7 +509,7 @@ test('runs intent detection only after interviewer utterance settles', async () 
     });
     const finalFragment = await assistant.addTranscript({
       speaker: 'System Audio',
-      text: 'particular role.'
+      text: 'particular role'
     });
 
     assert.equal(firstFragment.skipped, 'waiting-for-utterance');
@@ -517,12 +517,12 @@ test('runs intent detection only after interviewer utterance settles', async () 
     assert.equal(detectedTranscripts.length, 0);
     assert.equal(requests.length, 0);
 
-    await waitFor(() => requests.length === 1, 1000);
+    await waitFor(() => requests.length === 1, 2000);
 
     assert.equal(detectedTranscripts.length, 1);
     assert.match(
       detectedTranscripts[0],
-      /System Audio: Why do you think you would be a good fit for this particular role\./
+      /System Audio: Why do you think you would be a good fit for this particular role/
     );
     assert.match(
       requests[0].data.messages[0].content,

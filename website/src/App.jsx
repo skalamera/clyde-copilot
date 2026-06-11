@@ -707,6 +707,20 @@ function ClydeGoPage() {
         </figure>
       </section>
 
+      <div className="logo-ticker-container ats-ticker-container" style={{ padding: '40px 0 20px 0', marginTop: '-40px', marginBottom: '40px' }} data-reveal>
+        <p className="logo-ticker-title" style={{ fontSize: '0.85rem', marginBottom: '20px', letterSpacing: '1.5px' }}>Compatible ATS Platforms</p>
+        <div className="logo-ticker">
+          <div className="logo-ticker-track">
+            {['greenhouse.svg', 'ashby.svg', 'lever.svg', 'workday.svg', 'smartrecruiters.svg', 'icims.svg'].map((logo, i) => (
+              <img key={`ats-1-${i}`} src={`/ATS Company Logos/${logo}`} alt="ATS Logo" />
+            ))}
+            {['greenhouse.svg', 'ashby.svg', 'lever.svg', 'workday.svg', 'smartrecruiters.svg', 'icims.svg'].map((logo, i) => (
+              <img key={`ats-2-${i}`} src={`/ATS Company Logos/${logo}`} alt="ATS Logo" />
+            ))}
+          </div>
+        </div>
+      </div>
+
       <section className="section-band privacy-band" id="sourcing" data-reveal>
         <div className="privacy-copy">
           <span className="eyebrow">Job Sourcing & Matching</span>

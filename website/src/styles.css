@@ -2959,6 +2959,16 @@ img {
   }
 }
 
+/* ATS logo specific sizing (2x bigger) */
+.ats-ticker-container .logo-ticker-track img {
+  height: 88px;
+}
+@media (max-width: 768px) {
+  .ats-ticker-container .logo-ticker-track img {
+    height: 60px;
+  }
+}
+
 /* Pro inline checkout (pricing card) */
 .pro-checkout-form {
   display: flex;

@@ -96,7 +96,7 @@ export default async function handler(request, response) {
     } else if (msgLower.includes("detect") || msgLower.includes("screen share") || msgLower.includes("zoom") || msgLower.includes("teams") || msgLower.includes("visible")) {
       localReply = "No, Clyde is completely undetectable on screenshares and remote recording apps! It uses native OS exclusion rules that tell the graphics engine to completely skip rendering Clyde's floating window on captured feeds.";
     } else if (msgLower.includes("pricing") || msgLower.includes("price") || msgLower.includes("cost") || msgLower.includes("free") || msgLower.includes("pro")) {
-      localReply = "Clyde has a Free Tier that includes cloud-transcription and basic note-taking. The Pro Tier is $29.99/month (or $240/year billed annually) and unlocks active Pinecone RAG knowledge bases, Google Sync, local model integrations, and advanced trend dashboards.";
+      localReply = "Clyde has a Free Tier that includes cloud-transcription and basic note-taking. The Pro Tier is $29.99/month (or $24.99/month billed annually — about $299.88/year, a 16% saving) and unlocks active Pinecone RAG knowledge bases, Google Sync, local model integrations, and advanced trend dashboards.";
     } else if (msgLower.includes("local") || msgLower.includes("lm studio") || msgLower.includes("qwen") || msgLower.includes("offline")) {
       localReply = "Yes! Clyde supports running completely offline using local models (like Qwen 2.5/3.6) via LM Studio on port 1234. In this configuration, no company info or conversation transcripts ever leave your local computer.";
     } else if (msgLower.includes("audio") || msgLower.includes("microphone") || msgLower.includes("capture") || msgLower.includes("voice")) {
