@@ -1,6 +1,12 @@
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const userSecretsPath = path.join(os.homedir(), '.secrets', 'clyde-dev.env');
+if (fs.existsSync(userSecretsPath)) {
+  require('dotenv').config({ path: userSecretsPath });
+} else {
+  require('dotenv').config();
+}
 const { Pinecone } = require('@pinecone-database/pinecone');
 const pdfParse = require('pdf-parse');
 const { getEmbedding } = require('../src/pineconeClient.js');

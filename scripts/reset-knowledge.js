@@ -1,7 +1,13 @@
-require('dotenv').config();
-const axios = require('axios');
-const fs = require('node:fs');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const axios = require('axios');
+const userSecretsPath = path.join(os.homedir(), '.secrets', 'clyde-dev.env');
+if (fs.existsSync(userSecretsPath)) {
+  require('dotenv').config({ path: userSecretsPath });
+} else {
+  require('dotenv').config();
+}
 
 async function resetKnowledge() {
     const appData = process.env.APPDATA;

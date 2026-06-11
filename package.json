@@ -85,7 +85,13 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "azureSignOptions": {
+        "publisherName": "Stephen Skalamera",
+        "endpoint": "https://eastus.codesigning.azure.net",
+        "certificateProfileName": "StephenSkalameraProfile",
+        "codeSigningAccountName": "StephenSkalameraAccount"
+      }
     },
     "nsis": {
       "oneClick": false,

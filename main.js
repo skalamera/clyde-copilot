@@ -11,7 +11,13 @@ console.log = log.info;
 console.error = log.error;
 console.warn = log.warn;
 
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+const os = require('node:os');
+const userSecretsPath = path.join(os.homedir(), '.secrets', 'clyde-dev.env');
+if (fs.existsSync(userSecretsPath)) {
+  require('dotenv').config({ path: userSecretsPath });
+} else {
+  require('dotenv').config({ path: path.join(__dirname, '.env') });
+}
 
 // ---------------------------------------------------------------------------
 // Electron safeStorage Encryption Helpers

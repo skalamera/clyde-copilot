@@ -1,4 +1,12 @@
-require('dotenv').config();
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const userSecretsPath = path.join(os.homedir(), '.secrets', 'clyde-dev.env');
+if (fs.existsSync(userSecretsPath)) {
+  require('dotenv').config({ path: userSecretsPath });
+} else {
+  require('dotenv').config();
+}
 
 const { createAudioCapture } = require('../src/audioCapture');
 const { calculatePcmRms } = require('../src/transcriptionClient');
