@@ -711,10 +711,10 @@ function ClydeGoPage() {
         <p className="logo-ticker-title" style={{ fontSize: '0.85rem', marginBottom: '20px', letterSpacing: '1.5px' }}>Compatible ATS Platforms</p>
         <div className="logo-ticker">
           <div className="logo-ticker-track">
-            {['greenhouse.svg', 'ashby.svg', 'lever.svg', 'workday.svg', 'smartrecruiters.svg', 'icims.svg'].map((logo, i) => (
+            {['greenhouse.svg', 'ashby.svg', 'lever.svg', 'workday.svg', 'smartrecruiters.svg', 'icims.svg', 'linkedin.svg', 'taleo.svg'].map((logo, i) => (
               <img key={`ats-1-${i}`} src={`/ATS Company Logos/${logo}`} alt="ATS Logo" />
             ))}
-            {['greenhouse.svg', 'ashby.svg', 'lever.svg', 'workday.svg', 'smartrecruiters.svg', 'icims.svg'].map((logo, i) => (
+            {['greenhouse.svg', 'ashby.svg', 'lever.svg', 'workday.svg', 'smartrecruiters.svg', 'icims.svg', 'linkedin.svg', 'taleo.svg'].map((logo, i) => (
               <img key={`ats-2-${i}`} src={`/ATS Company Logos/${logo}`} alt="ATS Logo" />
             ))}
           </div>
