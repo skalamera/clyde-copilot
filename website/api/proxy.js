@@ -243,13 +243,13 @@ export default async function handler(request, response) {
       });
 
       const oaiRawText = await oaiRes.text();
-      console.log("OpenAI Proxy status:", oaiRes.status, "Raw response:", oaiRawText);
+      console.log("OpenAI Proxy status:", oaiRes.status, "bytes:", oaiRawText.length);
 
       let oaiData;
       try {
         oaiData = JSON.parse(oaiRawText);
       } catch (e) {
-        console.error("OpenAI JSON parse failed. Raw response:", oaiRawText);
+        console.error("OpenAI JSON parse failed. Raw response (truncated):", oaiRawText.slice(0, 300));
         sendJson(response, 500, {
           error: `OpenAI response JSON parse failed. Status: ${oaiRes.status}. Raw text: ${oaiRawText.slice(0, 300)}`
         });
@@ -300,9 +300,9 @@ export default async function handler(request, response) {
         }
       };
 
-      const embedRes = await fetch(`${GEMINI_EMBED_URL}?key=${apiKey}`, {
+      const embedRes = await fetch(GEMINI_EMBED_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(embedPayload)
       });
 
@@ -391,13 +391,13 @@ export default async function handler(request, response) {
       });
 
       const oaiRawText = await oaiRes.text();
-      console.log("OpenAI Proxy status:", oaiRes.status, "Raw response:", oaiRawText);
+      console.log("OpenAI Proxy status:", oaiRes.status, "bytes:", oaiRawText.length);
 
       let oaiData;
       try {
         oaiData = JSON.parse(oaiRawText);
       } catch (e) {
-        console.error("OpenAI JSON parse failed. Raw response:", oaiRawText);
+        console.error("OpenAI JSON parse failed. Raw response (truncated):", oaiRawText.slice(0, 300));
         sendJson(response, 500, {
           error: `OpenAI response JSON parse failed. Status: ${oaiRes.status}. Raw text: ${oaiRawText.slice(0, 300)}`
         });
@@ -452,20 +452,20 @@ export default async function handler(request, response) {
     }
     geminiPayload.generationConfig = generationConfig;
 
-    const geminiRes = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const geminiRes = await fetch(GEMINI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(geminiPayload)
     });
 
     const geminiRawText = await geminiRes.text();
-    console.log("Gemini Proxy status:", geminiRes.status, "Raw response:", geminiRawText);
+    console.log("Gemini Proxy status:", geminiRes.status, "bytes:", geminiRawText.length);
 
     let geminiData;
     try {
       geminiData = JSON.parse(geminiRawText);
     } catch (e) {
-      console.error("Gemini JSON parse failed. Raw response:", geminiRawText);
+      console.error("Gemini JSON parse failed. Raw response (truncated):", geminiRawText.slice(0, 300));
       sendJson(response, 500, {
         error: `Gemini response JSON parse failed. Status: ${geminiRes.status}. Raw text: ${geminiRawText.slice(0, 300)}`
       });

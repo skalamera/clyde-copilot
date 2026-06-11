@@ -16,7 +16,7 @@ function createGoogleClient(options = {}) {
   const openExternal = options.openExternal || (() => Promise.resolve());
   const now = typeof options.now === 'function' ? options.now : () => Date.now();
 
-  async function connect({ clientId, clientSecret, tokenEndpoint, timeoutMs = 120000 } = {}) {
+  async function connect({ clientId, clientSecret, tokenEndpoint, authToken, timeoutMs = 120000 } = {}) {
     const cleanClientId = clean(clientId);
     const cleanClientSecret = clean(clientSecret);
     if (!cleanClientId) {
@@ -51,7 +51,8 @@ function createGoogleClient(options = {}) {
           codeVerifier: verifier,
           grantType: 'authorization_code',
           redirectUri,
-          tokenEndpoint
+          tokenEndpoint,
+          authToken
         });
       } catch (error) {
         throw new Error(`Google OAuth token exchange failed: ${describeGoogleError(error)}`);
@@ -70,7 +71,7 @@ function createGoogleClient(options = {}) {
     }
   }
 
-  async function refreshAccessToken({ clientId, clientSecret, refreshToken, tokenEndpoint } = {}) {
+  async function refreshAccessToken({ clientId, clientSecret, refreshToken, tokenEndpoint, authToken } = {}) {
     const cleanClientId = clean(clientId);
     const cleanClientSecret = clean(clientSecret);
     const cleanRefreshToken = clean(refreshToken);
@@ -85,7 +86,8 @@ function createGoogleClient(options = {}) {
         clientSecret: cleanClientSecret,
         refreshToken: cleanRefreshToken,
         grantType: 'refresh_token',
-        tokenEndpoint
+        tokenEndpoint,
+        authToken
       });
     } catch (error) {
       throw new Error(`Google OAuth token refresh failed: ${describeGoogleError(error)}`);
@@ -112,10 +114,16 @@ function createGoogleClient(options = {}) {
     refreshToken,
     grantType,
     redirectUri,
-    tokenEndpoint
+    tokenEndpoint,
+    authToken
   } = {}) {
     const cleanTokenEndpoint = clean(tokenEndpoint);
     if (cleanTokenEndpoint) {
+      const headers = { 'content-type': 'application/json' };
+      const cleanAuthToken = clean(authToken);
+      if (cleanAuthToken) {
+        headers.Authorization = `Bearer ${cleanAuthToken}`;
+      }
       return axiosClient.post(cleanTokenEndpoint, {
         clientId,
         code,
@@ -124,7 +132,7 @@ function createGoogleClient(options = {}) {
         grantType,
         redirectUri
       }, {
-        headers: { 'content-type': 'application/json' }
+        headers
       });
     }
 

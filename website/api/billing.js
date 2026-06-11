@@ -156,7 +156,8 @@ async function handleCreateProSignupCheckout(req, res) {
 
   const existing = await listSupabaseUsersByEmail(email);
   if (existing.length > 0) {
-    sendJson(res, 409, { error: 'An account already exists for this email. Sign in to manage Pro.' });
+    // Anti-enumeration: do not confirm whether an account exists.
+    sendJson(res, 400, { error: 'Unable to start a new Pro signup with this email. If you have a Clyde account, sign in and upgrade from Settings; otherwise contact support.' });
     return;
   }
 

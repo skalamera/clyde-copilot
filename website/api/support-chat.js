@@ -161,9 +161,9 @@ Conversation Guidelines:
 4. Keep replies to 2-3 sentences max. Do not invent details not present in the context.
 `;
 
-    const geminiRes = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const geminiRes = await fetch(GEMINI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [
           { role: 'user', parts: [{ text: systemPrompt }] },

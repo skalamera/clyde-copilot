@@ -1303,10 +1303,12 @@ async function getGoogleAccessToken(settings = loadSettings()) {
     if (tokens.access_token && expiresAt > Date.now() + 60000) {
         return tokens.access_token;
     }
+    const refreshAuthSession = await getFreshAuthSession().catch(() => null);
     const refreshed = await googleClient.refreshAccessToken({
         clientId: getGoogleOAuthClientId(),
         clientSecret: getGoogleOAuthClientSecret(),
         tokenEndpoint: CLYDE_GOOGLE_OAUTH_TOKEN_URL,
+        authToken: refreshAuthSession?.accessToken || '',
         refreshToken: tokens.refresh_token
     });
     saveGoogleTokens(refreshed);
@@ -2554,10 +2556,12 @@ function createWindow () {
           throw new Error('Google sync is not ready.');
       }
       const settings = loadSettings();
+      const connectAuthSession = await getFreshAuthSession().catch(() => null);
       const result = await googleClient.connect({
           clientId: getGoogleOAuthClientId(),
           clientSecret: getGoogleOAuthClientSecret(),
-          tokenEndpoint: CLYDE_GOOGLE_OAUTH_TOKEN_URL
+          tokenEndpoint: CLYDE_GOOGLE_OAUTH_TOKEN_URL,
+          authToken: connectAuthSession?.accessToken || ''
       });
       saveGoogleTokens(result.tokens);
       const nextSettings = {

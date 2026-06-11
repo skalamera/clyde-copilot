@@ -21,20 +21,25 @@ test('checkout reuses an existing Stripe customer by email and stores user metad
   assert.match(source, /customer_email: customerId \? undefined : email \|\| undefined/);
 });
 
-test('signup endpoint rejects duplicate Supabase emails before account creation', () => {
+test('signup endpoint handles duplicate Supabase emails without revealing account existence', () => {
   const source = fs.readFileSync(path.join(apiRoot, 'sign-up.js'), 'utf8');
 
   assert.match(source, /listSupabaseUsersByEmail\(email\)/);
-  assert.match(source, /sendJson\(res, 409/);
-  assert.match(source, /An account already exists for this email/);
+  // Anti-enumeration: duplicate email must return a success-shaped response,
+  // never a 409 / "already exists" oracle.
+  assert.match(source, /Anti-enumeration/);
+  assert.doesNotMatch(source, /sendJson\(res, 409/);
+  assert.doesNotMatch(source, /An account already exists for this email/);
 });
 
-test('Pro signup checkout rejects duplicate email and starts subscription with user metadata', () => {
+test('Pro signup checkout rejects duplicate email without revealing account existence', () => {
   const source = fs.readFileSync(path.join(apiRoot, 'billing.js'), 'utf8');
 
   assert.match(source, /listSupabaseUsersByEmail\(email\)/);
-  assert.match(source, /sendJson\(res, 409/);
-  assert.match(source, /An account already exists for this email\. Sign in to manage Pro\./);
+  // Anti-enumeration: generic 400, no "already exists" oracle.
+  assert.match(source, /Anti-enumeration/);
+  assert.doesNotMatch(source, /sendJson\(res, 409/);
+  assert.doesNotMatch(source, /An account already exists for this email/);
   assert.doesNotMatch(source, /\/auth\/v1\/signup/);
   assert.doesNotMatch(source, /body\.password/);
   assert.doesNotMatch(source, /email_redirect_to/);

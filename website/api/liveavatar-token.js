@@ -2,6 +2,30 @@ import { findSubscriptionByUserId, readJson, requireSupabaseUser } from './_bill
 
 const LIVEAVATAR_API_BASE = 'https://api.liveavatar.com';
 const SANDBOX_AVATAR_ID = 'dd73ea75-1218-4ef3-92ce-606d5f7fbc0a';
+const SANDBOX_RATE_LIMIT_PER_HOUR = 3;
+const SANDBOX_WINDOW_MS = 60 * 60 * 1000;
+const sandboxBuckets = new Map();
+
+function checkSandboxRateLimit(ip) {
+  const now = Date.now();
+  let bucket = sandboxBuckets.get(ip);
+  if (!bucket || now - bucket.windowStart >= SANDBOX_WINDOW_MS) {
+    bucket = { windowStart: now, count: 0 };
+    sandboxBuckets.set(ip, bucket);
+  }
+  bucket.count += 1;
+  if (sandboxBuckets.size > 2000) {
+    for (const [k, v] of sandboxBuckets) {
+      if (now - v.windowStart >= SANDBOX_WINDOW_MS) sandboxBuckets.delete(k);
+    }
+  }
+  return bucket.count <= SANDBOX_RATE_LIMIT_PER_HOUR;
+}
+
+function clientIp(request) {
+  const fwd = String(request.headers['x-forwarded-for'] || '');
+  return fwd.split(',')[0].trim() || request.socket?.remoteAddress || 'unknown';
+}
 
 function isActiveSubscription(subscription) {
   return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
@@ -27,6 +51,15 @@ export default async function handler(request, response) {
   try {
     const body = await readJson(request);
     const hasAuth = String(request.headers.authorization || '').toLowerCase().startsWith('bearer ');
+
+    // Unauthenticated sandbox demo: rate-limit per IP so the paid LiveAvatar
+    // key cannot be drained by scripted requests.
+    if (!hasAuth && !checkSandboxRateLimit(clientIp(request))) {
+      response.setHeader('Retry-After', '3600');
+      response.status(429).json({ error: 'Sandbox demo limit reached. Please try again later or sign in with Clyde Pro.' });
+      return;
+    }
+
     let contextPayload = {
       name: `Clyde website sandbox - ${new Date().toISOString()}`,
       opening_text: 'Hi, I am Clyde. Let us run a quick mock interview practice round.',
