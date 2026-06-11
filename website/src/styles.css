@@ -927,6 +927,7 @@ img {
 .step-card span {
   background: linear-gradient(135deg, var(--cyan), var(--lime)); /* Midnight Blue Violet-Cyan Text Gradient */
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   display: inline-block;
   font-weight: 900;
