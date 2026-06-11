@@ -13,6 +13,112 @@ console.warn = log.warn;
 
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
+// ---------------------------------------------------------------------------
+// Electron safeStorage Encryption Helpers
+// ---------------------------------------------------------------------------
+let isAppReadyForEncryption = false;
+const ENCRYPTED_KEYS = [
+    'openAiApiKey',
+    'llmApiKey',
+    'transcriptionApiKey',
+    'geminiApiKey',
+    'pineconeApiKey',
+    'embeddingApiKey',
+    'authAccessToken',
+    'authRefreshToken'
+];
+
+function encryptSecret(text) {
+    if (!text) return '';
+    if (text.startsWith('encrypted:')) return text; // already encrypted
+    try {
+        const { safeStorage } = require('electron');
+        if (isAppReadyForEncryption && safeStorage && safeStorage.isEncryptionAvailable()) {
+            const buf = safeStorage.encryptString(text);
+            return 'encrypted:' + buf.toString('base64');
+        }
+    } catch (e) {
+        console.error('[encryption] safeStorage encryption failed:', e.message);
+    }
+    return text; // fallback to plaintext if safeStorage is not ready or available
+}
+
+function decryptSecret(text) {
+    if (!text) return '';
+    if (!text.startsWith('encrypted:')) return text; // already plaintext
+    try {
+        const { safeStorage } = require('electron');
+        if (isAppReadyForEncryption && safeStorage && safeStorage.isEncryptionAvailable()) {
+            const encryptedStr = text.slice('encrypted:'.length);
+            const buf = Buffer.from(encryptedStr, 'base64');
+            return safeStorage.decryptString(buf);
+        }
+    } catch (e) {
+        console.error('[encryption] safeStorage decryption failed:', e.message);
+    }
+    return ''; // return empty if ready but decryption fails (corruption/re-install)
+}
+
+function syncAndMigrateSecrets() {
+    isAppReadyForEncryption = true;
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+
+    let hasUpdates = false;
+    for (const key of ENCRYPTED_KEYS) {
+        const val = store.get(key, '');
+        if (val && !val.startsWith('encrypted:')) {
+            const encrypted = encryptSecret(val);
+            store.set(key, encrypted);
+            hasUpdates = true;
+        }
+    }
+
+    // Load decrypted settings to sync process.env
+    const settings = loadSettings();
+    if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
+    if (settings.openAiApiKey) process.env.OPENAI_API_KEY = settings.openAiApiKey;
+    if (settings.pineconeApiKey) process.env.PINECONE_API_KEY = settings.pineconeApiKey;
+    if (settings.pineconeHost) process.env.PINECONE_HOST = settings.pineconeHost;
+
+    if (hasUpdates) {
+        console.log('[encryption] Successfully migrated plaintext secrets to safeStorage.');
+    }
+}
+
+// Globally monkey-patch electron-store to handle automatic encryption/decryption
+// of sensitive API keys and tokens across all modules.
+try {
+    const Store = require('electron-store').default || require('electron-store');
+    
+    const originalGet = Store.prototype.get;
+    Store.prototype.get = function (key, defaultValue) {
+        const val = originalGet.call(this, key, defaultValue);
+        if (ENCRYPTED_KEYS.includes(key) && typeof val === 'string') {
+            return decryptSecret(val);
+        }
+        return val;
+    };
+
+    const originalSet = Store.prototype.set;
+    Store.prototype.set = function (key, value) {
+        if (typeof key === 'string' && ENCRYPTED_KEYS.includes(key) && typeof value === 'string') {
+            return originalSet.call(this, key, encryptSecret(value));
+        } else if (typeof key === 'object' && key !== null) {
+            const encrypted = { ...key };
+            for (const k of ENCRYPTED_KEYS) {
+                if (encrypted[k] && typeof encrypted[k] === 'string') {
+                    encrypted[k] = encryptSecret(encrypted[k]);
+                }
+            }
+            return originalSet.call(this, encrypted);
+        }
+        return originalSet.call(this, key, value);
+    };
+} catch (e) {
+    console.error('[encryption] Failed to monkey-patch electron-store:', e.message);
+}
+
 const { createAudioCapture } = require('./src/audioCapture');
 const { createAudioEngineSidecar, resolveAudioEnginePath } = require('./src/audioEngineSidecar');
 const { calculatePcmRms, createTranscriptionProcessor } = require('./src/transcriptionClient');
@@ -187,6 +293,12 @@ function loadSettings() {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     
+    let extensionPairingToken = store.get('extensionPairingToken', '');
+    if (!extensionPairingToken) {
+        extensionPairingToken = require('node:crypto').randomBytes(16).toString('hex');
+        store.set('extensionPairingToken', extensionPairingToken);
+    }
+
     let settings = {
         llmProvider: store.get('llmProvider', ''),
         llmModel: store.get('llmModel', ''),
@@ -245,6 +357,15 @@ function loadSettings() {
         theme: store.get('theme', 'default')
     };
 
+    settings.extensionPairingToken = extensionPairingToken;
+
+    // Decrypt any encrypted fields before using or returning them
+    for (const key of ENCRYPTED_KEYS) {
+        if (settings[key]) {
+            settings[key] = decryptSecret(settings[key]);
+        }
+    }
+
     // Inject back into process.env so existing modules (like pineconeClient.js) can read them
     if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
     if (settings.openAiApiKey) process.env.OPENAI_API_KEY = settings.openAiApiKey;
@@ -288,7 +409,9 @@ function saveSettings(newSettings, options = {}) {
     
     store.delete('googleOAuthClientId');
     store.delete('demoMode');
+
     store.set(settingsToStore);
+
     applyCaptureProtection(settingsToStore);
     
     // Update process.env immediately
@@ -4175,6 +4298,7 @@ function startProcessMonitoring() {
 }
 
 app.whenReady().then(() => {
+    syncAndMigrateSecrets();
     configureElectronStorage();
     createWindow();
     startProcessMonitoring();

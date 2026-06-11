@@ -453,6 +453,17 @@ async function dispatch(request, response) {
   const { pathname } = urlParts(request);
   const method = request.method.toUpperCase();
 
+  // 1. Validate Host header strictly to prevent DNS rebinding attacks.
+  const host = String(request.headers.host || '').trim().toLowerCase();
+  const serverPort = server?.address()?.port || PORT;
+  const allowedHosts = [`127.0.0.1:${serverPort}`, `localhost:${serverPort}`];
+  if (!allowedHosts.includes(host)) {
+    return jsonResponse(response, 400, {
+      status: 'error',
+      error: 'Bad Request: Invalid Host header'
+    });
+  }
+
   // Attach computed CORS headers for this request so jsonResponse can use them.
   response.clydeCorsHeaders = corsHeadersFor(request);
 
@@ -471,6 +482,19 @@ async function dispatch(request, response) {
       'Access-Control-Max-Age': '86400'
     });
     return response.end();
+  }
+
+  // 2. Validate Extension Pairing Token for all endpoints except safe health check.
+  if (pathname !== '/api/status') {
+    const authHeader = String(request.headers.authorization || '').trim();
+    const token = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
+    const storedToken = managers?.loadSettings()?.extensionPairingToken;
+    if (!storedToken || token !== storedToken) {
+      return jsonResponse(response, 401, {
+        status: 'error',
+        error: 'Unauthorized: Invalid extension pairing token.'
+      });
+    }
   }
 
   // Exact route match
