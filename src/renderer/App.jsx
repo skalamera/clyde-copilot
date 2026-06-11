@@ -3137,6 +3137,7 @@ function App() {
   const [entities, setEntities] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [selectedEntity, setSelectedEntity] = useState('');
+  const [justSyncedEntityId, setJustSyncedEntityId] = useState('');
   const [serviceChecking, setServiceChecking] = useState(false);
   const [newOpportunityOpen, setNewOpportunityOpen] = useState(false);
   const [newMeetingOpen, setNewMeetingOpen] = useState(false);
@@ -3466,6 +3467,10 @@ function App() {
 
       if ((change?.mode || 'interview') !== mode) {
         return;
+      }
+
+      if (change?.action === 'job-created') {
+        setJustSyncedEntityId(change?.entityId || '');
       }
 
       reloadSessions(mode, selectedEntity || change?.entityId || '')
@@ -4479,6 +4484,8 @@ function App() {
             }}
             onChangeActiveMeeting={setActiveMeeting}
             selectedEntity={selectedEntity}
+            justSyncedEntityId={justSyncedEntityId}
+            setJustSyncedEntityId={setJustSyncedEntityId}
             sessions={sessions}
             calendarEvents={calendarEvents}
           />
@@ -5000,7 +5007,14 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
                 <div className="preflight-connection-card">
                   <p><strong>Transcription:</strong> <span className={transcriptionTone}>{transcriptionState}</span></p>
                   <p><strong>Provider:</strong> <span>{models.transcriptionProvider || 'Not selected'}</span></p>
-                  <p><strong>Local Server:</strong> <span>{models.transcriptionModel || transcriptionHealth.detail || 'Not selected'}</span></p>
+                  <p>
+                    <strong>
+                      {['openai', 'openai-realtime-whisper', 'clyde-cloud-whisper'].includes(models.transcriptionProvider)
+                        ? 'Model:'
+                        : 'Local Server:'}
+                    </strong>{' '}
+                    <span>{models.transcriptionModel || transcriptionHealth.detail || 'Not selected'}</span>
+                  </p>
                   <hr />
                   <p><strong>Assistant LLM:</strong> <span className={assistantTone}>{assistantState}</span></p>
                   <p><strong>Provider:</strong> <span>{models.assistantProvider || 'Not selected'}</span></p>
@@ -5490,7 +5504,11 @@ function TitleBar({ isStreaming, onStartCapture, entities, mode, workspaceView, 
 
       <div className="title-actions title-icons">
         <button className="icon-button user-guide-button" type="button" onClick={onOpenUserGuide} aria-label="Open user guide" title="User guide">
-          ❔
+          <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <path d="M12 17h.01" />
+          </svg>
         </button>
         <button className="icon-button" type="button" onClick={onMinimizeApp} aria-label="Minimize Clyde" title="Minimize Clyde">
           <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
@@ -6924,6 +6942,32 @@ function WorkspaceNav({
   onSettings
 }) {
   const notificationsRef = useRef(null);
+  const [extensionSyncTime, setExtensionSyncTime] = useState(null);
+  const [extensionConnected, setExtensionConnected] = useState(false);
+  const api = window.electronAPI;
+
+  useEffect(() => {
+    async function updateStatus() {
+      if (api?.getExtensionSyncStatus) {
+        try {
+          const res = await api.getExtensionSyncStatus();
+          setExtensionSyncTime(res.lastSync);
+          if (res.lastSync) {
+            const diff = Date.now() - new Date(res.lastSync).getTime();
+            setExtensionConnected(diff < 12000);
+          } else {
+            setExtensionConnected(false);
+          }
+        } catch (_) {
+          setExtensionConnected(false);
+        }
+      }
+    }
+    updateStatus();
+    const timer = setInterval(updateStatus, 4000);
+    return () => clearInterval(timer);
+  }, [api]);
+
   const timelineLabel = mode === 'interview' ? 'Opportunity Tracker' : 'Meeting Notes';
   const timelineHint = mode === 'interview' ? 'Interviews' : 'Meetings';
   const nextEventLabel = resolveEventEntityLabel(nextUpcomingEvent);
@@ -7052,6 +7096,38 @@ function WorkspaceNav({
             <button type="button" className={`workspace-sync-refresh ${syncScanning ? 'spinning' : ''}`} disabled={syncScanning} onClick={onScanGoogleSync} aria-label="Refresh Google sync" title="Refresh Google sync">↻</button>
           </div>
         ) : null}
+
+        {/* Extension Connection Status */}
+        <div className={`workspace-sync-summary ${collapsed ? 'collapsed' : ''}`} style={{ borderTop: settings.googleSyncEnabled ? 'none' : undefined, paddingTop: settings.googleSyncEnabled ? 0 : undefined, marginTop: settings.googleSyncEnabled ? '-4px' : undefined }}>
+          {collapsed ? (
+            <span style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor: extensionConnected ? '#a6ff6a' : '#ff5c7a',
+              boxShadow: extensionConnected ? '0 0 8px #a6ff6a' : '0 0 8px #ff5c7a',
+              display: 'inline-block',
+              margin: '0 auto'
+            }} title={`Extension: ${extensionConnected ? 'Connected' : 'Disconnected'}`} />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--muted)' }}>
+              <span style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: extensionConnected ? '#a6ff6a' : '#ff5c7a',
+                boxShadow: extensionConnected ? '0 0 8px #a6ff6a' : '0 0 8px #ff5c7a',
+                display: 'inline-block'
+              }} />
+              <span>Ext: {extensionConnected ? 'Connected' : 'Disconnected'}</span>
+              {extensionSyncTime && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--muted-2)' }}>
+                  ({new Date(extensionSyncTime).toLocaleString([], { timeStyle: 'short' })})
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className={`workspace-nav-footer ${collapsed ? 'collapsed' : 'expanded'}`}>
           <button
@@ -7394,6 +7470,7 @@ function WorkspaceNavIcon({ id, active }) {
           <option value="">All types</option>
           <option value="upload">Uploads</option>
           <option value="transcript">Transcripts</option>
+          <option value="jd">Job Descriptions</option>
         </select>
         <button type="submit">Search</button>
       </form>
@@ -8891,6 +8968,28 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
 
   const activeId = mode === 'interview' ? activeInterview?.id : activeMeeting?.id;
 
+  const handleRegeneratePreCallPrep = async () => {
+    if (!activeId || !api?.generateTrendAnalysis || loadingTrend) return;
+    setLoadingTrend(true);
+    const cacheKey = `trend-analysis-${activeId}`;
+    try {
+      const generated = await api.generateTrendAnalysis(activeId);
+      if (generated) {
+        setTrendAnalysis(generated);
+        const sessionSignature = buildTrendAnalysisSessionSignature(activeSessions);
+        localStorage.setItem(cacheKey, JSON.stringify({
+          sessionsSignature: sessionSignature,
+          sessionsCount: activeSessions.length,
+          analysis: generated
+        }));
+      }
+    } catch (error) {
+      console.warn('Failed to regenerate pre-call prep', error);
+    } finally {
+      setLoadingTrend(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -9024,7 +9123,39 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
   return (
     <aside className="context-panel">
       <div className="context-section">
-        <h3>Pre-call prep</h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+          <h3 style={{ margin: 0 }}>Pre-call prep</h3>
+          {mode === 'interview' && api?.generateTrendAnalysis && (
+            <button
+              type="button"
+              className="ghost compact"
+              disabled={loadingTrend}
+              onClick={handleRegeneratePreCallPrep}
+              style={{
+                fontSize: '0.78rem',
+                padding: '4px 8px',
+                borderRadius: '6px',
+                border: '1px solid rgba(154, 202, 255, 0.16)',
+                background: 'rgba(154, 202, 255, 0.05)',
+                color: 'rgba(255, 255, 255, 0.85)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                height: '24px'
+              }}
+            >
+              {loadingTrend ? (
+                <>
+                  <span className="btn-spinner" style={{ marginRight: '6px' }}></span>
+                  Generating...
+                </>
+              ) : (
+                'Regenerate'
+              )}
+            </button>
+          )}
+        </div>
 
         {mode === 'interview' ? (
           <>
@@ -9282,7 +9413,7 @@ function EntityFilesPanel({ mode, entity }) {
   );
 }
 
-function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onUpdateEntity, onEditSession, onSelectEntity, selectedEntity, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
+function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onUpdateEntity, onEditSession, onSelectEntity, selectedEntity, justSyncedEntityId, setJustSyncedEntityId, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeMeetingId = mode === 'meeting'
     ? entities.find((entity) => entity.id === settings?.meetingTitle || entity.name === settings?.meetingTitle)?.id || ''
@@ -9291,7 +9422,20 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editingEntityStatusId, setEditingEntityStatusId] = useState('');
   const [collapsedOutcomeSections, setCollapsedOutcomeSections] = useState({ applied: true, rejected: true, offer: true });
+  const [matchAnalysisCollapsed, setMatchAnalysisCollapsed] = useState(true);
+
+  useEffect(() => {
+    if (selectedEntity) {
+      if (justSyncedEntityId === selectedEntity) {
+        setMatchAnalysisCollapsed(false);
+      } else {
+        setMatchAnalysisCollapsed(true);
+      }
+    }
+  }, [selectedEntity, justSyncedEntityId]);
   const [railWidth, setRailWidth] = useState(390);
   const actionMenuRef = useRef(null);
   const editMenuRef = useRef(null);
@@ -9299,20 +9443,31 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
   const api = window.electronAPI;
   const calibrationSummary = useOutcomeCalibrationSummary(api, mode, selected);
   const nowMs = useNowMs();
+
+  const filteredEntities = entities.filter(entity => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      (entity.name && entity.name.toLowerCase().includes(query)) ||
+      (entity.role && entity.role.toLowerCase().includes(query)) ||
+      (entity.kind && entity.kind.toLowerCase().includes(query))
+    );
+  });
+
   const activeEntities = mode === 'interview'
-    ? entities.filter((entity) => {
+    ? filteredEntities.filter((entity) => {
         const out = normalizeOpportunityOutcome(entity.outcome);
         return out !== 'rejected' && out !== 'offer' && out !== 'applied';
       })
-    : entities;
+    : filteredEntities;
   const appliedEntities = mode === 'interview'
-    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'applied')
+    ? filteredEntities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'applied')
     : [];
   const rejectedEntities = mode === 'interview'
-    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'rejected')
+    ? filteredEntities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'rejected')
     : [];
   const offerEntities = mode === 'interview'
-    ? entities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'offer')
+    ? filteredEntities.filter((entity) => normalizeOpportunityOutcome(entity.outcome) === 'offer')
     : [];
   
   const entityEvents = (calendarEvents || [])
@@ -9339,6 +9494,9 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
       }
       if (statusMenuRef.current && !statusMenuRef.current.contains(event.target)) {
         setStatusMenuOpen(false);
+      }
+      if (!event.target.closest('.rail-status-editor')) {
+        setEditingEntityStatusId('');
       }
     }
     document.addEventListener('pointerdown', handlePointerDown);
@@ -9445,8 +9603,55 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
         >
           <div className="opportunity-row-main">
             <strong>{entity.name}</strong>
-            <span className="entity-list-badges">
-              {mode === 'interview' && <OutcomeBadge outcome={entity.outcome} />}
+            <span className="entity-list-badges" style={{ position: 'relative' }}>
+              {mode === 'interview' && (
+                <span className="rail-status-editor" style={{ display: 'inline-block' }}>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="outcome-badge-button"
+                    style={{ cursor: 'pointer', display: 'inline-block' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setEditingEntityStatusId(current => current === entity.id ? '' : entity.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setEditingEntityStatusId(current => current === entity.id ? '' : entity.id);
+                      }
+                    }}
+                  >
+                    <OutcomeBadge outcome={entity.outcome} />
+                  </span>
+                  {editingEntityStatusId === entity.id ? (
+                    <div className="timeline-action-menu status-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 100 }}>
+                      {['applied', 'active', 'advanced', 'rejected', 'offer'].map((outcome) => (
+                        <button
+                          key={outcome}
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setEditingEntityStatusId('');
+                            const patch = { outcome };
+                            if (typeof onUpdateEntity === 'function') {
+                              await onUpdateEntity(entity, patch);
+                            } else {
+                              await api?.updateSessionEntity?.({ mode, entityId: entity.id, patch });
+                            }
+                            await onRefresh?.();
+                          }}
+                        >
+                          {getOutcomeLabel(outcome)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </span>
+              )}
               {mode === 'interview' && entity.confidence > 0 && (
                 <span className={`confidence-pill ${confidenceBand(entity.confidence)}`}>
                   {entity.confidence}%
@@ -9498,6 +9703,25 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
             )}
             <button type="button" onClick={onRefresh} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>Refresh</button>
           </div>
+        </div>
+        <div className="rail-search-bar" style={{ padding: '4px 10px 10px 10px' }}>
+          <input
+            type="text"
+            placeholder={mode === 'interview' ? "Search opportunities..." : "Search meetings..."}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="rail-search-input"
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              fontSize: '0.85rem',
+              borderRadius: '8px',
+              border: '1px solid var(--line)',
+              background: 'rgba(255, 255, 255, 0.02)',
+              color: 'var(--text)',
+              outline: 'none'
+            }}
+          />
         </div>
         <div className="entity-list">
           {entities.length ? (
@@ -9571,10 +9795,10 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
                       <div className="timeline-action-menu">
                         <button type="button" onClick={() => { setEditMenuOpen(false); onEditEntity(selected); }}>{mode === 'interview' ? 'Edit opportunity details' : 'Edit meeting details'}</button>
                         {mode === 'interview' && hasJd ? <button type="button" onClick={() => { setEditMenuOpen(false); window.dispatchEvent(new CustomEvent('open-jd-modal', { detail: selected })); }}>Edit job description</button> : null}
-                        <button type="button" className="danger" onClick={() => { setEditMenuOpen(false); handleDeleteEntity(); }}>{mode === 'interview' ? 'Delete opportunity' : 'Delete meeting'}</button>
                       </div>
                     ) : null}
                   </span>
+                  <button type="button" className="timeline-icon-button danger-icon-button" aria-label={mode === 'interview' ? "Delete opportunity" : "Delete meeting"} onClick={handleDeleteEntity} style={{ marginLeft: '6px' }} title={mode === 'interview' ? "Delete opportunity" : "Delete meeting"}>🗑</button>
                 </div>
               ) : null}
             </div>
@@ -9604,6 +9828,93 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
         ) : null}
 
         {selected ? <EntityFilesPanel mode={mode} entity={selected} /> : null}
+
+        {selected && mode === 'interview' && (selected.match_score !== undefined || selected.top_strength || selected.main_gap || selected.mitigation) ? (
+          <div className="match-rating-panel" style={{
+            background: 'rgba(15, 23, 42, 0.45)',
+            border: '1px solid rgba(154, 202, 255, 0.16)',
+            borderRadius: '12px',
+            padding: matchAnalysisCollapsed ? '12px 20px' : '16px 20px',
+            marginBottom: '20px',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.24)',
+            transition: 'all 0.2s ease-in-out'
+          }}>
+            <div 
+              onClick={() => setMatchAnalysisCollapsed(!matchAnalysisCollapsed)}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between', 
+                cursor: 'pointer',
+                userSelect: 'none',
+                borderBottom: matchAnalysisCollapsed ? 'none' : '1px solid rgba(154, 202, 255, 0.1)',
+                paddingBottom: matchAnalysisCollapsed ? '0' : '10px',
+                marginBottom: matchAnalysisCollapsed ? '0' : '14px'
+              }}
+            >
+              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🎯 AI Match Analysis
+                <span style={{ fontSize: '0.75rem', opacity: 0.6, marginLeft: '4px', transition: 'transform 0.2s', display: 'inline-block', transform: matchAnalysisCollapsed ? 'none' : 'rotate(90deg)' }}>
+                  ▶
+                </span>
+              </h4>
+              {selected.match_score !== undefined && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(255, 209, 102, 0.12)',
+                  border: '1px solid rgba(255, 209, 102, 0.35)',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 800,
+                  color: '#ffd166',
+                  boxShadow: '0 0 10px rgba(255, 209, 102, 0.08)'
+                }}>
+                  <span style={{ fontSize: '1.05rem', color: '#ffd166', lineHeight: 1 }}>★</span>
+                  <span>{Number(selected.match_score).toFixed(1)}</span>
+                </div>
+              )}
+            </div>
+
+            {!matchAnalysisCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {selected.top_strength && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr', gap: '4px', alignItems: 'start' }}>
+                    <span style={{ fontSize: '1.25rem', color: '#a6ff6a', display: 'flex', justifyContent: 'center', marginTop: '-2px' }}>✓</span>
+                    <div>
+                      <strong style={{ color: '#a6ff6a', fontSize: '0.88rem', display: 'block', marginBottom: '2px', fontWeight: 800 }}>Top Strength</strong>
+                      <span style={{ color: 'var(--text)', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.top_strength}</span>
+                    </div>
+                  </div>
+                )}
+
+                {selected.main_gap && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr', gap: '4px', alignItems: 'start' }}>
+                    <span style={{ fontSize: '1.25rem', color: '#ff5c7a', display: 'flex', justifyContent: 'center', marginTop: '-2px' }}>✗</span>
+                    <div>
+                      <strong style={{ color: '#ff5c7a', fontSize: '0.88rem', display: 'block', marginBottom: '2px', fontWeight: 800 }}>Main Gap</strong>
+                      <span style={{ color: 'var(--text)', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.main_gap}</span>
+                    </div>
+                  </div>
+                )}
+
+                {selected.mitigation && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr', gap: '4px', alignItems: 'start' }}>
+                    <span style={{ fontSize: '1.25rem', color: '#ffd166', display: 'flex', justifyContent: 'center', marginTop: '-2px' }}>💡</span>
+                    <div>
+                      <strong style={{ color: '#ffd166', fontSize: '0.88rem', display: 'block', marginBottom: '2px', fontWeight: 800 }}>Mitigation</strong>
+                      <span style={{ color: 'var(--text)', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.mitigation}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : null}
 
         <div className="timeline-session-area">
           <div className="interview-timeline-head">
@@ -9826,6 +10137,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
   const steps = [
     { id: 'plan', label: 'Plan' },
     { id: 'mode', label: 'Mode' },
+    { id: 'theme', label: 'Theme' },
     { id: 'workspace', label: wizardMode === 'meeting' ? 'Meeting' : 'Opportunity' },
     { id: 'context', label: 'Context' },
     { id: 'soul', label: "Clyde's Soul" },
@@ -9838,6 +10150,22 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
   const lastStep = stepIndex === steps.length - 1;
 
   function updateSetting(key, value) {
+    if (key === 'theme') {
+      const theme = value || 'default';
+      const classes = document.documentElement.className.split(' ').filter(c => !c.startsWith('theme-'));
+      if (theme !== 'default') {
+        classes.push(`theme-${theme}`);
+      }
+      document.documentElement.className = classes.join(' ').trim();
+      
+      const logoUrl = getThemeLogoUrl(theme);
+      if (logoUrl) {
+        const logoImgs = document.querySelectorAll('.title-bar-logo img, .workspace-nav-logo-card img');
+        logoImgs.forEach((img) => {
+          img.src = logoUrl;
+        });
+      }
+    }
     setSettingsDraft((current) => {
       if (key === 'googleSyncEnabled' && !value) {
         return { ...current, googleSyncEnabled: false, googleSyncAutoApprove: false };
@@ -9980,6 +10308,25 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
       setStepIndex((index) => index + 1);
     } catch (error) {
       setStatus(error.message || 'Mode save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveThemeStep(skip = false) {
+    if (skip) {
+      setCompleted((current) => ({ ...current, theme: false }));
+      setStepIndex((index) => index + 1);
+      return;
+    }
+    setBusy(true);
+    try {
+      await persistSettings(settingsDraft);
+      setCompleted((current) => ({ ...current, theme: true }));
+      setStatus('Theme saved.');
+      setStepIndex((index) => index + 1);
+    } catch (error) {
+      setStatus(error.message || 'Theme save failed.');
     } finally {
       setBusy(false);
     }
@@ -10260,6 +10607,7 @@ ${
   }
 
   function skipCurrentStep() {
+    if (step.id === 'theme') return saveThemeStep(true);
     if (step.id === 'workspace') return saveWorkspaceStep(true);
     if (step.id === 'context') return saveContextStep(true);
     if (step.id === 'soul') return saveSoulStep(true);
@@ -10283,6 +10631,7 @@ ${
       return;
     }
     if (step.id === 'mode') return saveModeStep();
+    if (step.id === 'theme') return saveThemeStep();
     if (step.id === 'workspace') return saveWorkspaceStep();
     if (step.id === 'context') return saveContextStep();
     if (step.id === 'soul') return saveSoulStep();
@@ -10292,7 +10641,7 @@ ${
     if (step.id === 'finish') return finishWizard();
   }
 
-  const canSkip = ['workspace', 'context', 'soul', 'providers', 'pro', 'schedule'].includes(step.id);
+  const canSkip = ['theme', 'workspace', 'context', 'soul', 'providers', 'pro', 'schedule'].includes(step.id);
 
   return (
     <div className="onboarding-backdrop" role="presentation">
@@ -10341,6 +10690,9 @@ ${
             ) : null}
             {step.id === 'mode' ? (
               <ModeStep wizardMode={wizardMode} setWizardMode={setWizardMode} />
+            ) : null}
+            {step.id === 'theme' ? (
+              <ThemeStep draft={settingsDraft} update={updateSetting} />
             ) : null}
             {step.id === 'workspace' ? (
               <WorkspaceStep mode={wizardMode} draft={workspaceDraft} update={updateWorkspace} />
@@ -10439,10 +10791,10 @@ function PlanStep({ busy, checkoutStarted, plan, proEntitled, proForm, setProFor
           <h3>Finish Pro sign-in</h3>
           <p>After checkout, check your email, open the Clyde invite link, and set your password. Then sign in here with that email and password.</p>
           <div className="onboarding-form-grid">
-            <label>Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
-            <label>Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
-            <button type="button" className="primary-action" disabled={busy} onClick={onSignInRefresh}>Sign in</button>
-            <button type="button" className="ghost" disabled={busy} onClick={onRestart}>Restart onboarding</button>
+            <label className="wide-field">Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
+            <label className="wide-field">Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
+            <button type="button" className="primary-action wide-field" disabled={busy} onClick={onSignInRefresh}>Sign in</button>
+            <button type="button" className="ghost wide-field" disabled={busy} onClick={onRestart}>Restart onboarding</button>
           </div>
         </section>
       </div>
@@ -10451,46 +10803,89 @@ function PlanStep({ busy, checkoutStarted, plan, proEntitled, proForm, setProFor
 
   return (
     <div className="onboarding-grid">
-      <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
-        Select a plan to tailor your Clyde experience. Choose the <strong>Free</strong> tier for basic local helper functionality, or upgrade to <strong>Pro</strong> to unlock automated Google sync, advanced Pinecone RAG semantic search, and the GPT Realtime voice agent.
+      <p className="wide-field onboarding-note" style={{ margin: '0 0 12px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Select a plan to tailor your Clyde experience. Choose the <strong>Free</strong> tier for basic local helper functionality, or upgrade to <strong>Pro</strong> to unlock uncapped, zero-config model access, automated Google sync, advanced Pinecone RAG semantic search, and the low-latency GPT Realtime voice agent.
       </p>
       <section className={`plan-card ${plan === 'free' ? 'active' : ''}`}>
         <h3>Free</h3>
-        <strong>$0</strong>
-        <p>Local/basic Clyde setup for live capture, current-context help, manual calendar events, and saved sessions.</p>
-        <ul>
-          <li>Local/basic knowledge</li>
-          <li>Manual opportunities and meetings</li>
-          <li>Bring your own LLM and transcription provider</li>
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          background: '#0f172a',
+          padding: '6px 16px',
+          borderRadius: '8px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          margin: '6px 0 12px 0'
+        }}>
+          <strong style={{ fontSize: '1.5rem', color: 'var(--lime)', fontWeight: 'bold' }}>$0</strong>
+        </div>
+        <p style={{ fontSize: '0.82rem', margin: '4px 0 12px 0', color: 'var(--muted)' }}>Local helper setup for live capture, manual tracking, and current-context assistance.</p>
+        <ul style={{ paddingLeft: '14px', marginBottom: '16px', fontSize: '0.82rem', textAlign: 'left' }}>
+          <li>Local/basic knowledge & session history</li>
+          <li>Manual opportunity & meeting tracking</li>
+          <li>Standard browser extension form auto-filler</li>
+          <li>Bring Your Own Keys (BYOK) for LLM & transcription</li>
         </ul>
-        <button type="button" className="ghost" disabled={busy} onClick={onContinueFree}>Continue with Free</button>
+        <button type="button" className="ghost" style={{ width: '100%', marginTop: 'auto' }} disabled={busy} onClick={onContinueFree}>Continue with Free</button>
       </section>
       <section className={`plan-card pro ${plan === 'pro' || proEntitled ? 'active' : ''}`}>
         <h3>Pro</h3>
-        <strong>$20 / month</strong>
-        <p>Clyde Pro Agent adds Google sync, RAG, GPT Realtime setup, mock interviews, trends, and agent actions.</p>
-        <ul>
-          <li>Gmail and Calendar sync</li>
-          <li>Pinecone RAG across knowledge and sessions</li>
-          <li>GPT Realtime 2 voice agent</li>
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          background: '#0f172a',
+          padding: '6px 16px',
+          borderRadius: '8px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          margin: '6px 0 12px 0'
+        }}>
+          <strong style={{ fontSize: '1.5rem', color: 'var(--lime)', fontWeight: 'bold' }}>$29.99 / month</strong>
+        </div>
+        <p style={{ fontSize: '0.82rem', margin: '4px 0 12px 0', color: 'var(--muted)' }}>Clyde Pro Agent adds Vercel-proxied model access, deep Google sync, RAG, and Realtime voice.</p>
+        <ul style={{ paddingLeft: '14px', marginBottom: '16px', fontSize: '0.82rem', textAlign: 'left' }}>
+          <li><strong>Clyde Managed Cloud</strong> (Uncapped, zero-config access to Google Gemini & OpenAI models via Vercel proxy, with local BYOK toggle)</li>
+          <li><strong>Automated Google Workspace Sync</strong> (Continuous, hands-free Gmail inbox polling and Google Calendar sync)</li>
+          <li><strong>Advanced Pinecone RAG Semantic Search</strong> across your entire knowledge base, sessions, and tailored documents</li>
+          <li><strong>GPT-Realtime-2 Voice Agent</strong> (Conversational, low-latency mock interview coaching with VAD mic streaming bypass)</li>
+          <li><strong>Interactive Trend Analysis, Mock Interviews</strong>, and cross-platform Agent Actions</li>
         </ul>
         {proEntitled ? (
-          <p className="onboarding-note">Pro is active on this account.</p>
+          <div style={{
+            marginTop: 'auto',
+            display: 'flex',
+            justifyContent: 'center',
+            width: '100%'
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#0f172a',
+              border: '1px solid rgba(132, 204, 22, 0.2)',
+              padding: '8px 16px',
+              borderRadius: '9999px',
+              color: 'var(--lime)',
+              fontWeight: '600',
+              fontSize: '0.85rem'
+            }}>
+              ✓ Pro is active on this account
+            </div>
+          </div>
         ) : (
-          <div className="onboarding-form-grid">
+          <div className="onboarding-form-grid" style={{ marginTop: 'auto' }}>
             <label className="wide-field">Email<input type="email" value={proForm.email} onChange={(event) => setProForm((current) => ({ ...current, email: event.target.value }))} /></label>
-            <p className="wide-field onboarding-note">Clyde creates the Supabase account after Stripe confirms payment. You will receive an email invite to set your password.</p>
+            <p className="wide-field onboarding-note" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Clyde creates the Supabase account after Stripe confirms payment. You will receive an email invite to set your password.</p>
             <button type="button" className="primary-action wide-field" disabled={busy} onClick={onStartProCheckout}>Create Pro account</button>
           </div>
         )}
       </section>
       {!proEntitled ? (
-        <section className="onboarding-wide-card">
+        <section className="onboarding-wide-card wide-field" style={{ marginTop: '16px' }}>
           <h3>Already subscribed?</h3>
           <div className="onboarding-form-grid">
             <label>Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
             <label>Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
-            <button type="button" className="ghost" disabled={busy} onClick={onSignInRefresh}>Sign in and refresh subscription</button>
+            <button type="button" className="ghost wide-field" style={{ marginTop: '8px' }} disabled={busy} onClick={onSignInRefresh}>Sign in and refresh subscription</button>
           </div>
         </section>
       ) : null}
@@ -10516,6 +10911,53 @@ function ModeStep({ wizardMode, setWizardMode }) {
           <strong>Meeting</strong>
           <span>Track recurring conversations, attendees, long-term memory, notes, and action items.</span>
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ThemeStep({ draft, update }) {
+  const currentTheme = draft.theme || 'default';
+  const themes = [
+    { id: 'default', name: 'Midnight Blue', desc: 'Classic dark workspace with sleek cyan/blue gradients.', dotColor: '#4f46e5', dotBorder: '#7c3aed' },
+    { id: 'cyberpunk', name: 'Neon Cyberpunk', desc: 'Electrifying neon pink, purple, and cyber cyan accents.', dotColor: '#db2777', dotBorder: '#7c3aed' },
+    { id: 'forest', name: 'Emerald Forest', desc: 'Serene dark moss, pine green, and emerald glows.', dotColor: '#10b981', dotBorder: '#064e3b' },
+    { id: 'amber', name: 'Retro Amber', desc: 'Classic warm amber phosphor terminal emulation aesthetic.', dotColor: '#f59e0b', dotBorder: '#78350f' },
+    { id: 'slate', name: 'Nordic Slate', desc: 'Premium deep dark slate with white accents and silver highlights.', dotColor: '#475569', dotBorder: '#94a3b8' },
+    { id: 'snow', name: 'Nordic Snow (Light)', desc: 'Clean, frosted-glass light theme with beautiful indigo accents.', dotColor: '#cbd5e1', dotBorder: '#4f46e5' },
+    { id: 'blossom', name: 'Sakura Blossom (Light)', desc: 'Elegant cherry blossom light rose workspace with dark maroon text.', dotColor: '#fecdd3', dotBorder: '#db2777' }
+  ];
+
+  return (
+    <div className="onboarding-theme-step">
+      <p style={{ margin: '0 0 16px 0', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
+        Tailor Clyde's appearance to fit your style and workspace. Choose between high-contrast dark developer themes or sleek, high-readability light modes.
+      </p>
+      <p className="wide-field onboarding-note" style={{ margin: '0 0 20px 0', fontSize: '0.88rem', lineHeight: '1.5' }}>
+        💡 <strong>Live Preview:</strong> Clicking any theme below will instantly apply the theme to the entire desktop window so you can preview it before continuing!
+      </p>
+      <div className="choice-grid">
+        {themes.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={currentTheme === t.id ? 'active' : ''}
+            onClick={() => update('theme', t.id)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', marginBottom: '4px' }}>
+              <span style={{
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                background: t.dotColor,
+                border: `1px solid ${t.dotBorder}`,
+                display: 'inline-block'
+              }} />
+              <strong style={{ fontSize: '1.05rem' }}>{t.name}</strong>
+            </div>
+            <span>{t.desc}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -10751,8 +11193,16 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate 
       <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
         Providers and hardware connect Clyde to AI brains and audio signals. Set up your language models (local, Clyde managed, or custom cloud APIs), configure audio engines, and select your audio devices so Clyde can listen to calls.
       </p>
-      <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => update('llmProvider', event.target.value)}><option value="">Select provider</option><option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option><option value="local">Local LM Studio (Offline)</option><option value="openai">OpenAI (Custom Key)</option><option value="anthropic">Anthropic (Custom Key)</option><option value="gemini">Google Gemini (Custom Key)</option></select></label>
-      <label>Model<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" /></label>
+      <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => {
+        const val = event.target.value;
+        update('llmProvider', val);
+        if (val === 'clyde-cloud') {
+          update('llmModel', 'gemini-2.5-flash');
+        }
+      }}><option value="">Select provider</option><option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option><option value="local">Local LM Studio (Offline)</option><option value="openai">OpenAI (Custom Key)</option><option value="anthropic">Anthropic (Custom Key)</option><option value="gemini">Google Gemini (Custom Key)</option></select></label>
+      {draft.llmProvider && draft.llmProvider !== 'clyde-cloud' ? (
+        <label>Model<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" /></label>
+      ) : null}
       {draft.llmProvider === 'local' ? <label className="wide-field">Local LLM URL<input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" /></label> : null}
       {draft.llmProvider === 'openai' ? <label className="wide-field">OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
       {cloudLlm ? <label className="wide-field">API key<input type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} /></label> : null}
@@ -10801,12 +11251,27 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
         <span className="switch-label">Enable RAG with Pinecone</span>
       </label>
 
-      <label>Embedding provider<select value={draft.embeddingProvider || ''} onChange={(event) => update('embeddingProvider', event.target.value)}><option value="">Select provider</option><option value="gemini">Gemini</option><option value="openai">OpenAI</option></select></label>
-      <label>Embedding model<input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" /></label>
-      <label>Embedding API key<input type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} /></label>
-      <label>Pinecone API key<input type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} /></label>
-      <label>Pinecone host<input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="https://index.pinecone.io" /></label>
-      <label>Pinecone namespace<input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} /></label>
+      {draft.ragEnabled && draft.llmProvider === 'clyde-cloud' && (
+        <div className="wide-field" style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', padding: '4px 8px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', margin: '4px 0 12px 0', boxSizing: 'border-box' }}>
+          ✓ Embeddings are managed and processed automatically via Clyde Cloud.
+        </div>
+      )}
+
+      {draft.ragEnabled && draft.llmProvider !== 'clyde-cloud' && (
+        <>
+          <label>Embedding provider<select value={draft.embeddingProvider || ''} onChange={(event) => update('embeddingProvider', event.target.value)}><option value="">Select provider</option><option value="gemini">Gemini</option><option value="openai">OpenAI</option></select></label>
+          <label>Embedding model<input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" /></label>
+          <label>Embedding API key<input type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} /></label>
+        </>
+      )}
+
+      {draft.ragEnabled && (
+        <>
+          <label>Pinecone API key<input type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} /></label>
+          <label>Pinecone host<input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="https://index.pinecone.io" /></label>
+          <label>Pinecone namespace<input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} /></label>
+        </>
+      )}
       
       <label className="toggle-row wide-field question-bank-global-toggle">
         <span className="switch-control">
@@ -11522,26 +11987,34 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             </label>
             {proEntitled && draft.ragEnabled && (
               <div className="form-grid">
-                <label>
-                  Embedding provider
-                  <select value={draft.embeddingProvider || ''} onChange={(event) => {
-                    const provider = event.target.value;
-                    update('embeddingProvider', provider);
-                    update('embeddingModel', '');
-                  }}>
-                    <option value="">Select an embedding provider</option>
-                    <option value="gemini">Gemini</option>
-                    <option value="openai">OpenAI</option>
-                  </select>
-                </label>
-                <label>
-                  Embedding model
-                  <input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" />
-                </label>
-                <label>
-                  Embedding API key
-                  <input autoComplete="new-password" type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} placeholder="Uses Gemini or OpenAI key when empty" />
-                </label>
+                {draft.llmProvider === 'clyde-cloud' ? (
+                  <div className="wide-field" style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', padding: '8px 12px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', margin: '0 0 12px 0', boxSizing: 'border-box' }}>
+                    ✓ Embeddings are managed and processed automatically via Clyde Cloud.
+                  </div>
+                ) : (
+                  <>
+                    <label>
+                      Embedding provider
+                      <select value={draft.embeddingProvider || ''} onChange={(event) => {
+                        const provider = event.target.value;
+                        update('embeddingProvider', provider);
+                        update('embeddingModel', '');
+                      }}>
+                        <option value="">Select an embedding provider</option>
+                        <option value="gemini">Gemini</option>
+                        <option value="openai">OpenAI</option>
+                      </select>
+                    </label>
+                    <label>
+                      Embedding model
+                      <input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" />
+                    </label>
+                    <label>
+                      Embedding API key
+                      <input autoComplete="new-password" type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} placeholder="Uses Gemini or OpenAI key when empty" />
+                    </label>
+                  </>
+                )}
                 <label>
                   Pinecone API Key
                   <input autoComplete="new-password" type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} placeholder="Stored locally" />

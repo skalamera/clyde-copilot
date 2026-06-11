@@ -21,7 +21,29 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
     }
 
     function sanitizeFilename(name) {
-        return name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        if (!name) return 'general';
+        const cleanName = String(name).trim();
+        const oldSanitized = cleanName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const newSanitized = cleanName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'general';
+
+        if (fs.existsSync(interviewsDir)) {
+            try {
+                const dirs = fs.readdirSync(interviewsDir, { withFileTypes: true })
+                    .filter(item => item.isDirectory());
+                for (const dir of dirs) {
+                    const dirName = dir.name;
+                    const oldDirSan = dirName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                    const newDirSan = dirName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'general';
+                    if (oldDirSan === oldSanitized || newDirSan === newSanitized || oldDirSan === newSanitized || newDirSan === oldSanitized || dirName.toLowerCase() === oldSanitized || dirName.toLowerCase() === newSanitized) {
+                        return dirName;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to scan interviewsDir in sanitizeFilename', e);
+            }
+        }
+
+        return oldSanitized;
     }
 
     function getCompanies() {

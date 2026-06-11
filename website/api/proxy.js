@@ -89,8 +89,27 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 1. Authenticate user
-    const user = await requireSupabaseUser(request);
+    // 1. Authenticate user (Supports Supabase Session JWT or direct User UUID as License Token)
+    let user = null;
+    const authHeader = String(request.headers.authorization || '');
+    const authToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
+
+    if (!authToken) {
+      sendJson(response, 401, { error: 'Authentication token required.' });
+      return;
+    }
+
+    if (authToken.length === 36 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authToken)) {
+      user = { id: authToken };
+    } else {
+      try {
+        user = await requireSupabaseUser(request);
+      } catch (authError) {
+        sendJson(response, 401, { error: 'Invalid authentication or license token.' });
+        return;
+      }
+    }
+
     if (!user || !user.id) {
       sendJson(response, 401, { error: 'Authentication token required.' });
       return;

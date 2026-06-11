@@ -83,9 +83,17 @@ function createSessionManager({ appPath }) {
     }
 
     if (normalizedMode === 'interview') {
-      const legacyDir = path.join(appPath, 'Interviews', normalizedEntityId);
-      if (fs.existsSync(legacyDir)) {
-        fs.rmSync(legacyDir, { recursive: true, force: true });
+      const interviewsDir = path.join(appPath, 'Interviews');
+      if (fs.existsSync(interviewsDir)) {
+        try {
+          const matches = fs.readdirSync(interviewsDir, { withFileTypes: true })
+            .filter((item) => item.isDirectory() && sanitizeId(item.name) === normalizedEntityId);
+          for (const item of matches) {
+            fs.rmSync(path.join(interviewsDir, item.name), { recursive: true, force: true });
+          }
+        } catch (err) {
+          console.warn(`Failed to clean legacy Interviews for ${normalizedEntityId}:`, err.message);
+        }
       }
     }
 
@@ -118,7 +126,11 @@ function createSessionManager({ appPath }) {
       outcomeDate: clean(patch.outcomeDate !== undefined ? patch.outcomeDate : existing.outcomeDate),
       outcomeUpdatedAt: outcomeChanged
         ? new Date().toISOString()
-        : clean(existing.outcomeUpdatedAt)
+        : clean(existing.outcomeUpdatedAt),
+      match_score: patch.match_score !== undefined ? patch.match_score : existing.match_score,
+      top_strength: patch.top_strength !== undefined ? patch.top_strength : existing.top_strength,
+      main_gap: patch.main_gap !== undefined ? patch.main_gap : existing.main_gap,
+      mitigation: patch.mitigation !== undefined ? patch.mitigation : existing.mitigation
     };
 
     writeEntityMeta(normalizedMode, normalizedEntityId, nextEntity);
@@ -197,7 +209,11 @@ function createSessionManager({ appPath }) {
         outcome: hasOutcome ? normalizeOutcome(entity.outcome) : normalizeOutcome(existing.outcome),
         outcomeReason: hasOutcomeReason ? clean(entity.outcomeReason) : clean(existing.outcomeReason),
         outcomeDate: hasOutcomeDate ? clean(entity.outcomeDate) : clean(existing.outcomeDate),
-        outcomeUpdatedAt: hasOutcomeUpdatedAt ? clean(entity.outcomeUpdatedAt) : clean(existing.outcomeUpdatedAt)
+        outcomeUpdatedAt: hasOutcomeUpdatedAt ? clean(entity.outcomeUpdatedAt) : clean(existing.outcomeUpdatedAt),
+        match_score: entity.match_score !== undefined ? entity.match_score : existing.match_score,
+        top_strength: entity.top_strength !== undefined ? entity.top_strength : existing.top_strength,
+        main_gap: entity.main_gap !== undefined ? entity.main_gap : existing.main_gap,
+        mitigation: entity.mitigation !== undefined ? entity.mitigation : existing.mitigation
       }, null, 2), 'utf8');
     }
 
@@ -266,7 +282,11 @@ function createSessionManager({ appPath }) {
             outcome: normalizeOutcome(meta.outcome),
             outcomeReason: clean(meta.outcomeReason),
             outcomeDate: clean(meta.outcomeDate),
-            outcomeUpdatedAt: clean(meta.outcomeUpdatedAt)
+            outcomeUpdatedAt: clean(meta.outcomeUpdatedAt),
+            match_score: meta.match_score,
+            top_strength: meta.top_strength,
+            main_gap: meta.main_gap,
+            mitigation: meta.mitigation
           };
         });
     }
@@ -282,7 +302,7 @@ function createSessionManager({ appPath }) {
         .map((item) => {
           const meta = readJsonFile(path.join(interviewsDir, item.name, 'meta.json')) || {};
           return {
-            id: item.name,
+            id: sanitizeId(item.name),
             name: meta.name || item.name,
             role: meta.role || '',
             kind: 'interview',
@@ -302,11 +322,16 @@ function createSessionManager({ appPath }) {
       return [];
     }
 
-    const entityDirs = entityId
-      ? [path.join(interviewsDir, entityId)]
-      : fs.readdirSync(interviewsDir, { withFileTypes: true })
+    let entityDirs = [];
+    if (entityId) {
+      entityDirs = fs.readdirSync(interviewsDir, { withFileTypes: true })
+        .filter((item) => item.isDirectory() && sanitizeId(item.name) === entityId)
+        .map((item) => path.join(interviewsDir, item.name));
+    } else {
+      entityDirs = fs.readdirSync(interviewsDir, { withFileTypes: true })
         .filter((item) => item.isDirectory())
         .map((item) => path.join(interviewsDir, item.name));
+    }
 
     const sessions = [];
     for (const entityDir of entityDirs) {
@@ -326,7 +351,7 @@ function createSessionManager({ appPath }) {
           id: legacy.id,
           mode: 'interview',
           entity: {
-            id: path.basename(entityDir),
+            id: sanitizeId(path.basename(entityDir)),
             name: legacy.company || meta.name || path.basename(entityDir),
             role: legacy.role || meta.role || ''
           },

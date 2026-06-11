@@ -28,6 +28,7 @@ const PORT = 4593;
 let server = null;
 let managers = null;
 let mainWindowRef = null;
+let lastExtensionSyncTime = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -155,30 +156,32 @@ async function handleCreateJob(request, response) {
       interviewManager.setCompanyRole(company, role);
     }
 
-    // 2. Update app-wide settings
-    const currentSettings = loadSettings();
-    saveSettings({
-      ...currentSettings,
-      currentCompany: company,
-      currentRole: role || currentSettings.currentRole,
-      jobDescription: jdText
-    });
+    // 2. Register entity in session system for visual tracker
+    const matchScore = body.matchScore !== undefined ? body.matchScore : (body.rating !== undefined ? body.rating : (body.match_score !== undefined ? body.match_score : undefined));
+    const topStrength = body.topStrength || body.top_strength || '';
+    const mainGap = body.mainGap || body.main_gap || '';
+    const mitigation = body.mitigation || body.mitigation || '';
 
-    // 3. Register entity in session system for visual tracker
     sessionManager.updateEntity('interview', entityId, {
       name: company,
       role: role || '',
       kind: 'interview',
-      outcome: 'applied'
+      outcome: 'applied',
+      match_score: matchScore,
+      top_strength: topStrength,
+      main_gap: mainGap,
+      mitigation: mitigation
     });
 
     // 4. Save placeholder session so it shows in Clyde's tracker
     try {
-      sessionManager.createSession({
-        entityId,
+      sessionManager.saveSession({
         mode: 'interview',
-        name: company,
-        role: role || '',
+        entity: {
+          id: entityId,
+          name: company,
+          role: role || ''
+        },
         startTime: new Date().toISOString()
       });
     } catch (_) {
@@ -338,7 +341,7 @@ async function handleSetActiveCockpit(request, response) {
       name: companyName,
       role: roleName || '',
       kind: 'interview',
-      outcome: 'interviewing',
+      outcome: 'applied',
       confidence: 1.0
     });
 
@@ -413,6 +416,7 @@ const ROUTES = new Map([
 ]);
 
 async function dispatch(request, response) {
+  lastExtensionSyncTime = new Date().toISOString();
   const { pathname } = urlParts(request);
   const method = request.method.toUpperCase();
 
@@ -507,8 +511,13 @@ function isExtensionServerRunning() {
   return server !== null;
 }
 
+function getLastExtensionSyncTime() {
+  return lastExtensionSyncTime;
+}
+
 module.exports = {
   startExtensionServer,
   stopExtensionServer,
-  isExtensionServerRunning
+  isExtensionServerRunning,
+  getLastExtensionSyncTime
 };

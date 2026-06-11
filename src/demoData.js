@@ -19,7 +19,11 @@ const entities = {
       outcome: 'advanced',
       outcomeReason: 'Moved to final loop after strong systems and product sense rounds.',
       outcomeDate: daysFromNow(-2),
-      outcomeUpdatedAt: daysFromNow(-2)
+      outcomeUpdatedAt: daysFromNow(-2),
+      match_score: 4.1,
+      top_strength: "Stephen's extensive experience leading large support organizations, managing managers, and driving enterprise product adoption and implementation for complex solutions aligns perfectly with the core leadership and strategic requirements of this Director role.",
+      main_gap: "The job's primary focus on 'Customer Success' KPIs like retention and gross retention, distinct from core 'Technical Support Operations', represents a slight shift in emphasis from Stephen's direct experience.",
+      mitigation: "Stephen should emphasize how his deep background in optimizing customer-facing processes, driving product adoption, and managing executive-level escalations directly contributes to long-term customer retention and overall success in a proactive, strategic manner."
     },
     {
       id: 'demo-nova-health',
@@ -372,7 +376,15 @@ function generateTrendAnalysis(companyId) {
 }
 
 function getOutcomeCalibrationSummary() {
-  return { total: 4, rejected: 1, advanced: 1, offer: 1, active: 1, positive: 2 };
+  const list = entities.interview || [];
+  const rejected = list.filter(e => e.outcome === 'rejected').length;
+  const advanced = list.filter(e => e.outcome === 'advanced').length;
+  const offer = list.filter(e => e.outcome === 'offer').length;
+  const active = list.filter(e => e.outcome === 'active').length;
+  const applied = list.filter(e => e.outcome === 'applied').length;
+  const total = list.length;
+  const positive = advanced + offer;
+  return { total, rejected, advanced, offer, active, applied, positive };
 }
 
 function getGoogleSyncStatus() {
@@ -530,6 +542,27 @@ function normalizeMode(mode) {
   return mode === 'meeting' ? 'meeting' : 'interview';
 }
 
+function updateEntity(mode, entityId, patch) {
+  const normMode = normalizeMode(mode);
+  const list = entities[normMode] || [];
+  const entity = list.find(e => e.id === entityId);
+  if (entity) {
+    Object.assign(entity, patch);
+    entity.outcomeUpdatedAt = new Date().toISOString();
+    
+    // Also update any sessions that copy this entity
+    for (const s of sessions) {
+      if (s.entity && s.entity.id === entityId) {
+        Object.assign(s.entity, patch);
+        s.entity.outcomeUpdatedAt = entity.outcomeUpdatedAt;
+      }
+    }
+    
+    return entity;
+  }
+  return null;
+}
+
 module.exports = {
   demoSettings,
   generateTrendAnalysis,
@@ -544,5 +577,6 @@ module.exports = {
   listKnowledge,
   listMockInterviews: () => [...mockInterviews],
   listSyncAudit,
-  listSyncProposals
+  listSyncProposals,
+  updateEntity
 };

@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     connectGoogleSync: () => ipcRenderer.invoke('connect-google-sync'),
     disconnectGoogleSync: () => ipcRenderer.invoke('disconnect-google-sync'),
     getGoogleSyncStatus: () => ipcRenderer.invoke('get-google-sync-status'),
+    getExtensionSyncStatus: () => ipcRenderer.invoke('get-extension-sync-status'),
     scanGoogleSync: () => ipcRenderer.invoke('scan-google-sync'),
     listSyncProposals: (filters) => ipcRenderer.invoke('list-sync-proposals', filters),
     approveSyncProposal: (payload) => ipcRenderer.invoke('approve-sync-proposal', payload),

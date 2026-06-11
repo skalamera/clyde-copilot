@@ -68,12 +68,14 @@ const {
     summarizeOutcomeCalibrationExamples
 } = require('./src/outcomeLearning');
 const demoData = require('./src/demoData');
-const { startExtensionServer, stopExtensionServer, isExtensionServerRunning } = require('./src/extensionServer');
+const { startExtensionServer, stopExtensionServer, isExtensionServerRunning, getLastExtensionSyncTime } = require('./src/extensionServer');
 
 let mainWindow;
 let normalBounds = null;
 let appWindowMinimized = false;
 let appWindowNormalBounds = null;
+let appWindowPreMaximizedBounds = null;
+let isMaximizedState = false;
 let activeCaptureWindow = false;
 let activeCaptureMinimized = false;
 let suppressActiveBoundsSave = false;
@@ -2484,6 +2486,47 @@ function createWindow () {
       return getAgentChat().listSources(sourceFilters);
   });
 
+  ipcMain.handle('load-soul', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    
+    let soulPath = path.join(process.cwd(), 'soul.md');
+    try {
+      fs.accessSync(process.cwd(), fs.constants.W_OK);
+    } catch (e) {
+      soulPath = path.join(app.getPath('userData'), 'soul.md');
+    }
+
+    try {
+      if (fs.existsSync(soulPath)) {
+        return fs.readFileSync(soulPath, 'utf8');
+      }
+    } catch (err) {
+      console.warn('Failed to read soul.md:', err.message);
+    }
+    return '';
+  });
+
+  ipcMain.handle('save-soul', (event, soulMarkdown) => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    
+    let soulPath = path.join(process.cwd(), 'soul.md');
+    try {
+      fs.accessSync(process.cwd(), fs.constants.W_OK);
+    } catch (e) {
+      soulPath = path.join(app.getPath('userData'), 'soul.md');
+    }
+
+    try {
+      fs.writeFileSync(soulPath, soulMarkdown || '', 'utf8');
+      return { success: true };
+    } catch (err) {
+      console.error('Failed to write soul.md:', err.message);
+      throw new Error(`Failed to save soul.md: ${err.message}`);
+    }
+  });
+
 
   ipcMain.handle('load-floating-agent-prefs', () => {
       const Store = require('electron-store').default || require('electron-store');
@@ -2552,6 +2595,12 @@ function createWindow () {
           return demoData.getGoogleSyncStatus();
       }
       return getGoogleSyncStatus();
+  });
+
+  ipcMain.handle('get-extension-sync-status', () => {
+      return {
+          lastSync: typeof getLastExtensionSyncTime === 'function' ? getLastExtensionSyncTime() : null
+      };
   });
 
   ipcMain.handle('scan-google-sync', async () => {
@@ -3600,6 +3649,20 @@ function createWindow () {
   });
 
   ipcMain.handle('update-session-entity', (event, payload) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          const nextEntity = demoData.updateEntity(
+              payload && payload.mode,
+              payload && payload.entityId,
+              payload && payload.patch
+          );
+          notifyDataChanged({
+              mode: payload && payload.mode,
+              entityId: payload && payload.entityId,
+              reason: 'entity-updated'
+          });
+          return nextEntity;
+      }
+
       const nextEntity = sessionManager.updateEntity(
           payload && payload.mode,
           payload && payload.entityId,
@@ -3996,9 +4059,17 @@ ${jobDescription}`;
   log.info(`📄 Loading renderer from: ${filePath}`);
   mainWindow.loadFile(filePath);
 
+  // Initialize pre-maximized bounds
+  if (mainWindow) {
+      appWindowPreMaximizedBounds = mainWindow.getBounds();
+  }
+
   mainWindow.on('resized', () => {
       if (activeCaptureWindow && !activeCaptureMinimized && !suppressActiveBoundsSave && mainWindow) {
           saveActiveCaptureBounds(mainWindow.getBounds());
+      }
+      if (mainWindow && !mainWindow.isMaximized()) {
+          appWindowPreMaximizedBounds = mainWindow.getBounds();
       }
   });
 
@@ -4006,6 +4077,27 @@ ${jobDescription}`;
       if (activeCaptureWindow && !activeCaptureMinimized && !suppressActiveBoundsSave && mainWindow) {
           saveActiveCaptureBounds(mainWindow.getBounds());
       }
+      if (mainWindow && !mainWindow.isMaximized()) {
+          appWindowPreMaximizedBounds = mainWindow.getBounds();
+      }
+  });
+
+  mainWindow.on('maximize', () => {
+      isMaximizedState = true;
+      mainWindow.webContents.send('app-window-maximized-state-change', true);
+  });
+
+  mainWindow.on('unmaximize', () => {
+      isMaximizedState = false;
+      if (appWindowPreMaximizedBounds) {
+          suppressAppBoundsSave = true;
+          mainWindow.setBounds(appWindowPreMaximizedBounds);
+          appWindowPreMaximizedBounds = null;
+          setTimeout(() => {
+              suppressAppBoundsSave = false;
+          }, 250);
+      }
+      mainWindow.webContents.send('app-window-maximized-state-change', false);
   });
 
   mainWindow.on('closed', () => {
@@ -4146,8 +4238,17 @@ ipcMain.handle('minimize-app-window', async () => {
           mainWindow.show();
       }
       
-      if (mainWindow.isMaximized()) {
+      if (mainWindow.isMaximized() || isMaximizedState) {
           mainWindow.unmaximize();
+          isMaximizedState = false;
+          if (appWindowPreMaximizedBounds) {
+              suppressAppBoundsSave = true;
+              mainWindow.setBounds(appWindowPreMaximizedBounds);
+              appWindowPreMaximizedBounds = null;
+              setTimeout(() => {
+                  suppressAppBoundsSave = false;
+              }, 250);
+          }
           mainWindow.webContents.send('app-window-maximized-state-change', false);
           return false;
       } else {
@@ -4155,7 +4256,9 @@ ipcMain.handle('minimize-app-window', async () => {
               mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
           }
           mainWindow.setResizable(true);
+          appWindowPreMaximizedBounds = mainWindow.getBounds();
           mainWindow.maximize();
+          isMaximizedState = true;
           mainWindow.focus();
           mainWindow.webContents.send('app-window-maximized-state-change', true);
           return true;
