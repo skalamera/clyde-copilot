@@ -2189,7 +2189,7 @@ textarea:focus {
 
 .floating-clyde-agent {
   position: fixed;
-  z-index: 28;
+  z-index: 3000;
 }
 
 .floating-clyde-button {

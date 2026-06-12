@@ -5975,6 +5975,8 @@ function AgentChatSurface({
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const messagesEndRef = useRef(null);
+  const streamingIntervalRef = useRef(null);
+
   const proTier = settings.userTier === 'pro';
   const searchBadgeUrl = proTier ? proSearchBadgeUrl : freeSearchBadgeUrl;
   const controlled = chatState && typeof setChatState === 'function';
@@ -6000,6 +6002,65 @@ function AgentChatSurface({
       setLocalMessages(next);
     }
   }, [controlled, setChatState]);
+
+  const clearStreamingInterval = useCallback(() => {
+    if (streamingIntervalRef.current) {
+      clearInterval(streamingIntervalRef.current);
+      streamingIntervalRef.current = null;
+    }
+  }, []);
+
+  const addStreamingMessage = useCallback((msg) => {
+    clearStreamingInterval();
+    const fullContent = msg.content || '';
+    console.log(`[Streaming] Started streaming assistant message. Total length: ${fullContent.length}`);
+    const baseMessage = { ...msg, content: '' };
+
+    setMessages((current) => [...current, baseMessage]);
+
+    let currentText = '';
+    let index = 0;
+
+    const intervalId = setInterval(() => {
+      if (index < fullContent.length) {
+        currentText += fullContent[index];
+        setMessages((current) => {
+          const updated = [...current];
+          if (updated.length > 0) {
+            const last = updated[updated.length - 1];
+            if (last.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, content: currentText };
+            }
+          }
+          return updated;
+        });
+        index++;
+      } else {
+        clearInterval(intervalId);
+        if (streamingIntervalRef.current === intervalId) {
+          streamingIntervalRef.current = null;
+        }
+        setMessages((current) => {
+          const updated = [...current];
+          if (updated.length > 0) {
+            const last = updated[updated.length - 1];
+            if (last.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, content: fullContent };
+            }
+          }
+          return updated;
+        });
+      }
+    }, 12);
+
+    streamingIntervalRef.current = intervalId;
+  }, [setMessages, clearStreamingInterval]);
+
+  useEffect(() => {
+    return () => {
+      clearStreamingInterval();
+    };
+  }, [clearStreamingInterval]);
 
   const setSelectedSourceIds = useCallback((next) => {
     if (controlled) {
@@ -6060,9 +6121,10 @@ function AgentChatSurface({
     }
   }, [mode, proTier, setSourceCategory]);
 
+  const lastMessageContent = messages[messages.length - 1]?.content;
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView?.({ block: 'end' });
-  }, [messages.length, pendingAction]);
+  }, [messages.length, lastMessageContent, pendingAction]);
 
   useEffect(() => {
     if (!pendingAction?.requiredFields?.length) {
@@ -6119,14 +6181,14 @@ function AgentChatSurface({
         setSessionId(response.sessionId);
       }
       if (response?.message) {
-        setMessages((current) => [...current, response.message]);
+        addStreamingMessage(response.message);
       }
       if (response?.pendingAction) {
         setPendingAction(response.pendingAction);
       }
       await loadSources('');
     } catch (error) {
-      setMessages((current) => [...current, { role: 'assistant', content: `Clyde could not answer: ${error.message}`, citations: [] }]);
+      addStreamingMessage({ role: 'assistant', content: `Clyde could not answer: ${error.message}`, citations: [] });
     } finally {
       setLoading(false);
     }
@@ -6148,18 +6210,18 @@ function AgentChatSurface({
             ...(result.payload || {})
           }
         });
-        setMessages((current) => [...current, {
+        addStreamingMessage({
           role: 'assistant',
           content: result.message || 'I need a few details to finish that.',
           citations: []
-        }]);
+        });
         return;
       }
-      setMessages((current) => [...current, {
+      addStreamingMessage({
         role: 'assistant',
         content: result?.message || (result?.ok ? 'Action completed.' : 'Action could not be completed.'),
         citations: []
-      }]);
+      });
       if (result?.ok || result?.changed) {
         onActionComplete?.();
       }
@@ -6191,14 +6253,14 @@ function AgentChatSurface({
           ...completedAction,
           requiredFields: result.requiredFields || []
         });
-        setMessages((current) => [...current, { role: 'assistant', content: result.message || 'More information is needed.', citations: [] }]);
+        addStreamingMessage({ role: 'assistant', content: result.message || 'More information is needed.', citations: [] });
         return;
       }
-      setMessages((current) => [...current, {
+      addStreamingMessage({
         role: 'assistant',
         content: result?.message || (result?.ok ? 'Action completed.' : 'Action could not be completed.'),
         citations: []
-      }]);
+      });
       if (result?.ok || result?.changed) {
         onActionComplete?.();
       }
@@ -6211,11 +6273,12 @@ function AgentChatSurface({
   }
 
   function declinePendingAction() {
-    setMessages((current) => [...current, { role: 'assistant', content: 'Action declined.', citations: [] }]);
+    addStreamingMessage({ role: 'assistant', content: 'Action declined.', citations: [] });
     setPendingAction(null);
   }
 
   function resetChat() {
+    clearStreamingInterval();
     setSessionId('');
     setMessages([]);
     setPendingAction(null);

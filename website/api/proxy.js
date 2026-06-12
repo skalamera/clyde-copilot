@@ -321,7 +321,7 @@ export default async function handler(request, response) {
     // ROUTE C: Chat Proxy (Gemini 2.5 Flash / OpenAI GPT Fallback)
     // -----------------------------------------------------------------
     const body = await readJson(request);
-    const { contents, systemInstruction, model, jsonSchema } = body;
+    const { contents, systemInstruction, model, jsonSchema, maxTokens, temperature } = body;
 
     if (!contents || !Array.isArray(contents)) {
       sendJson(response, 400, { error: 'Valid chat contents are required.' });
@@ -364,8 +364,12 @@ export default async function handler(request, response) {
       const oaiPayload = {
         model: targetModel,
         messages: openaiMessages,
-        temperature: 0.2
+        temperature: typeof temperature === 'number' ? temperature : 0.2
       };
+
+      if (maxTokens) {
+        oaiPayload.max_completion_tokens = Number(maxTokens);
+      }
 
       if (jsonSchema && jsonSchema.schema) {
         const strictSchema = makeSchemaStrictForOpenAI(jsonSchema.schema);
@@ -444,9 +448,12 @@ export default async function handler(request, response) {
     }
 
     const generationConfig = {
-      temperature: 0.2,
+      temperature: typeof temperature === 'number' ? temperature : 0.2,
       responseMimeType: 'application/json'
     };
+    if (maxTokens) {
+      generationConfig.maxOutputTokens = Number(maxTokens);
+    }
     if (jsonSchema && jsonSchema.schema) {
       generationConfig.responseSchema = cleanSchemaForGemini(jsonSchema.schema);
     }

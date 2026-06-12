@@ -252,12 +252,12 @@ function LandingPage({ navigate, onDownload }) {
       <section className="hero-section">
         <HeroScene />
         <div className="hero-copy" data-reveal>
-          <div className="hero-logo-lockup"><img src="/clyde-plus-ghost-free.svg" alt="Clyde" /></div>
+          <div className="hero-logo-lockup"><img src="/green_eyes_and_headphones.svg" alt="Clyde" /></div>
           <h1>The Undetectable Agentic Partner.</h1>
           <p>
             Elevating professional execution with private, autonomous intelligence and real-time mastery.
           </p>
-          <p className="release-note">Free includes Clyde Assistant. Pro unlocks Clyde Pro Agent for RAG, broader memory, Google sync, autonomous updates, and deeper interview intelligence. Pro is free during beta.</p>
+
           <div className="hero-actions">
             <a className="primary-link" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
             <button className="secondary-link" type="button" onClick={() => navigate('/how-it-works')}>See how it works</button>
@@ -1267,10 +1267,6 @@ function HeroScene() {
           <span />
           <strong>Clyde Assistant live</strong>
         </div>
-        <div className="demo-placeholder">
-          <span>Undetectable live interview cockpit</span>
-          <div className="scan-line" />
-        </div>
         <div className="transcript-pane">
           <p><strong>Interviewer</strong> How would you handle a vague product requirement?</p>
           <p><strong>Clyde</strong> Mention discovery, risk framing, stakeholder alignment, and a measurable next step.</p>
@@ -1278,11 +1274,11 @@ function HeroScene() {
       </div>
       <div className="floating-card answer-card">
         <span>Suggested answer</span>
-        <p>Start with clarifying questions, propose a thin slice, and explain how you would validate with users.</p>
+        <p>Start with clarifying questions, define a minimal viable scope, and explain how you would validate with users.</p>
       </div>
       <div className="floating-card prep-card">
         <span>Active context</span>
-        <p>Last call: they cared about autonomy, cross-functional pressure, and clean tradeoff thinking.</p>
+        <p>Prior round notes: focus on leadership style, cross-functional alignment, and scaling challenges.</p>
       </div>
     </div>
   );
