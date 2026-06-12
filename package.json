@@ -88,9 +88,9 @@
       "icon": "icon.png",
       "azureSignOptions": {
         "publisherName": "Stephen Skalamera",
-        "endpoint": "https://eastus.codesigning.azure.net",
+        "endpoint": "https://eus.codesigning.azure.net/",
         "certificateProfileName": "ClydeDesktop",
-        "codeSigningAccountName": "StephenSkalameraAccount"
+        "codeSigningAccountName": "Clyde-Desktop"
       }
     },
     "nsis": {
