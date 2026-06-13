@@ -361,6 +361,7 @@ function LandingPage({ navigate, onDownload }) {
 function PricingPage({ showUpgradeNotice }) {
   const [annual, setAnnual] = useState(true);
   const [proCheckout, setProCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
+  const [creditsCheckout, setCreditsCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
 
   async function startProCheckout(event) {
     event.preventDefault();
@@ -394,6 +395,30 @@ function PricingPage({ showUpgradeNotice }) {
     }
   }
 
+  async function startCreditsCheckout(event) {
+    event.preventDefault();
+    const email = creditsCheckout.email.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setCreditsCheckout((s) => ({ ...s, error: 'Enter a valid email address.', notice: '' }));
+      return;
+    }
+    setCreditsCheckout((s) => ({ ...s, busy: true, error: '', notice: '' }));
+    try {
+      const response = await fetch('/api/create-credits-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error || 'Credits checkout could not be started. Please try again.');
+      }
+      window.location.href = payload.url;
+    } catch (error) {
+      setCreditsCheckout((s) => ({ ...s, busy: false, error: error.message || 'Checkout could not be started.' }));
+    }
+  }
+
   const tiers = [
     {
       name: 'Free',
@@ -403,16 +428,16 @@ function PricingPage({ showUpgradeNotice }) {
       cta: 'Download Free',
       ctaClass: 'secondary',
       features: [
-        { label: 'Undetectable floating HUD', free: true, pro: true },
-        { label: 'Active-context help', free: true, pro: true },
-        { label: 'Private & local operation', free: true, pro: true },
-        { label: 'Meeting notes & action items', free: true, pro: true },
-        { label: 'RAG across old sessions', free: false, pro: true },
-        { label: 'Broad conversation memory', free: false, pro: true },
-        { label: 'Gmail & Calendar scanning', free: false, pro: true },
-        { label: 'Autonomous opportunity updates', free: false, pro: true },
-        { label: '0-100 rating scorecards', free: false, pro: true },
-        { label: 'Phase trend analysis', free: false, pro: true }
+        { label: 'Undetectable floating HUD', free: true, pro: true, credits: true },
+        { label: 'Active-context help', free: true, pro: true, credits: true },
+        { label: 'Private & local operation', free: true, pro: true, credits: true },
+        { label: 'Meeting notes & action items', free: true, pro: true, credits: true },
+        { label: 'RAG across old sessions', free: false, pro: true, credits: false },
+        { label: 'Broad conversation memory', free: false, pro: true, credits: false },
+        { label: 'Gmail & Calendar scanning', free: false, pro: true, credits: false },
+        { label: 'Autonomous opportunity updates', free: false, pro: true, credits: false },
+        { label: '0-100 rating scorecards', free: false, pro: true, credits: false },
+        { label: 'Phase trend analysis', free: false, pro: true, credits: false }
       ],
     },
     {
@@ -424,18 +449,33 @@ function PricingPage({ showUpgradeNotice }) {
       ctaClass: 'primary',
       popular: true,
       features: [
-        { label: 'Undetectable floating HUD', free: true, pro: true },
-        { label: 'Active-context help', free: true, pro: true },
-        { label: 'Private & local operation', free: true, pro: true },
-        { label: 'Meeting notes & action items', free: true, pro: true },
-        { label: 'RAG across old sessions', free: false, pro: true },
-        { label: 'Broad conversation memory', free: false, pro: true },
-        { label: 'Gmail & Calendar scanning', free: false, pro: true },
-        { label: 'Autonomous opportunity updates', free: false, pro: true },
-        { label: '0-100 rating scorecards', free: false, pro: true },
-        { label: 'Phase trend analysis', free: false, pro: true }
+        { label: 'Undetectable floating HUD', free: true, pro: true, credits: true },
+        { label: 'Active-context help', free: true, pro: true, credits: true },
+        { label: 'Private & local operation', free: true, pro: true, credits: true },
+        { label: 'Meeting notes & action items', free: true, pro: true, credits: true },
+        { label: 'RAG across old sessions', free: false, pro: true, credits: false },
+        { label: 'Broad conversation memory', free: false, pro: true, credits: false },
+        { label: 'Gmail & Calendar scanning', free: false, pro: true, credits: false },
+        { label: 'Autonomous opportunity updates', free: false, pro: true, credits: false },
+        { label: '0-100 rating scorecards', free: false, pro: true, credits: false },
+        { label: 'Phase trend analysis', free: false, pro: true, credits: false }
       ],
     },
+    {
+      name: 'Credit Pack',
+      priceMonthly: 9.99,
+      priceAnnual: 9.99,
+      description: 'Buy on-demand background credits for the Clyde Go extension. No monthly subscription required.',
+      cta: 'Buy Credit Pack (100)',
+      ctaClass: 'primary',
+      credits: true,
+      features: [
+        { label: '100 background credits included', free: false, pro: false, credits: true },
+        { label: 'Active-context filler', free: false, pro: false, credits: true },
+        { label: 'Extension on-demand usage', free: false, pro: false, credits: true },
+        { label: 'Never expires', free: false, pro: false, credits: true }
+      ]
+    }
   ];
 
   const price = (tier) => {
@@ -515,12 +555,30 @@ function PricingPage({ showUpgradeNotice }) {
                   {proCheckout.error ? <p className="checkout-status checkout-error">{proCheckout.error}</p> : null}
                   {proCheckout.notice ? <p className="checkout-status">{proCheckout.notice}</p> : null}
                 </form>
+              ) : tier.name === 'Credit Pack' && creditsCheckout.open ? (
+                <form className="pro-checkout-form" onSubmit={startCreditsCheckout}>
+                  <input
+                    type="email"
+                    placeholder="you@email.com"
+                    value={creditsCheckout.email}
+                    disabled={creditsCheckout.busy}
+                    autoFocus
+                    onChange={(event) => setCreditsCheckout((s) => ({ ...s, email: event.target.value }))}
+                  />
+                  <button className={`cta-btn ${tier.ctaClass}`} type="submit" disabled={creditsCheckout.busy}>
+                    {creditsCheckout.busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
+                    {creditsCheckout.busy ? 'Opening checkout...' : 'Continue to Checkout'}
+                  </button>
+                  {creditsCheckout.error ? <p className="checkout-status checkout-error">{creditsCheckout.error}</p> : null}
+                </form>
               ) : (
                 <button
                   className={`cta-btn ${tier.ctaClass}`}
                   onClick={() => {
                     if (tier.name === 'Pro') {
                       setProCheckout((s) => ({ ...s, open: true, error: '', notice: '' }));
+                    } else if (tier.name === 'Credit Pack') {
+                      setCreditsCheckout((s) => ({ ...s, open: true, error: '', notice: '' }));
                     } else {
                       window.location.href = downloadHref;
                     }
