@@ -201,6 +201,8 @@ function App() {
       ? <PricingPage showUpgradeNotice={showUpgradeNotice} />
     : path === '/clyde-go'
       ? <ClydeGoPage />
+    : path === '/support'
+      ? <SupportPage />
     : path === '/privacy-policy'
       ? <PrivacyPolicyPage />
       : path === '/terms-of-service'
@@ -234,6 +236,7 @@ function Header({ navigate, onDownload, path, upgradeNotice, showUpgradeNotice }
         <a href="/clyde-go" onClick={(event) => { event.preventDefault(); navigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go</a>
         <a href="/how-it-works" onClick={(event) => { event.preventDefault(); navigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
         <a href="/pricing" onClick={(event) => { event.preventDefault(); navigate('/pricing'); }} className={path === '/pricing' ? 'active' : ''}>Pricing</a>
+        <a href="/support" onClick={(event) => { event.preventDefault(); navigate('/support'); }} className={path === '/support' ? 'active' : ''}>Support</a>
         <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); navigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
         <a href="#faq">FAQ</a>
       </nav>
@@ -1710,6 +1713,129 @@ function DownloadModal({ onClose }) {
   );
 }
 
+function SupportPage() {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    type: 'Bug Report',
+    subject: '',
+    description: ''
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [status, setStatus] = useState(null);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatus({ success: true, message: data.message });
+        setFormData({
+          name: '',
+          email: '',
+          type: 'Bug Report',
+          subject: '',
+          description: ''
+        });
+      } else {
+        setStatus({ success: false, message: data.error || 'Failed to submit ticket. Please try again.' });
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus({ success: false, message: 'A network error occurred. Please check your connection and try again.' });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="support-page">
+      <section className="subpage-hero policy-hero" style={{ paddingBottom: '20px' }}>
+        <div className="subpage-copy" data-reveal>
+          <span className="eyebrow">Help & Feedback</span>
+          <h1 style={{ fontSize: '3rem', lineHeight: '1.15', marginBottom: '20px' }}>Clyde Support Center</h1>
+          <p style={{ fontSize: '1.15rem', color: '#9ca3af', lineHeight: '1.6' }}>
+            Encountered a bug, have a feature request, or need help with your Pro subscription? Submit a ticket below, and we'll get right on it.
+          </p>
+        </div>
+        <aside className="policy-summary-card" data-reveal style={{ background: 'rgba(9, 18, 28, 0.45)', border: '1px solid var(--line)', padding: '24px', borderRadius: '8px' }}>
+          <h2 style={{ fontSize: '1.25rem', marginBottom: '12px', fontWeight: 600 }}>Self-service</h2>
+          <p style={{ fontSize: '0.9rem', color: '#9ca3af', marginBottom: '12px' }}>You can also access help directly inside the Clyde Desktop app under settings, or ask our floating support agent on the home page.</p>
+          <p style={{ fontSize: '0.9rem', color: '#9ca3af', marginBottom: '0px' }}>For billing issues or account inquiries, drop us a line below.</p>
+        </aside>
+      </section>
+
+      <section className="section-band policy-body" data-reveal style={{ display: 'flex', justifyContent: 'center', paddingTop: '0px', paddingBottom: '80px' }}>
+        <div style={{ maxWidth: '650px', width: '100%', background: 'rgba(9, 18, 28, 0.65)', backdropFilter: 'blur(16px)', border: '1px solid var(--line)', borderRadius: '12px', padding: '40px', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+          <h2 style={{ marginTop: 0, marginBottom: '24px', fontSize: '1.75rem', fontWeight: 600, background: 'linear-gradient(135deg, var(--cyan), var(--violet))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', display: 'inline-block' }}>Submit a ticket</h2>
+          
+          {status ? (
+            <div className={`notification-banner ${status.success ? 'success' : 'error'}`} style={{ padding: '16px', borderRadius: '6px', marginBottom: '24px', fontSize: '0.95rem', lineHeight: '1.5', background: status.success ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', border: status.success ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)', color: status.success ? '#34d399' : '#f87171' }}>
+              {status.message}
+            </div>
+          ) : null}
+
+          <form onSubmit={handleSubmit} className="pro-checkout-form" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+              <div className="support-form-group" style={{ flex: '1 1 200px' }}>
+                <label>Your Name</label>
+                <input type="text" name="name" value={formData.name} onChange={handleChange} placeholder="e.g. Stephen" className="support-input" />
+              </div>
+              <div className="support-form-group" style={{ flex: '1 1 200px' }}>
+                <label>Email Address *</label>
+                <input type="email" name="email" value={formData.email} onChange={handleChange} required placeholder="e.g. stephen@example.com" className="support-input" />
+              </div>
+            </div>
+
+            <div className="support-form-group">
+              <label>Ticket Type *</label>
+              <select name="type" value={formData.type} onChange={handleChange} className="support-select">
+                <option value="Bug Report">Bug Report</option>
+                <option value="Feature Request">Feature Request</option>
+                <option value="Feedback">Feedback / Suggestions</option>
+                <option value="Billing Issue">Billing Issue</option>
+                <option value="General Inquiry">General Inquiry</option>
+              </select>
+            </div>
+
+            <div className="support-form-group">
+              <label>Subject *</label>
+              <input type="text" name="subject" value={formData.subject} onChange={handleChange} required placeholder="Brief summary of the issue" className="support-input" />
+            </div>
+
+            <div className="support-form-group">
+              <label>Description *</label>
+              <textarea name="description" value={formData.description} onChange={handleChange} required placeholder="Please describe your bug or feature request in detail..." className="support-textarea" />
+            </div>
+
+            <button type="submit" disabled={submitting} className="primary-link" style={{ padding: '14px', borderRadius: '6px', border: 'none', background: submitting ? 'rgba(56, 189, 248, 0.4)' : 'var(--cyan)', color: '#030609', fontSize: '0.95rem', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', transition: 'opacity 0.2s', marginTop: '10px' }}>
+              {submitting ? (
+                <>
+                  <span className="spinner-icon" style={{ display: 'inline-block', width: '16px', height: '16px', border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  Submitting Ticket...
+                </>
+              ) : 'Submit Ticket ✨'}
+            </button>
+          </form>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function Footer({ navigate, onDownload }) {
   return (
     <footer className="site-footer">
@@ -1723,6 +1849,7 @@ function Footer({ navigate, onDownload }) {
       <div className="footer-links">
         <a href="/clyde-go" onClick={(event) => { event.preventDefault(); navigate('/clyde-go'); }}>Clyde Go</a>
         <a href="/how-it-works" onClick={(event) => { event.preventDefault(); navigate('/how-it-works'); }}>How it works</a>
+        <a href="/support" onClick={(event) => { event.preventDefault(); navigate('/support'); }}>Support</a>
         <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); navigate('/privacy-policy'); }}>Privacy</a>
         <a href="/terms-of-service" onClick={(event) => { event.preventDefault(); navigate('/terms-of-service'); }}>Terms</a>
         <a href="#faq">FAQ</a>

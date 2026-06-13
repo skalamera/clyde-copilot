@@ -18,7 +18,8 @@ const PRO_FEATURES = [
   'google_sync',
   'agent_chat',
   'agent_actions',
-  'liveavatar_mock_interviews'
+  'liveavatar_mock_interviews',
+  'autonomous_background_runs'
 ];
 
 const FEATURE_SETS = {

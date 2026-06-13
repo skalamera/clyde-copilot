@@ -1,6 +1,7 @@
 import {
   getStripe,
   getProPriceId,
+  getCreditsPriceId,
   getAppUrl,
   sendJson,
   readJson,
@@ -11,7 +12,8 @@ import {
   findSubscriptionByUserId,
   listSupabaseUsersByEmail,
   reconcileSubscriptionByEmail,
-  activatePaidCheckoutSession
+  activatePaidCheckoutSession,
+  upsertSubscriptionRecord
 } from './_billing.js';
 
 export default async function handler(req, res) {
@@ -35,6 +37,10 @@ export default async function handler(req, res) {
         return await handleCreateProSignupCheckout(req, res);
       case 'activate-pro-checkout':
         return await handleActivateProCheckout(req, res);
+      case 'consume-credit':
+        return await handleConsumeCredit(req, res);
+      case 'create-credits-checkout':
+        return await handleCreateCreditsCheckout(req, res);
       default:
         sendJson(res, 404, { error: `Unknown action: ${action}` });
     }
@@ -57,7 +63,7 @@ async function handleEntitlements(req, res) {
     record = await reconcileSubscriptionByEmail(user);
   }
   if (!record || !['active', 'trialing'].includes(record.status)) {
-    sendJson(res, 200, freeEntitlements(userId));
+    sendJson(res, 200, freeEntitlements(userId, record));
     return;
   }
 
@@ -203,4 +209,116 @@ async function handleActivateProCheckout(req, res) {
   const body = await readJson(req);
   const result = await activatePaidCheckoutSession(body.sessionId);
   sendJson(res, 200, result);
+}
+
+async function handleConsumeCredit(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
+  const user = await requireSupabaseUser(req);
+  const userId = user.id;
+
+  const record = await findSubscriptionByUserId(userId);
+  const currentCredits = record && typeof record.credits === 'number' ? record.credits : 0;
+  if (currentCredits <= 0) {
+    sendJson(res, 402, { error: 'Insufficient background application credits. Please purchase more credits or subscribe to Clyde Pro.' });
+    return;
+  }
+
+  const newCredits = currentCredits - 1;
+  await upsertSubscriptionRecord({
+    ...record,
+    credits: newCredits,
+    updated_at: new Date().toISOString()
+  });
+
+  sendJson(res, 200, { success: true, credits: newCredits });
+}
+
+async function handleCreateCreditsCheckout(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
+
+  const body = await readJson(req);
+  let userId = '';
+  let email = '';
+  let customerId = '';
+  let record = null;
+
+  // 1. Try to authenticate user
+  const authHeader = String(req.headers.authorization || '');
+  const hasAuth = authHeader.toLowerCase().startsWith('bearer ');
+
+  if (hasAuth) {
+    try {
+      const user = await requireSupabaseUser(req);
+      userId = user.id;
+      record = await findSubscriptionByUserId(userId);
+      customerId = record?.stripe_customer_id || '';
+      email = user.email || '';
+    } catch (authError) {
+      sendJson(res, 401, { error: 'Invalid authentication token.' });
+      return;
+    }
+  } else {
+    // Guest purchase flow
+    email = normalizeEmail(body.email);
+    if (!email) {
+      sendJson(res, 400, { error: 'Email is required for guest checkout. Sign in or enter your email to proceed.' });
+      return;
+    }
+
+    // Anti-enumeration: verify they don't already have an account.
+    // If they do, they should sign in and buy credits from the app.
+    const existing = await listSupabaseUsersByEmail(email);
+    if (existing.length > 0) {
+      sendJson(res, 400, { error: 'This email is already registered. Please sign in to Clyde and purchase credits from your account Settings.' });
+      return;
+    }
+  }
+
+  const stripe = getStripe();
+  if (!customerId && email) {
+    try {
+      const customers = await stripe.customers.list({ email, limit: 1 });
+      customerId = customers.data?.[0]?.id || '';
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  const price = getCreditsPriceId();
+  const appUrl = getAppUrl(req);
+
+  const sessionPayload = {
+    mode: 'payment',
+    line_items: [{ price, quantity: 1 }],
+    success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: hasAuth ? `${appUrl}/account` : `${appUrl}/pricing`,
+    customer: customerId || undefined,
+    customer_email: customerId ? undefined : email || undefined,
+    client_reference_id: userId || email,
+    metadata: {
+      type: 'credits_purchase',
+      amount: '100'
+    }
+  };
+
+  if (userId) {
+    sessionPayload.metadata.userId = userId;
+  } else {
+    sessionPayload.metadata.pendingEmail = email;
+  }
+
+  const session = await stripe.checkout.sessions.create(sessionPayload);
+
+  sendJson(res, 200, {
+    url: session.url,
+    id: session.id,
+    email,
+    message: userId ? undefined : 'Checkout opened. After payment, Clyde sends an account invite email so you can set your password and access your credits.'
+  });
 }

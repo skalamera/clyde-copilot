@@ -16,7 +16,8 @@ const PRO_FEATURES = [
   'google_sync',
   'agent_chat',
   'agent_actions',
-  'liveavatar_mock_interviews'
+  'liveavatar_mock_interviews',
+  'autonomous_background_runs'
 ];
 
 const FREE_FEATURES = [
@@ -52,6 +53,14 @@ export function getProPriceId(billingPeriod = 'monthly') {
   const price = specific || process.env.STRIPE_CLYDE_PRO_PRICE_ID;
   if (!price) {
     throw new Error(`Stripe price for the ${period} plan is not configured (STRIPE_CLYDE_PRO_PRICE_ID_${period.toUpperCase()} or STRIPE_CLYDE_PRO_PRICE_ID).`);
+  }
+  return price;
+}
+
+export function getCreditsPriceId() {
+  const price = process.env.STRIPE_CLYDE_CREDITS_100_PRICE_ID;
+  if (!price) {
+    throw new Error('Stripe price for the 100-credit pack is not configured (STRIPE_CLYDE_CREDITS_100_PRICE_ID).');
   }
   return price;
 }
@@ -153,7 +162,7 @@ export function normalizeEmail(value = '') {
   return String(value || '').trim().toLowerCase();
 }
 
-export function freeEntitlements(userId = '') {
+export function freeEntitlements(userId = '', subscription = {}) {
   return {
     userId,
     tier: 'free',
@@ -162,6 +171,7 @@ export function freeEntitlements(userId = '') {
     status: 'free',
     pro: false,
     features: FREE_FEATURES,
+    credits: subscription && typeof subscription.credits === 'number' ? subscription.credits : 0,
     expiresAt: null,
     checkedAt: new Date().toISOString()
   };
@@ -176,6 +186,7 @@ export function proEntitlements(userId, subscription = {}) {
     status: subscription.status || 'active',
     pro: subscription.status ? ['active', 'trialing'].includes(subscription.status) : true,
     features: PRO_FEATURES,
+    credits: typeof subscription.credits === 'number' ? subscription.credits : 100,
     expiresAt: subscription.current_period_end
       ? new Date(subscription.current_period_end * 1000).toISOString()
       : null,
@@ -377,6 +388,59 @@ export async function activatePaidCheckoutSession(sessionId) {
   const session = await stripe.checkout.sessions.retrieve(cleanSessionId, {
     expand: ['subscription', 'customer']
   });
+
+  // Handle one-time credits purchase
+  if (session.mode === 'payment') {
+    const type = session.metadata?.type || '';
+    if (type === 'credits_purchase') {
+      const userId = session.metadata?.userId || '';
+      const pendingEmail = session.metadata?.pendingEmail || '';
+      const amount = Number(session.metadata?.amount || '100');
+      
+      let resolvedUserId = userId;
+      let invited = false;
+      let email = '';
+
+      if (!resolvedUserId && pendingEmail) {
+        email = normalizeEmail(pendingEmail);
+        const existingUsers = await listSupabaseUsersByEmail(email);
+        let user = existingUsers[0] || null;
+        if (!user) {
+          user = await inviteSupabaseUserByEmail(email);
+          invited = true;
+        }
+        resolvedUserId = user.id;
+      }
+
+      if (!resolvedUserId) {
+        throw new Error('Credits purchase session is missing userId or pendingEmail in metadata.');
+      }
+
+      const record = await findSubscriptionByUserId(resolvedUserId);
+      const currentCredits = record && typeof record.credits === 'number' ? record.credits : 0;
+      const newCredits = currentCredits + amount;
+      await upsertSubscriptionRecord({
+        user_id: resolvedUserId,
+        stripe_customer_id: (typeof session.customer === 'object' ? session.customer?.id : session.customer) || record?.stripe_customer_id || '',
+        stripe_subscription_id: record?.stripe_subscription_id || null,
+        status: record?.status || 'free',
+        plan: record?.plan || 'free',
+        credits: newCredits,
+        current_period_end: record?.current_period_end || null,
+        updated_at: new Date().toISOString()
+      });
+      return {
+        success: true,
+        type: 'credits_purchase',
+        userId: resolvedUserId,
+        amount,
+        credits: newCredits,
+        invited,
+        email
+      };
+    }
+  }
+
   const subscription = session.subscription;
   if (!subscription?.id) {
     throw new Error('Checkout session has no subscription.');

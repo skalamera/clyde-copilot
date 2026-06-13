@@ -40,11 +40,23 @@ export default async function handler(req, res) {
       return;
     }
 
-    const signature = crypto.createHmac('sha256', secret).update(userId).digest('base64url');
+    // 1. Get the current token version from subscription, default to 1.
+    const tokenVersion = (subscription && typeof subscription.token_version === 'number')
+      ? subscription.token_version
+      : 1;
+
+    // 2. Set expiry to 60 days from now (in ms).
+    const expiry = Date.now() + 60 * 24 * 60 * 60 * 1000;
+
+    // 3. Compute signature of message: userId + "." + expiry + "." + tokenVersion
+    const message = `${userId}.${expiry}.${tokenVersion}`;
+    const signature = crypto.createHmac('sha256', secret).update(message).digest('base64url');
+
     sendJson(res, 200, {
-      token: `clyde_lic_${userId}.${signature}`,
+      token: `clyde_lic_${userId}.${expiry}.${signature}`,
       userId,
-      status
+      status,
+      expiresAt: new Date(expiry).toISOString()
     });
   } catch (error) {
     sendJson(res, error.statusCode || 500, { error: error.message });

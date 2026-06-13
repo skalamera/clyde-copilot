@@ -10,6 +10,8 @@ function startAutoUpdater({ enabled = true, isPackaged, logger, requireAutoUpdat
   const loadAutoUpdater = requireAutoUpdater || (() => require('electron-updater').autoUpdater);
   const autoUpdater = loadAutoUpdater();
 
+  // Secure auto-updates by verifying the cryptographic code signature on Windows/macOS updates.
+  autoUpdater.verifyUpdateCodeSignature = true;
   autoUpdater.logger = logger;
   if (autoUpdater.logger && autoUpdater.logger.transports && autoUpdater.logger.transports.file) {
     autoUpdater.logger.transports.file.level = 'info';

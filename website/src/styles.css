@@ -3019,3 +3019,69 @@ img {
 @keyframes clyde-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ============================================
+   Clyde Support Form Styling
+   ============================================ */
+.support-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.support-form-group label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.support-input,
+.support-select,
+.support-textarea {
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(3, 6, 9, 0.8);
+  color: white;
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+
+.support-input::placeholder,
+.support-textarea::placeholder {
+  color: var(--muted-2);
+}
+
+.support-input:hover,
+.support-select:hover,
+.support-textarea:hover {
+  border-color: rgba(79, 231, 255, 0.45);
+  background: rgba(3, 6, 9, 0.95);
+}
+
+.support-input:focus,
+.support-select:focus,
+.support-textarea:focus {
+  border-color: var(--cyan);
+  background: rgba(3, 6, 9, 0.95);
+  outline: none;
+  box-shadow: 0 0 12px rgba(79, 231, 255, 0.25);
+}
+
+.support-textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.support-select {
+  cursor: pointer;
+}
+
+/* Custom styling for select option elements in some browsers */
+.support-select option {
+  background: var(--bg-soft);
+  color: white;
+}
+

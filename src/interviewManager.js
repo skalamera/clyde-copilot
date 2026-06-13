@@ -419,6 +419,14 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
             Use concrete details from the transcript. Do not write a generic one-paragraph summary. Finish every sentence. Keep examples separate from the written evaluation.
             Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
             
+            You must return a valid JSON object matching this schema:
+            {
+              "grade": "A" (or other exact string grade),
+              "reasoning": "**Overall assessment:** ... \\n**Evidence:** ... \\n**Risks:** ... \\n**Outlook:** ...",
+              "examples": ["example 1", "example 2"]
+            }
+            Do not wrap your output in markdown code blocks unless your provider does not support structured JSON.
+            
             Transcript:
             ${transcriptText}`;
 
@@ -427,7 +435,7 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
                 apiKey,
                 model,
                 temperature: 0.2,
-                maxTokens: 800,
+                maxTokens: 2048,
                 axiosClient,
                 localUrl,
                 jsonSchema: {
@@ -456,7 +464,35 @@ function createInterviewManager({ appPath, axiosClient, settings, onStatus }) {
                 }
                 gradeData = JSON.parse(cleanedText);
             } catch (e) {
-                console.error("Failed to parse grading score JSON:", resultText);
+                console.error("Failed to parse grading score JSON, attempting regex recovery:", resultText);
+                
+                let cleanedText = resultText.trim();
+                
+                let grade = 'C';
+                const gradeMatch = /"grade"\s*:\s*"([^"]+)"/i.exec(cleanedText);
+                if (gradeMatch) grade = gradeMatch[1];
+
+                let reasoning = '';
+                const reasoningMatch = /"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)/i.exec(cleanedText);
+                if (reasoningMatch) {
+                    reasoning = reasoningMatch[1];
+                    if (reasoning.endsWith('\\')) reasoning = reasoning.slice(0, -1);
+                    reasoning = reasoning.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                    if (!reasoning.includes('**Outlook:**') && !reasoning.endsWith('...')) {
+                        reasoning += '... [Evaluation truncated due to length limits]';
+                    }
+                } else {
+                    reasoning = cleanedText.slice(0, 500) + '... [Raw output failed to parse as JSON]';
+                }
+
+                let examples = [];
+                const examplesMatch = /"examples"\s*:\s*\[([^\]]*)/i.exec(cleanedText);
+                if (examplesMatch) {
+                    const rawExamples = examplesMatch[1];
+                    examples = rawExamples.split(',').map(ex => ex.trim().replace(/^"|"$/g, '')).filter(Boolean);
+                }
+
+                gradeData = { grade, reasoning, examples };
             }
 
             interviewData.gradingStatus = 'complete';

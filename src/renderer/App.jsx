@@ -1962,9 +1962,6 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
                   <div className="analysis-loading pulse" style={{ padding: '40px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--cyan)', minHeight: '100px', width: '100%' }}>{sessions.length === 1 ? 'Reading the saved interview and building a baseline assessment...' : 'Reading transcripts and computing trends...'}</div>
                 ) : analysis ? (
                   <div className="analysis-result" style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div className="analysis-kpi" style={{ marginBottom: '15px', fontSize: '1.1rem' }}>
-                      <strong style={{ color: 'var(--muted)' }}>AI Trend Direction: </strong> <span style={{ textTransform: 'capitalize', color: 'var(--cyan)', fontWeight: 'bold' }}>{analysis.trend}</span>
-                    </div>
                     {analysis.executive_summary ? (
                       <div className="structured-analysis" style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '20px' }}>
                         <div className="analysis-card summary" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', borderLeft: '4px solid var(--cyan)', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -3113,6 +3110,7 @@ function App() {
 
   const api = window.electronAPI;
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
+  const [initialized, setInitialized] = useState(false);
   const [mode, setMode] = useState('interview');
   const [status, setStatus] = useState('Awaiting initialization...');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -3523,6 +3521,7 @@ function App() {
         if (!nextSettings.onboardingGuideDismissed && !localStorage.getItem(ONBOARDING_GUIDE_DISMISSED_KEY)) {
           setOnboardingOpen(true);
         }
+        setInitialized(true);
       }
 
     load().catch((error) => setStatus(`Settings failed: ${error.message}`));
@@ -4321,6 +4320,21 @@ function App() {
           <img src={ghostUrl} alt="" />
         </button>
       </div>
+    );
+  }
+
+  const signedIn = Boolean(settings.userId && settings.authEmail);
+
+  if (!initialized && !signedIn) {
+    return null; // Don't flash login screen while loading settings
+  }
+
+  if (!signedIn) {
+    return (
+      <AuthOverlay
+        api={api}
+        onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
+      />
     );
   }
 
@@ -12702,6 +12716,197 @@ function parseAttendees(value) {
       return { name, role: role || '' };
     })
     .filter((attendee) => attendee.name);
+}
+
+function AuthOverlay({ api, onSettingsUpdated }) {
+  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' });
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  async function handleAuth(action) {
+    if (action === 'sign-up' && form.password !== form.confirmPassword) {
+      setMessage('Passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    setMessage(action === 'sign-up' ? 'Creating account...' : 'Signing in...');
+    try {
+      const payload = {
+        email: form.email.trim(),
+        password: form.password
+      };
+      const result = action === 'sign-up'
+        ? await api?.signUp?.(payload)
+        : await api?.signIn?.(payload);
+
+      if (result?.settings) {
+        onSettingsUpdated(result.settings);
+      }
+      setForm({ email: '', password: '', confirmPassword: '' });
+      if (action === 'sign-up') {
+        window.alert('Account created! Please check your email to confirm your address, then sign in.');
+        setMessage('Check your email to confirm your address, then sign in.');
+        setIsSignUp(false);
+      } else {
+        setMessage('Signed in successfully.');
+      }
+    } catch (error) {
+      setMessage(`Error: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="auth-overlay-fullscreen" style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(15, 23, 42, 0.85)',
+      backdropFilter: 'blur(16px)',
+      zIndex: 9999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#f8fafc',
+      fontFamily: 'system-ui, sans-serif'
+    }}>
+      <div className="auth-card-wrapper" style={{
+        background: 'rgba(30, 41, 59, 0.5)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '16px',
+        padding: '32px',
+        width: '380px',
+        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+        textAlign: 'center'
+      }}>
+        <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '8px', color: '#f8fafc' }}>
+          Welcome to <span style={{ background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Clyde</span>
+        </h2>
+        <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '24px' }}>
+          Sign in or create a free account to unlock your career cockpit.
+        </p>
+
+        <form onSubmit={(e) => { e.preventDefault(); handleAuth(isSignUp ? 'sign-up' : 'sign-in'); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+            Email Address
+            <input
+              type="email"
+              required
+              disabled={busy}
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              style={{
+                background: '#0f172a',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                color: '#f8fafc',
+                fontSize: '0.9rem',
+                outline: 'none'
+              }}
+            />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+            Password
+            <input
+              type="password"
+              required
+              disabled={busy}
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              style={{
+                background: '#0f172a',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                color: '#f8fafc',
+                fontSize: '0.9rem',
+                outline: 'none'
+              }}
+            />
+          </label>
+
+          {isSignUp ? (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+              Confirm Password
+              <input
+                type="password"
+                required
+                disabled={busy}
+                value={form.confirmPassword}
+                onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                style={{
+                  background: '#0f172a',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  color: '#f8fafc',
+                  fontSize: '0.9rem',
+                  outline: 'none'
+                }}
+              />
+            </label>
+          ) : null}
+
+          {message ? (
+            <p style={{
+              fontSize: '0.8rem',
+              color: message.startsWith('Error') ? '#ef4444' : '#6366f1',
+              margin: '4px 0',
+              textAlign: 'center',
+              lineHeight: '1.4'
+            }}>{message}</p>
+          ) : null}
+
+          <button
+            type="submit"
+            disabled={busy}
+            style={{
+              background: 'linear-gradient(to right, #6366f1, #a855f7)',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '12px',
+              color: '#ffffff',
+              fontSize: '0.95rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              marginTop: '8px',
+              boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
+              transition: 'opacity 0.2s'
+            }}
+          >
+            {busy ? 'Working...' : isSignUp ? 'Create Account' : 'Sign In'}
+          </button>
+        </form>
+
+        <p style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '20px' }}>
+          {isSignUp ? 'Already have an account?' : "Don't have an account yet?"}{' '}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => { setIsSignUp(!isSignUp); setMessage(''); }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#38bdf8',
+              fontWeight: '600',
+              cursor: 'pointer',
+              padding: 0,
+              fontFamily: 'inherit',
+              textDecoration: 'underline'
+            }}
+          >
+            {isSignUp ? 'Sign In' : 'Create Account'}
+          </button>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default App;

@@ -20,7 +20,7 @@ test('interview grading leaves enough response budget for written evaluation', (
   const maxTokensMatch = gradingBlock.match(/maxTokens:\s*(\d+)/);
 
   assert.ok(maxTokensMatch, 'grading maxTokens is configured');
-  assert.equal(Number(maxTokensMatch[1]), 1800);
+  assert.equal(Number(maxTokensMatch[1]), 3000);
   assert.match(gradingBlock, /transcript_rating/);
   assert.match(gradingBlock, /minimum:\s*0/);
   assert.match(gradingBlock, /maximum:\s*5/);

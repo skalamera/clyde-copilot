@@ -5,6 +5,8 @@ create table if not exists public.subscriptions (
   status text not null,
   plan text not null,
   current_period_end timestamptz,
+  credits integer not null default 100,
+  token_version integer not null default 1,
   updated_at timestamptz not null default now()
 );
 

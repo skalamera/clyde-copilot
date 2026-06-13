@@ -95,3 +95,22 @@ test('invite completion endpoint updates the password with the invite access tok
   assert.match(source, /Authorization: `Bearer \$\{accessToken\}`/);
   assert.match(source, /body: JSON\.stringify\(\{ password \}\)/);
 });
+
+test('billing.js supports creating credits purchase checkout sessions', () => {
+  const source = fs.readFileSync(path.join(apiRoot, 'billing.js'), 'utf8');
+
+  assert.match(source, /case 'create-credits-checkout'/);
+  assert.match(source, /handleCreateCreditsCheckout/);
+  assert.match(source, /getCreditsPriceId\(\)/);
+  assert.match(source, /mode: 'payment'/);
+  assert.match(source, /type: 'credits_purchase'/);
+});
+
+test('_billing.js supports credit price retrieval and handles completed credits checkout payment sessions', () => {
+  const source = fs.readFileSync(path.join(apiRoot, '_billing.js'), 'utf8');
+
+  assert.match(source, /export function getCreditsPriceId\(\)/);
+  assert.match(source, /session\.mode === 'payment'/);
+  assert.match(source, /type === 'credits_purchase'/);
+  assert.match(source, /credits: newCredits/);
+});

@@ -12,35 +12,76 @@ const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/model
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SIGNED_LICENSE_RE = /^clyde_lic_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{16,})$/i;
+const SIGNED_LICENSE_V2_RE = /^clyde_lic_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(\d+)\.([A-Za-z0-9_-]{16,})$/i;
 
 function isActiveSubscription(subscription) {
   return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
 }
 
 /**
- * Verifies a signed license token of the form `clyde_lic_<userId>.<hmac>`.
- * The HMAC is computed server-side with CLYDE_LICENSE_SIGNING_SECRET (see
- * api/license-token.js), so the token cannot be forged from a known/guessed
- * user UUID alone. Returns { id } on success, null on failure.
+ * Verifies a signed license token.
+ * Supports V2 tokens of form `clyde_lic_<userId>.<expiryEpoch>.<hmac>` and
+ * legacy V1 tokens of form `clyde_lic_<userId>.<hmac>`.
+ * Returns { id, expiry } on success, null on failure.
  */
-function verifySignedLicenseToken(token) {
+async function verifySignedLicenseToken(token) {
   const secret = process.env.CLYDE_LICENSE_SIGNING_SECRET;
   if (!secret) {
     return null;
   }
-  const match = SIGNED_LICENSE_RE.exec(token);
-  if (!match) {
-    return null;
+
+  // 1. Try V2 Format Check (with expiry and tokenVersion)
+  const v2Match = SIGNED_LICENSE_V2_RE.exec(token);
+  if (v2Match) {
+    const userId = v2Match[1].toLowerCase();
+    const expiry = Number(v2Match[2]);
+    const provided = v2Match[3];
+
+    // Check expiration
+    if (Date.now() > expiry) {
+      return null;
+    }
+
+    // Load subscription to get current token_version
+    let tokenVersion = 1;
+    try {
+      const subscription = await findSubscriptionByUserId(userId);
+      if (subscription && typeof subscription.token_version === 'number') {
+        tokenVersion = subscription.token_version;
+      }
+    } catch (e) {
+      console.error('[verifySignedLicenseToken] Failed to lookup subscription for tokenVersion:', e.message);
+    }
+
+    // Verify signature
+    const message = `${userId}.${expiry}.${tokenVersion}`;
+    const expected = crypto.createHmac('sha256', secret).update(message).digest('base64url');
+    const providedBuf = Buffer.from(provided);
+    const expectedBuf = Buffer.from(expected);
+    if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+      return null;
+    }
+
+    return { id: userId, expiry };
   }
-  const userId = match[1].toLowerCase();
-  const provided = match[2];
-  const expected = crypto.createHmac('sha256', secret).update(userId).digest('base64url');
-  const providedBuf = Buffer.from(provided);
-  const expectedBuf = Buffer.from(expected);
-  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
-    return null;
+
+  // 2. Fallback to legacy V1 format (grace period)
+  const legacyMatch = SIGNED_LICENSE_RE.exec(token);
+  if (legacyMatch) {
+    const userId = legacyMatch[1].toLowerCase();
+    const provided = legacyMatch[2];
+
+    const expected = crypto.createHmac('sha256', secret).update(userId).digest('base64url');
+    const providedBuf = Buffer.from(provided);
+    const expectedBuf = Buffer.from(expected);
+    if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+      return null;
+    }
+
+    return { id: userId };
   }
-  return { id: userId };
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +212,7 @@ export default async function handler(request, response) {
       return;
     }
 
-    const signedUser = verifySignedLicenseToken(authToken);
+    const signedUser = await verifySignedLicenseToken(authToken);
     if (signedUser) {
       user = signedUser;
     } else if (UUID_RE.test(authToken)) {

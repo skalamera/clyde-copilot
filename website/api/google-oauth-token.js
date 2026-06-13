@@ -30,7 +30,7 @@ async function authenticateRequest(req) {
   if (!authToken) return null;
 
   // a) Signed license token (clyde_lic_...)
-  const signedUser = verifySignedLicenseToken(authToken);
+  const signedUser = await verifySignedLicenseToken(authToken);
   if (signedUser) return signedUser;
 
   // b) Supabase session JWT

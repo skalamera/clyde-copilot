@@ -29,7 +29,7 @@ function request({ method = 'GET', path = '/api/status', headers = {} } = {}) {
 
 test('extension server origin guard', async (t) => {
   const managers = {
-    loadSettings: () => ({}),
+    loadSettings: () => ({ extensionPairingToken: 'secure-token' }),
     publicSettings: (s) => s
   };
   await startExtensionServer(managers, null, { port: TEST_PORT });
@@ -60,6 +60,21 @@ test('extension server origin guard', async (t) => {
   await t.test('OPTIONS preflight from a web origin gets no CORS approval', async () => {
     const res = await request({ method: 'OPTIONS', headers: { Origin: 'https://evil.example.com' } });
     assert.notEqual(res.headers['access-control-allow-origin'], 'https://evil.example.com');
+  });
+
+  await t.test('rejects request to /api/settings missing Authorization header with 401', async () => {
+    const res = await request({ path: '/api/settings' });
+    assert.equal(res.status, 401);
+  });
+
+  await t.test('rejects request to /api/settings with invalid pairing token with 401', async () => {
+    const res = await request({ path: '/api/settings', headers: { Authorization: 'Bearer wrong-token' } });
+    assert.equal(res.status, 401);
+  });
+
+  await t.test('allows request to /api/settings with correct pairing token with 200', async () => {
+    const res = await request({ path: '/api/settings', headers: { Authorization: 'Bearer secure-token' } });
+    assert.equal(res.status, 200);
   });
 
   await stopExtensionServer();

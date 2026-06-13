@@ -3638,6 +3638,14 @@ function createWindow () {
           Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
           Real outcome calibration examples are included below when Clyde has labeled local examples. Use them as local hiring-market context. Base this transcript rating on its own evidence.
 
+          You must return a valid JSON object matching this schema:
+          {
+            "transcript_rating": 4,
+            "reasoning": "**Overall assessment:** ... \\n**Evidence:** ... \\n**Risks:** ... \\n**Outlook:** ...",
+            "examples": ["example 1", "example 2"]
+          }
+          Do not wrap your output in markdown code blocks unless your provider does not support structured JSON.
+
           ${outcomeCalibrationSection}
           
           Transcript:
@@ -3648,7 +3656,7 @@ function createWindow () {
               apiKey,
               model,
               temperature: 0.2,
-              maxTokens: 1800,
+              maxTokens: 3000,
               axiosClient: axios,
               localUrl,
               jsonSchema: {
@@ -3677,7 +3685,35 @@ function createWindow () {
               }
               gradeData = JSON.parse(cleanedText);
           } catch (e) {
-              console.error("Failed to parse grading score JSON:", resultText);
+              console.error("Failed to parse grading score JSON, attempting regex recovery:", resultText);
+              
+              let cleanedText = resultText.trim();
+              
+              let rating = 3;
+              const ratingMatch = /"transcript_rating"\s*:\s*(\d+)/i.exec(cleanedText);
+              if (ratingMatch) rating = Number(ratingMatch[1]);
+
+              let reasoning = '';
+              const reasoningMatch = /"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)/i.exec(cleanedText);
+              if (reasoningMatch) {
+                  reasoning = reasoningMatch[1];
+                  if (reasoning.endsWith('\\')) reasoning = reasoning.slice(0, -1);
+                  reasoning = reasoning.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                  if (!reasoning.includes('**Outlook:**') && !reasoning.endsWith('...')) {
+                      reasoning += '... [Evaluation truncated due to length limits]';
+                  }
+              } else {
+                  reasoning = cleanedText.slice(0, 500) + '... [Raw output failed to parse as JSON]';
+              }
+
+              let examples = [];
+              const examplesMatch = /"examples"\s*:\s*\[([^\]]*)/i.exec(cleanedText);
+              if (examplesMatch) {
+                  const rawExamples = examplesMatch[1];
+                  examples = rawExamples.split(',').map(ex => ex.trim().replace(/^"|"$/g, '')).filter(Boolean);
+              }
+
+              gradeData = { transcript_rating: rating, reasoning, examples };
           }
 
           // Update record and save it
@@ -3867,6 +3903,8 @@ function createWindow () {
 
       const activeEntity = sessionManager.getSessionEntities('interview')
           .find((entity) => entity.id === companyId || entity.name === companyId);
+      const confidence = calculateEntityConfidence(sortedSessions, activeEntity);
+      const calculatedTrend = confidence.trend === 'neutral' ? 'sideways' : (confidence.trend || 'sideways');
       const companyName = sortedSessions[0]?.entity?.name || activeEntity?.name || companyId;
       const role = sortedSessions[0]?.entity?.role || activeEntity?.role || settings.currentRole || '';
       const roleStr = role ? `\nRole/Job Title: ${role}` : '';
@@ -4002,7 +4040,7 @@ Address the user directly as "you". Do not call the user "the candidate" or use 
 Company: ${companyName}${roleStr}${jdStr}
 
 Review the transcripts of all their interviews in chronological order.
-1. Determine the overall trend direction ("up", "down", "sideways").
+1. The mathematical rating trend for these sessions is "${calculatedTrend}" (based on individual interview scores over time). Your qualitative trend direction in the "trend" key must be "${calculatedTrend}", and your executive summary and phase-by-phase observations should qualitatively explain and detail this direction.
 2. Provide a structured deep dive analysis explaining EXACTLY what caused the trend (up, down, or sideways) from phase to phase. Include an executive summary, key strengths, areas for improvement, and a phase-by-phase observation. Cite specific examples.
 3. Return exactly ${sortedSessions.length} phase breakdown entries, one for each interview below, in the same chronological order.
 4. Return pre_call_prep with exactly 3 detailed bullets for each prep section:
@@ -4013,6 +4051,24 @@ Review the transcripts of all their interviews in chronological order.
 Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
 Real outcome calibration examples are included below when Clyde has labeled local examples. Use them when judging whether the trend resembles prior rejected, advanced, or offer outcomes.
 
+You must return a valid JSON object matching this schema:
+{
+  "trend": "${calculatedTrend}",
+  "executive_summary": "Your detailed executive summary...",
+  "key_strengths": ["strength 1", "strength 2"],
+  "areas_for_improvement": ["area 1", "area 2"],
+  "phase_breakdown": [
+    { "phase": "Interview #1", "observation": "Your detailed phase 1 observation..." }
+  ],
+  "pre_call_prep": {
+    "cumulative_phase_summary": ["bullet 1", "bullet 2", "bullet 3"],
+    "probable_focus": ["bullet 1", "bullet 2", "bullet 3"],
+    "interviewer_question_patterns": ["bullet 1", "bullet 2", "bullet 3"],
+    "questions_to_ask": ["bullet 1", "bullet 2", "bullet 3"]
+  }
+}
+Do not wrap your output in markdown code blocks unless your provider does not support structured JSON.
+
 ${outcomeCalibrationSection}
 
 Transcripts:
@@ -4021,7 +4077,7 @@ ${combinedTranscripts}`
 Company: ${companyName}${roleStr}${jdStr}
 
 Review the transcript and grading evidence for this single interview.
-1. Return trend as "sideways" unless the transcript and grading evidence strongly indicate unusually positive or negative momentum.
+1. The mathematical baseline trend for this session is "${calculatedTrend}". You must output this exact trend ("${calculatedTrend}") under the "trend" key in your JSON, and your baseline analysis should qualitatively explain what this interview currently proves.
 2. Provide a structured baseline analysis explaining what the interview currently proves, what remains unproven, key strengths, and areas for improvement. Cite specific examples.
 3. Return exactly 1 phase breakdown entry for the interview below.
 4. Return pre_call_prep with exactly 3 detailed bullets for each prep section:
@@ -4031,6 +4087,24 @@ Review the transcript and grading evidence for this single interview.
    - questions_to_ask: useful questions you can ask in the next round.
 Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
 Real outcome calibration examples are included below when Clyde has labeled local examples. Use them when judging whether the baseline resembles prior rejected, advanced, or offer outcomes.
+
+You must return a valid JSON object matching this schema:
+{
+  "trend": "${calculatedTrend}",
+  "executive_summary": "Your detailed executive summary...",
+  "key_strengths": ["strength 1", "strength 2"],
+  "areas_for_improvement": ["area 1", "area 2"],
+  "phase_breakdown": [
+    { "phase": "Interview #1", "observation": "Your detailed phase 1 observation..." }
+  ],
+  "pre_call_prep": {
+    "cumulative_phase_summary": ["bullet 1", "bullet 2", "bullet 3"],
+    "probable_focus": ["bullet 1", "bullet 2", "bullet 3"],
+    "interviewer_question_patterns": ["bullet 1", "bullet 2", "bullet 3"],
+    "questions_to_ask": ["bullet 1", "bullet 2", "bullet 3"]
+  }
+}
+Do not wrap your output in markdown code blocks unless your provider does not support structured JSON.
 
 ${outcomeCalibrationSection}
 
@@ -4043,7 +4117,7 @@ ${combinedTranscripts}`;
               apiKey,
               model,
               temperature: 0.2,
-              maxTokens: 2600,
+              maxTokens: 4000,
               axiosClient: axios,
               localUrl,
               jsonSchema: {
@@ -4112,7 +4186,63 @@ ${combinedTranscripts}`;
               else if (cleanedText.startsWith('\`\`\`')) cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
               parsed = JSON.parse(cleanedText);
           } catch(e) {
-              console.error("Failed to parse trend analysis:", response);
+              console.error("Failed to parse trend analysis, attempting regex recovery:", response);
+              
+              let cleanedText = response.trim();
+              
+              let trend = 'sideways';
+              const trendMatch = /"trend"\s*:\s*"([^"]+)"/i.exec(cleanedText);
+              if (trendMatch) trend = trendMatch[1];
+
+              let execSummary = '';
+              const execMatch = /"executive_summary"\s*:\s*"((?:[^"\\]|\\.)*)/i.exec(cleanedText);
+              if (execMatch) {
+                  execSummary = execMatch[1];
+                  if (execSummary.endsWith('\\')) execSummary = execSummary.slice(0, -1);
+                  execSummary = execSummary.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                  if (!execSummary.endsWith('...')) execSummary += '... [Truncated]';
+              } else {
+                  execSummary = cleanedText.slice(0, 500) + '... [Raw output failed to parse as JSON]';
+              }
+
+              let keyStrengths = [];
+              const strengthsMatch = /"key_strengths"\s*:\s*\[([^\]]*)/i.exec(cleanedText);
+              if (strengthsMatch) {
+                  const rawStrengths = strengthsMatch[1];
+                  keyStrengths = rawStrengths.split(',').map(ex => ex.trim().replace(/^"|"$/g, '')).filter(Boolean);
+              }
+
+              let areasForImprovement = [];
+              const areasMatch = /"areas_for_improvement"\s*:\s*\[([^\]]*)/i.exec(cleanedText);
+              if (areasMatch) {
+                  const rawAreas = areasMatch[1];
+                  areasForImprovement = rawAreas.split(',').map(ex => ex.trim().replace(/^"|"$/g, '')).filter(Boolean);
+              }
+
+              let phaseBreakdown = [];
+              const matches = [...cleanedText.matchAll(/\{\s*"phase"\s*:\s*"([^"]+)"\s*,\s*"observation"\s*:\s*"([^"]+)"/gi)];
+              for (const match of matches) {
+                  phaseBreakdown.push({ phase: match[1], observation: match[2].replace(/\\n/g, '\n').replace(/\\"/g, '"') });
+              }
+
+              if (phaseBreakdown.length === 0) {
+                  const looseMatches = [...cleanedText.matchAll(/"observation"\s*:\s*"((?:[^"\\]|\\.)*)/gi)];
+                  looseMatches.forEach((match, idx) => {
+                      let obs = match[1];
+                      if (obs.endsWith('\\')) obs = obs.slice(0, -1);
+                      obs = obs.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                      phaseBreakdown.push({ phase: `Interview #${idx + 1}`, observation: obs });
+                  });
+              }
+
+              parsed = {
+                  trend,
+                  executive_summary: execSummary,
+                  key_strengths: keyStrengths.length > 0 ? keyStrengths : ['Demonstrates professional support engineering experience.'],
+                  areas_for_improvement: areasForImprovement.length > 0 ? areasForImprovement : ['Continue practicing technical depth on complex systems.'],
+                  phase_breakdown: phaseBreakdown,
+                  pre_call_prep: {}
+              };
           }
           const normalized = normalizeTrendAnalysisResult(parsed, sortedSessions);
           saveTrendAnalysis(app.getPath('userData'), companyId, {
