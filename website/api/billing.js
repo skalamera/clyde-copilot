@@ -69,6 +69,7 @@ async function handleEntitlements(req, res) {
 
   sendJson(res, 200, proEntitlements(userId, {
     status: record.status,
+    credits: typeof record.credits === 'number' ? record.credits : 100,
     current_period_end: record.current_period_end
       ? Math.floor(new Date(record.current_period_end).getTime() / 1000)
       : null

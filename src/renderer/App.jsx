@@ -163,6 +163,7 @@ const EMPTY_SETTINGS = {
   authExpiresAt: null,
   subscriptionStatus: 'free',
   subscriptionPlan: 'clyde_assistant',
+  subscriptionCredits: 0,
   entitlementFeatures: [],
   proAgentEnabled: false,
   proRealtimeModel: '',
@@ -209,6 +210,7 @@ function normalizeEntitledSettings(settings = {}) {
     ...settings,
     userTier,
     subscriptionStatus: settings.subscriptionStatus || (pro ? 'active' : 'free'),
+    subscriptionCredits: typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0,
     entitlementFeatures: pro ? features : features.filter((feature) => !PRO_FEATURES.has(feature)),
     proAgentEnabled: pro ? Boolean(settings.proAgentEnabled) : false,
     ragEnabled: pro ? Boolean(settings.ragEnabled) : false
@@ -11885,6 +11887,10 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               <div>
                 <span>Plan</span>
                 <strong>{settings.subscriptionPlan || 'clyde_assistant'}</strong>
+              </div>
+              <div>
+                <span>Extension Credits</span>
+                <strong>{typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0}</strong>
               </div>
               <div>
                 <span>Period end</span>

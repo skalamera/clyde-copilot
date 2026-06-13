@@ -91,6 +91,7 @@ function buildEntitlements(input = {}) {
     plan: input.plan || (tier === 'pro' ? 'clyde_pro_agent' : 'clyde_assistant'),
     status,
     pro: tier === 'pro' && status === 'active',
+    credits: typeof input.credits === 'number' ? input.credits : 0,
     features: [...featureSet].sort(),
     expiresAt: input.expiresAt || null,
     checkedAt: input.checkedAt || new Date().toISOString()
@@ -123,6 +124,7 @@ function entitlementsFromSettings(settings = {}, now = Date.now()) {
     tier: settings.userTier || settings.tier || 'free',
     status: settings.subscriptionStatus || (settings.userTier === 'pro' ? 'active' : 'free'),
     plan: settings.subscriptionPlan || '',
+    credits: typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0,
     features: settings.entitlementFeatures || [],
     expiresAt: settings.entitlementsExpiresAt || null,
     checkedAt: settings.entitlementsCheckedAt || null
@@ -135,6 +137,7 @@ function entitlementsFromSettings(settings = {}, now = Date.now()) {
       userId: input.userId,
       tier: 'free',
       status: 'stale',
+      credits: input.credits,
       checkedAt: input.checkedAt
     });
   }
@@ -149,6 +152,7 @@ function applyEntitlementsToSettings(settings = {}, entitlements = entitlementsF
     userTier: normalized.tier,
     subscriptionStatus: normalized.status,
     subscriptionPlan: normalized.plan,
+    subscriptionCredits: typeof entitlements.credits === 'number' ? entitlements.credits : 0,
     entitlementFeatures: normalized.features,
     entitlementsExpiresAt: normalized.expiresAt,
     entitlementsCheckedAt: normalized.checkedAt,
