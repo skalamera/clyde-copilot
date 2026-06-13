@@ -480,6 +480,13 @@ function PricingPage({ showUpgradeNotice }) {
 
   const price = (tier) => {
     if (tier.priceMonthly === 0) return 'Free';
+    if (tier.name === 'Credit Pack') {
+      return (
+        <>
+          <span className="currency">$</span>{tier.priceMonthly}
+        </>
+      );
+    }
     const amount = annual ? tier.priceAnnual : tier.priceMonthly;
     return (
       <>
@@ -490,6 +497,7 @@ function PricingPage({ showUpgradeNotice }) {
 
   const period = (tier) => {
     if (tier.priceMonthly === 0) return '';
+    if (tier.name === 'Credit Pack') return 'one-time purchase';
     return annual ? '/month, billed annually' : '/month';
   };
 
