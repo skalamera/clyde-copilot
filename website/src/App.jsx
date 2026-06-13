@@ -1014,13 +1014,13 @@ function AuthConfirmedPage() {
 }
 
 function BillingSuccessPage() {
-  const [activation, setActivation] = useState({ status: 'working', message: 'Activating your Pro account...' });
+  const [activation, setActivation] = useState({ status: 'working', message: 'Activating your Pro account...', invited: false });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id') || '';
     if (!sessionId) {
-      setActivation({ status: 'error', message: 'Missing Stripe checkout session. Contact support with the email used at checkout.' });
+      setActivation({ status: 'error', message: 'Missing Stripe checkout session. Contact support with the email used at checkout.', invited: false });
       return;
     }
 
@@ -1041,12 +1041,13 @@ function BillingSuccessPage() {
         if (cancelled) return;
         setActivation({
           status: 'success',
-          message: `Pro is active for ${payload.email}.`
+          message: `Pro is active for ${payload.email}.`,
+          invited: Boolean(payload.invited)
         });
       })
       .catch((error) => {
         if (cancelled) return;
-        setActivation({ status: 'error', message: error.message || 'Pro activation failed.' });
+        setActivation({ status: 'error', message: error.message || 'Pro activation failed.', invited: false });
       });
 
     return () => {
@@ -1061,7 +1062,11 @@ function BillingSuccessPage() {
           <span className="eyebrow">Billing</span>
           <h1>Pro checkout complete</h1>
           <p>{activation.message}</p>
-          <a className="primary-link" href="/">Open Clyde website</a>
+          {activation.status === 'success' ? (
+            <a className="primary-link" href="clyde://">Open Clyde Desktop App</a>
+          ) : (
+            <a className="primary-link" href="/">Return Home</a>
+          )}
         </div>
         <aside className="policy-summary-card is-visible">
           <h2>What to do next</h2>
@@ -1069,7 +1074,9 @@ function BillingSuccessPage() {
             ? 'This usually takes a few seconds.'
             : activation.status === 'error'
               ? 'If this keeps failing, contact support with the Stripe checkout email.'
-              : '1. Check your email for a message from Supabase. 2. Open the confirmation link. 3. Set your Clyde password. 4. Open Clyde desktop and sign in from onboarding or Settings.'}</p>
+              : activation.invited
+                ? '1. Check your email for a message from Supabase. 2. Open the confirmation link. 3. Set your Clyde password. 4. Open Clyde desktop and sign in from onboarding or Settings.'
+                : '1. Open your local Clyde Desktop App (or select it from your system tray). 2. Go to Settings > Account. 3. Click "Refresh Subscription". Your Pro status is now active!'}</p>
         </aside>
       </section>
     </main>

@@ -53,16 +53,68 @@ async function saveSubscription(customerId, subscription, context = {}) {
   let resolvedUserId = context.userId || subscription.metadata?.userId || '';
   let resolvedEmail = normalizeEmail(context.email || subscription.metadata?.pendingProSignupEmail || '');
   const stripe = getStripe();
+
+  // If no user ID but we have customer metadata or subscription metadata
   if (!resolvedUserId && customerId) {
-    const customer = await stripe.customers.retrieve(customerId);
-    resolvedUserId = customer?.metadata?.userId || '';
-    resolvedEmail = normalizeEmail(resolvedEmail || customer?.email || customer?.metadata?.pendingProSignupEmail);
+    try {
+      const customer = await stripe.customers.retrieve(customerId);
+      resolvedUserId = customer?.metadata?.userId || '';
+      resolvedEmail = normalizeEmail(resolvedEmail || customer?.email || customer?.metadata?.pendingProSignupEmail);
+    } catch (e) {
+      console.error('[stripe-webhook] Retrieve customer metadata failed:', e.message);
+    }
   }
 
+  // Fallback 1: Match by email if we don't have a user ID but have an email
   if (!resolvedUserId && resolvedEmail) {
-    const existingUsers = await listSupabaseUsersByEmail(resolvedEmail);
-    const user = existingUsers[0] || await inviteSupabaseUserByEmail(resolvedEmail);
-    resolvedUserId = user.id;
+    try {
+      const existingUsers = await listSupabaseUsersByEmail(resolvedEmail);
+      if (existingUsers.length > 0) {
+        resolvedUserId = existingUsers[0].id;
+      } else {
+        // Only invite them if this is a checkout event (handled elsewhere), do NOT invite on arbitrary subscription sync
+        console.log('[stripe-webhook] Email not registered in Supabase. Skipping saveSubscription.');
+        return;
+      }
+    } catch (e) {
+      console.error('[stripe-webhook] Supabase email lookup failed:', e.message);
+    }
+  }
+
+  // Fallback 2: If we still don't have a user ID, perform a database search on the subscriptions table by stripe_customer_id
+  if (!resolvedUserId && customerId) {
+    try {
+      const url = process.env.SUPABASE_URL;
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (url && key) {
+        const endpoint = new URL(`${url.replace(/\/$/, '')}/rest/v1/subscriptions`);
+        endpoint.searchParams.set('stripe_customer_id', `eq.${customerId}`);
+        endpoint.searchParams.set('select', 'user_id');
+        endpoint.searchParams.set('limit', '1');
+
+        const response = await fetch(endpoint, {
+          headers: { apikey: key, Authorization: `Bearer ${key}` }
+        });
+        if (response.ok) {
+          const rows = await response.json();
+          if (rows[0]?.user_id) {
+            resolvedUserId = rows[0].user_id;
+            console.log(`[stripe-webhook] Found user_id by mapping stripe_customer_id fallback: ${resolvedUserId}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[stripe-webhook] Supabase stripe_customer_id lookup failed:', e.message);
+    }
+  }
+
+  if (!resolvedUserId) {
+    console.warn('[stripe-webhook] No resolved user ID found. Webhook cannot update subscription row.');
+    return;
+  }
+
+  // Make sure metadata is synced back to Stripe so future webhooks can resolve immediately
+  try {
     if (customerId) {
       await stripe.customers.update(customerId, {
         metadata: { userId: resolvedUserId, plan: 'clyde_pro_agent' }
@@ -71,11 +123,18 @@ async function saveSubscription(customerId, subscription, context = {}) {
     await stripe.subscriptions.update(subscription.id, {
       metadata: { userId: resolvedUserId, plan: 'clyde_pro_agent' }
     });
+  } catch (err) {
+    // Ignore metadata write locks
   }
 
-  if (!resolvedUserId) {
-    return;
-  }
+  // Retrieve existing record to retain credits balance
+  let existingCredits = 0;
+  try {
+    const record = await findSubscriptionByUserId(resolvedUserId);
+    if (record && typeof record.credits === 'number') {
+      existingCredits = record.credits;
+    }
+  } catch (_) {}
 
   await upsertSubscriptionRecord({
     user_id: resolvedUserId,
@@ -83,6 +142,7 @@ async function saveSubscription(customerId, subscription, context = {}) {
     stripe_subscription_id: subscription.id,
     status: subscription.status,
     plan: 'clyde_pro_agent',
+    credits: existingCredits,
     current_period_end: subscription.current_period_end
       ? new Date(subscription.current_period_end * 1000).toISOString()
       : null,
