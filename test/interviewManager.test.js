@@ -160,15 +160,14 @@ test('Interview Manager CRUD operations', async (t) => {
 
         const id = manager.saveInterview(metadata);
         await new Promise(resolve => setTimeout(resolve, 50)); // Wait for background grading
+        failNextGrading = false; // reset before assertions so later tests do not inherit this mock mode
 
         const interviews = manager.getInterviews('Acme Corp');
         const failedInv = interviews.find(i => i.id === id);
         
         assert.strictEqual(failedInv.gradingStatus, 'complete'); // It catches the error and defaults to C
         assert.strictEqual(failedInv.grade, 'C');
-        assert.strictEqual(failedInv.reasoning, 'Failed to generate proper evaluation.');
-        
-        failNextGrading = false; // reset
+        assert.match(failedInv.reasoning, /Raw output failed to parse as JSON/);
     });
 
     await t.test('manual interview transcript is cleaned before grading and saved cleaned', async () => {
