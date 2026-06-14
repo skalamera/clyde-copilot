@@ -132,7 +132,23 @@ export default async function handler(request, response) {
 
     if (!tokenRes.ok) {
       const text = await tokenRes.text();
-      throw new Error(`Session token failed: ${tokenRes.status} ${text}`);
+      const providerMessage = (() => {
+        try {
+          const parsed = JSON.parse(text);
+          return parsed?.message || parsed?.error || parsed?.detail || text;
+        } catch (_) {
+          return text;
+        }
+      })();
+      if (/No credits available/i.test(providerMessage)) {
+        response.status(402).json({
+          error: 'LiveAvatar provider credits are exhausted. This is not your Clyde credit balance; add credits to the LiveAvatar/HeyGen account backing LIVEAVATAR_API_KEY or switch to a key with available LiveAvatar credits.',
+          providerError: providerMessage,
+          mode: isSandbox ? 'sandbox' : 'production'
+        });
+        return;
+      }
+      throw new Error(`Session token failed: ${tokenRes.status} ${providerMessage}`);
     }
 
     const tokenJson = await tokenRes.json();

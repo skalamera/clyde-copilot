@@ -3021,7 +3021,7 @@ function createWindow () {
                     prompt,
                     'Start with a short greeting only after the live audio and video stream is ready. Do not begin mid-sentence.'
                 ].join('\n\n').slice(0, 30000),
-                isSandbox: true
+                isSandbox: false
             }, {
                 headers: {
                     Authorization: `Bearer ${authSession.accessToken}`,
