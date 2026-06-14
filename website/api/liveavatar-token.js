@@ -84,7 +84,7 @@ export default async function handler(request, response) {
         opening_text: clampText(body.openingText || "Hello there! I'm ready to begin the interview.", 1000),
         prompt: clampText(body.prompt || '', 30000)
       };
-      isSandbox = body.isSandbox !== false;
+      isSandbox = false;
 
       if (!contextPayload.prompt) {
         response.status(400).json({ error: 'Missing LiveAvatar prompt.' });
