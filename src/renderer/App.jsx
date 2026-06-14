@@ -11599,11 +11599,18 @@ function ProSettingsBadge() {
 }
 
 function UpgradeToProButton({ className = '' }) {
+  async function handleUpgradeClick() {
+    try {
+      await window.electronAPI?.startCheckoutSession?.();
+    } catch (error) {
+      console.error('Stripe redirect failed:', error);
+    }
+  }
   return (
     <button
       className={`upgrade-pro-button ${className}`.trim()}
       type="button"
-      onClick={() => window.electronAPI?.openUpgradePage?.()}
+      onClick={handleUpgradeClick}
     >
       Upgrade to Pro
     </button>
