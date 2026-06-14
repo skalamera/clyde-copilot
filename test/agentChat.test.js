@@ -439,3 +439,44 @@ test('malformed chat JSON returns safe error response', async () => {
   assert.match(result.message.content, /could not parse/i);
   assert.equal(result.pendingAction, null);
 });
+
+test('chat filters calendar events to include recent past and upcoming events relative to current time', async () => {
+  const now = new Date();
+  const pastEvents = Array.from({ length: 8 }, (_, idx) => {
+    const d = new Date(now.getTime() - (8 - idx) * 24 * 3600 * 1000); // 8 to 1 days ago
+    return { id: `past-${idx}`, title: `Past Event ${idx}`, date: d.toISOString(), entityName: idx % 2 === 0 ? 'Google' : '' };
+  });
+  const futureEvents = Array.from({ length: 12 }, (_, idx) => {
+    const d = new Date(now.getTime() + (idx + 1) * 24 * 3600 * 1000); // 1 to 12 days in the future
+    return { id: `future-${idx}`, title: `Future Event ${idx}`, date: d.toISOString(), entityName: idx % 2 === 0 ? 'Coda Search' : '' };
+  });
+  const calendarEvents = [...pastEvents, ...futureEvents];
+
+  const agent = createAgentChat({
+    settings: { userTier: 'free', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: { listKnowledge: () => [] },
+    calendarStore: {
+      listEvents: () => calendarEvents
+    },
+    generateChat: async (request) => {
+      const systemPrompt = request.messages[0].content;
+      // Should contain the 5 most recent past events: past-3, past-4, past-5, past-6, past-7
+      assert.doesNotMatch(systemPrompt, /past-2/);
+      assert.match(systemPrompt, /past-3/);
+      assert.match(systemPrompt, /past-7/);
+      
+      // Should contain the 10 next upcoming events: future-0 to future-9
+      assert.match(systemPrompt, /future-0/);
+      assert.match(systemPrompt, /future-9/);
+      assert.doesNotMatch(systemPrompt, /future-10/);
+
+      // Verify company metadata formatting
+      assert.match(systemPrompt, /past-4: Past Event 4 at .* \(Company: Google\)/);
+      assert.match(systemPrompt, /future-0: Future Event 0 at .* \(Company: Coda Search\)/);
+      
+      return JSON.stringify({ message: { content: 'Checked.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  await agent.sendMessage({ sessionId: 'chat-calendar-filter', message: 'Show schedule' });
+});

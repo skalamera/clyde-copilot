@@ -5800,35 +5800,144 @@ function sourceModeLabel(sourceMode, activeEntityLabel = '') {
   return `Active context${activeLabel}`;
 }
 
+function parseInlineMarkdown(text = '') {
+  const parts = [];
+  const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3/g;
+  let match;
+  let lastIndex = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[1]) {
+      parts.push(<strong key={`b-${match.index}`}>{match[2]}</strong>);
+    } else if (match[3]) {
+      parts.push(<em key={`i-${match.index}`}>{match[4]}</em>);
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 function renderAgentMessageContent(content = '') {
-  const text = String(content || '').trim();
+  const text = String(content || '').replace(/\\n/g, '\n').trim();
   if (!text) {
     return <p></p>;
   }
 
-  const numberMatches = Array.from(text.matchAll(/(?:^|\s)(\d+)\.\s+/g));
-  if (numberMatches.length >= 2) {
-    const firstIndex = numberMatches[0].index || 0;
-    const intro = text.slice(0, firstIndex).trim();
-    const items = numberMatches.map((match, index) => {
-      const start = (match.index || 0) + match[0].length;
-      const end = index + 1 < numberMatches.length ? numberMatches[index + 1].index : text.length;
-      return text.slice(start, end).trim();
-    }).filter(Boolean);
+  const lines = text.split('\n');
+  const elements = [];
+  let currentParagraph = [];
+  let currentList = null;
+  let currentOrderedList = null;
 
-    return (
-      <>
-        {intro ? <p>{intro}</p> : null}
-        <ol className="agent-message-list">
-          {items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
-        </ol>
-      </>
-    );
+  function flushParagraph() {
+    if (currentParagraph.length > 0) {
+      elements.push(
+        <p key={`p-${elements.length}`} className="agent-message-paragraph" style={{ margin: '0 0 10px 0', lineHeight: '1.5' }}>
+          {parseInlineMarkdown(currentParagraph.join(' '))}
+        </p>
+      );
+      currentParagraph = [];
+    }
   }
 
-  return text.split(/\n{2,}/).map((paragraph, index) => (
-    <p key={`${paragraph}-${index}`}>{paragraph}</p>
-  ));
+  function flushList() {
+    if (currentList) {
+      elements.push(
+        <ul key={`ul-${elements.length}`} className="agent-message-list" style={{ margin: '0 0 10px 20px', padding: 0 }}>
+          {currentList.map((item, idx) => (
+            <li key={`li-${idx}`} style={{ marginBottom: '4px' }}>{parseInlineMarkdown(item)}</li>
+          ))}
+        </ul>
+      );
+      currentList = null;
+    }
+  }
+
+  function flushOrderedList() {
+    if (currentOrderedList) {
+      elements.push(
+        <ol key={`ol-${elements.length}`} className="agent-message-list-ordered" style={{ margin: '0 0 10px 20px', padding: 0 }}>
+          {currentOrderedList.map((item, idx) => (
+            <li key={`ol-li-${idx}`} style={{ marginBottom: '4px' }}>{parseInlineMarkdown(item)}</li>
+          ))}
+        </ol>
+      );
+      currentOrderedList = null;
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    if (!line) {
+      flushParagraph();
+      flushList();
+      flushOrderedList();
+      continue;
+    }
+
+    // Headings
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      flushOrderedList();
+      const level = headingMatch[1].length;
+      const headingText = headingMatch[2];
+      const HeadingTag = `h${Math.min(level + 1, 6)}`;
+      elements.push(
+        <HeadingTag key={`h-${elements.length}`} className={`agent-message-heading h${level}`} style={{ margin: '15px 0 8px 0', fontSize: level === 1 ? '1.3rem' : '1.1rem', fontWeight: 'bold' }}>
+          {parseInlineMarkdown(headingText)}
+        </HeadingTag>
+      );
+      continue;
+    }
+
+    // Numbered List Items
+    const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
+    if (numberedMatch) {
+      flushParagraph();
+      flushList();
+      if (!currentOrderedList) {
+        currentOrderedList = [];
+      }
+      currentOrderedList.push(numberedMatch[2]);
+      continue;
+    }
+
+    // Bullet List Items
+    const bulletMatch = line.match(/^[\*\-\┬┬•]\s+(.*)$/);
+    if (bulletMatch) {
+      flushParagraph();
+      flushOrderedList();
+      if (!currentList) {
+        currentList = [];
+      }
+      currentList.push(bulletMatch[1]);
+      continue;
+    }
+
+    // Regular lines - accumulate into paragraph
+    flushList();
+    flushOrderedList();
+    currentParagraph.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+  flushOrderedList();
+
+  return <div className="agent-message-rendered">{elements}</div>;
 }
 
 function AgentSourceMenu({

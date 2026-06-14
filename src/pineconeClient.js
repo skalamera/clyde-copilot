@@ -263,27 +263,32 @@ async function searchKnowledgeVectors(queryText, settings = {}, options = {}) {
   }
 
   const client = options.axiosClient || axios;
-  const response = await client.post(`${config.host}/query`, {
-    vector,
-    topK: options.topK || 5,
-    includeMetadata: true,
-    namespace: config.namespace,
-    ...(options.filter ? { filter: options.filter } : {})
-  }, {
-    headers: {
-      'Api-Key': config.apiKey,
-      'Content-Type': 'application/json'
-    }
-  });
+  try {
+    const response = await client.post(`${config.host}/query`, {
+      vector,
+      topK: options.topK || 5,
+      includeMetadata: true,
+      namespace: config.namespace,
+      ...(options.filter ? { filter: options.filter } : {})
+    }, {
+      headers: {
+        'Api-Key': config.apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
 
-  return (response.data?.matches || []).map((match) => ({
-    score: match.score,
-    text: match.metadata?.text || '',
-    source: match.metadata?.source || match.metadata?.filename || 'knowledge',
-    knowledgeId: match.metadata?.knowledgeId || '',
-    type: match.metadata?.type || '',
-    metadata: match.metadata || {}
-  }));
+    return (response.data?.matches || []).map((match) => ({
+      score: match.score,
+      text: match.metadata?.text || '',
+      source: match.metadata?.source || match.metadata?.filename || 'knowledge',
+      knowledgeId: match.metadata?.knowledgeId || '',
+      type: match.metadata?.type || '',
+      metadata: match.metadata || {}
+    }));
+  } catch (error) {
+    console.error('[Pinecone] Search query failed:', error.response?.data || error.message);
+    return [];
+  }
 }
 
 function normalizeHost(host) {

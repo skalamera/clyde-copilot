@@ -77,7 +77,7 @@ const MAX_HISTORY_MESSAGES = 8;
       apiKey: effectiveSettings.llmApiKey || '',
       model: effectiveSettings.llmModel || '',
       temperature: 0.2,
-      maxTokens: 1200,
+      maxTokens: 4000,
       axiosClient,
       localUrl: effectiveSettings.localLlmUrl,
       jsonSchema: chatJsonSchema(),
@@ -359,7 +359,17 @@ const MAX_HISTORY_MESSAGES = 8;
     if (!knowledgeManager?.listKnowledge) {
       return [];
     }
-    return knowledgeManager.listKnowledge({ type: 'upload' }).map(sourceFromKnowledge);
+    let items = [];
+    try {
+      items = knowledgeManager.listKnowledge({}) || [];
+    } catch (e) {
+      try {
+        items = knowledgeManager.listKnowledge({ type: 'upload' }) || [];
+      } catch (err) {
+        // ignore
+      }
+    }
+    return items.map(sourceFromKnowledge);
   }
 
   function systemKnowledgeSources() {
@@ -396,8 +406,35 @@ function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = 
   const sourceText = sources.length
     ? sources.map((source, index) => `[${index + 1}] ${source.label}\n${source.text}`).join('\n\n')
     : 'No sources found.';
-  const eventText = calendarEvents.length
-    ? calendarEvents.slice(0, 10).map((event) => `${event.id}: ${event.title} at ${event.date}`).join('\n')
+
+  // Filter and sort calendar events to keep the most relevant ones.
+  // calendarEvents is pre-sorted oldest-to-newest in calendarStore.js.
+  const now = new Date();
+  const pastEvents = [];
+  const futureEvents = [];
+
+  for (const event of calendarEvents) {
+    const eventDate = new Date(event.date);
+    if (isNaN(eventDate.getTime())) {
+      // Treat invalid or missing dates as future events so they are not omitted
+      futureEvents.push(event);
+    } else if (eventDate >= now) {
+      futureEvents.push(event);
+    } else {
+      pastEvents.push(event);
+    }
+  }
+
+  // Take the 5 most recent past events and the next 10 upcoming events
+  const recentPast = pastEvents.slice(-5);
+  const upcoming = futureEvents.slice(0, 10);
+  const relevantEvents = [...recentPast, ...upcoming];
+
+  const eventText = relevantEvents.length
+    ? relevantEvents.map((event) => {
+        const companyPart = event.entityName ? ` (Company: ${event.entityName})` : '';
+        return `${event.id}: ${event.title} at ${event.date}${companyPart}`;
+      }).join('\n')
     : 'No calendar events.';
 
   return [
@@ -438,9 +475,7 @@ function parseChatResponse(text, sessionId, userMessage = '') {
       pendingAction
     };
   } catch (_error) {
-    if (process?.env?.CLYDE_DEBUG_CHAT_PARSE === '1') {
-      console.error(_error);
-    }
+    console.error('[CHAT_PARSE_ERROR]', _error, 'raw text was:', text);
     return {
       sessionId,
       message: {

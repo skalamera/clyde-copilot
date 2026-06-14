@@ -530,6 +530,7 @@ export default async function handler(request, response) {
 
     const geminiRawText = await geminiRes.text();
     console.log("Gemini Proxy status:", geminiRes.status, "bytes:", geminiRawText.length);
+    console.log("Gemini Proxy raw response:", geminiRawText);
 
     let geminiData;
     try {
