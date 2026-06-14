@@ -1720,6 +1720,12 @@ function LiveAvatarPracticeDemo() {
     setState('connecting');
     setMessage('Starting avatar practice session...');
     try {
+      // Explicitly request user microphone access before booting LiveKit WebRTC
+      await navigator.mediaDevices.getUserMedia({ audio: true }).catch((err) => {
+        console.error('Mic request failed:', err);
+        throw new Error('Microphone access is required. Please check your browser permissions.');
+      });
+
       const response = await fetch('/api/liveavatar-token', { method: 'POST' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.sessionToken) {
