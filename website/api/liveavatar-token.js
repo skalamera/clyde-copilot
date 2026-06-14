@@ -122,6 +122,7 @@ export default async function handler(request, response) {
         mode: 'FULL',
         is_sandbox: isSandbox,
         avatar_id: body.avatarId || SANDBOX_AVATAR_ID,
+        max_duration_seconds: 1800, // 30 minutes
         avatar_persona: {
           context_id: contextId,
           language: 'en'
