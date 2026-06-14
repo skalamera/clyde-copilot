@@ -161,6 +161,22 @@ function cleanSchemaForGemini(schema) {
   if (!schema || typeof schema !== 'object') {
     return schema;
   }
+
+  // Handle standard JSON schema optional/nullable standard structure of format:
+  // anyOf: [ { type: 'null' }, { type: 'object', properties: ... } ]
+  // by mapping it to a single nullable object.
+  if (schema.anyOf && Array.isArray(schema.anyOf)) {
+    const nonNullSchema = schema.anyOf.find(s => s && s.type !== 'null');
+    const hasNull = schema.anyOf.some(s => s && s.type === 'null');
+    if (nonNullSchema) {
+      const cleaned = cleanSchemaForGemini(nonNullSchema);
+      if (hasNull) {
+        cleaned.nullable = true;
+      }
+      return cleaned;
+    }
+  }
+
   const copy = {};
   const allowedKeys = new Set(['type', 'format', 'description', 'nullable', 'enum', 'properties', 'required', 'items']);
   
