@@ -3754,6 +3754,12 @@ function App() {
       setSettings(normalizeEntitledSettings({
         ...entitled,
         ...(savedTierStatus || {}),
+        // Preserve local feature toggles. Tier status is server entitlement data;
+        // it does not own local user preferences like whether the realtime Pro agent is enabled.
+        proAgentEnabled: entitled.proAgentEnabled,
+        ragEnabled: entitled.ragEnabled,
+        googleSyncEnabled: entitled.googleSyncEnabled,
+        googleSyncAutoApprove: entitled.googleSyncAutoApprove,
         entitlementFeatures: savedTierStatus?.features || entitled.entitlementFeatures || []
       }));
       if (options.close !== false) {
