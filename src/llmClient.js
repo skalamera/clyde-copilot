@@ -5,20 +5,11 @@ async function generateChat({ provider, apiKey, model, messages, jsonSchema, tem
         try {
             return await generateClydeCloud({ model, messages, jsonSchema, temperature, maxTokens, axiosClient, images });
         } catch (error) {
-            console.error('Clyde Cloud failed; trying fallback to stable gpt-4o-mini:', error.message);
-            return await generateClydeCloud({ model: 'gpt-4o-mini', messages, jsonSchema, temperature, maxTokens, axiosClient, images });
+            console.error('Clyde Cloud failed; retrying managed Gemini 3.5 Flash:', error.message);
+            return await generateClydeCloud({ model: 'gemini-3.5-flash', messages, jsonSchema, temperature, maxTokens, axiosClient, images });
         }
     } else if (provider === 'gemini') {
-        try {
-            return await generateGemini({ apiKey, model, messages, jsonSchema, temperature, maxTokens, images });
-        } catch (error) {
-            if (model !== 'gemini-2.5-flash' && model !== 'gemini-3.5-flash') {
-                const errMsg = error.response?.data?.error?.message || error.message;
-                console.warn(`Gemini run with model "${model}" failed. Retrying with stable model "gemini-2.5-flash": ${errMsg}`);
-                return await generateGemini({ apiKey, model: 'gemini-2.5-flash', messages, jsonSchema, temperature, maxTokens, images });
-            }
-            throw error;
-        }
+        return await generateGemini({ apiKey, model: 'gemini-3.5-flash', messages, jsonSchema, temperature, maxTokens, images });
     } else if (provider === 'anthropic') {
         try {
             return await generateAnthropic({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, images });
@@ -31,17 +22,7 @@ async function generateChat({ provider, apiKey, model, messages, jsonSchema, tem
             throw error;
         }
     } else if (provider === 'openai') {
-        try {
-            return await generateOpenAI({ apiKey, model, messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions', images });
-        } catch (error) {
-            const isModelError = error.response && (error.response.status === 400 || error.response.status === 404);
-            if (isModelError && model !== 'gpt-4o-mini') {
-                const errMsg = error.response?.data?.error?.message || error.message;
-                console.warn(`OpenAI run with model "${model}" failed. Retrying with stable model "gpt-4o-mini": ${errMsg}`);
-                return await generateOpenAI({ apiKey, model: 'gpt-4o-mini', messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions', images });
-            }
-            throw error;
-        }
+        return await generateOpenAI({ apiKey, model: 'gpt-4o', messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions', images });
     } else {
         const url = normalizeOpenAIChatUrl(localUrl || process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions');
         return generateOpenAI({ apiKey: apiKey || 'lm-studio', model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images });

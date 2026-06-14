@@ -374,6 +374,15 @@ function loadSettings() {
         }
     }
 
+    if (!['clyde-cloud', 'local', 'gemini', 'openai'].includes(settings.llmProvider)) {
+        settings.llmProvider = '';
+    }
+    if (settings.llmProvider === 'clyde-cloud' || settings.llmProvider === 'gemini') {
+        settings.llmModel = 'gemini-3.5-flash';
+    } else if (settings.llmProvider === 'openai') {
+        settings.llmModel = 'gpt-4o';
+    }
+
     // Inject back into process.env so existing modules (like pineconeClient.js) can read them
     if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
     if (settings.openAiApiKey) process.env.OPENAI_API_KEY = settings.openAiApiKey;
@@ -398,12 +407,20 @@ function saveSettings(newSettings, options = {}) {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     const openAiApiKey = String(newSettings?.openAiApiKey || '').trim();
+    const normalizedLlmProvider = ['clyde-cloud', 'local', 'gemini', 'openai'].includes(newSettings?.llmProvider) ? newSettings.llmProvider : '';
+    const normalizedLlmModel = normalizedLlmProvider === 'clyde-cloud' || normalizedLlmProvider === 'gemini'
+        ? 'gemini-3.5-flash'
+        : normalizedLlmProvider === 'openai'
+            ? 'gpt-4o'
+            : (normalizedLlmProvider === 'local' ? (newSettings?.llmModel || '') : '');
     const preserveEntitlements = options.preserveEntitlements !== false;
     const currentEntitlements = preserveEntitlements
         ? entitlementsFromSettings(loadSettings())
         : entitlementsFromSettings(newSettings || {});
     const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = applyEntitlementsToSettings({
         ...(newSettings || {}),
+        llmProvider: normalizedLlmProvider,
+        llmModel: normalizedLlmModel,
         userTier: currentEntitlements.tier,
         subscriptionStatus: currentEntitlements.status,
         subscriptionPlan: currentEntitlements.plan,

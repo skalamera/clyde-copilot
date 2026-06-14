@@ -7,7 +7,7 @@ export const config = {
   },
 };
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent';
 const GEMINI_EMBED_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -379,8 +379,8 @@ export default async function handler(request, response) {
         return;
       }
 
-      const validGptModels = new Set(['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo']);
-      const targetModel = validGptModels.has(inputModel) ? inputModel : 'gpt-4o-mini';
+      const validGptModels = new Set(['gpt-4o']);
+      const targetModel = 'gpt-4o';
 
       const openaiMessages = [];
       if (systemInstruction) {
@@ -477,8 +477,8 @@ export default async function handler(request, response) {
       return;
     }
 
-    const validGeminiModels = new Set(['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro']);
-    const targetModel = validGeminiModels.has(inputModel) ? inputModel : 'gemini-2.5-flash';
+    const validGeminiModels = new Set(['gemini-3.5-flash']);
+    const targetModel = 'gemini-3.5-flash';
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`;
 
     const geminiPayload = { contents };

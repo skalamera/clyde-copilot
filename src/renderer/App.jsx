@@ -208,8 +208,12 @@ function normalizeEntitledSettings(settings = {}) {
   const pro = userTier === 'pro' && (settings.subscriptionStatus || 'active') === 'active';
   
   // Enforce local fallbacks for Free tier users if premium providers are stale in settings
-  const llmProvider = settings.llmProvider === 'clyde-cloud' && !pro ? 'local' : (settings.llmProvider || '');
-  const llmModel = settings.llmProvider === 'clyde-cloud' && !pro ? '' : (settings.llmModel || '');
+  const llmProvider = settings.llmProvider === 'clyde-cloud' && !pro ? 'local' : (['clyde-cloud', 'local', 'openai', 'gemini'].includes(settings.llmProvider) ? settings.llmProvider : '');
+  const llmModel = llmProvider === 'clyde-cloud' || llmProvider === 'gemini'
+    ? 'gemini-3.5-flash'
+    : llmProvider === 'openai'
+      ? 'gpt-4o'
+      : (settings.llmProvider === 'clyde-cloud' && !pro ? '' : (settings.llmModel || ''));
   const transcriptionProvider = settings.transcriptionProvider === 'clyde-cloud-whisper' && !pro ? 'local' : (settings.transcriptionProvider || '');
 
   return {
@@ -10205,7 +10209,11 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
     ...settings,
     appMode: mode || settings.appMode || 'interview',
     llmProvider: settings.llmProvider || (isPro ? 'clyde-cloud' : 'local'),
-    llmModel: settings.llmModel || (isPro ? 'gemini-2.5-flash' : ''),
+    llmModel: settings.llmProvider === 'openai'
+      ? 'gpt-4o'
+      : (settings.llmProvider === 'gemini' || settings.llmProvider === 'clyde-cloud' || isPro)
+        ? 'gemini-3.5-flash'
+        : '',
     transcriptionProvider: settings.transcriptionProvider || (isPro ? 'clyde-cloud-whisper' : 'local'),
     audioEngine: settings.audioEngine || 'rust',
     googleSyncPollMinutes: settings.googleSyncPollMinutes || 15,
@@ -11454,11 +11462,10 @@ function SoulStep({ selectedSoul, setSelectedSoul, soulCustomDescription, setSou
 }
 
 function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate, proEntitled }) {
-  const cloudLlm = draft.llmProvider && !['local', 'openai', 'clyde-cloud'].includes(draft.llmProvider);
   return (
     <div className="onboarding-form-grid">
       <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
-        Providers and hardware connect Clyde to AI brains and audio signals. Set up your language models (local, Clyde managed, or custom cloud APIs), configure audio engines, and select your audio devices so Clyde can listen to calls.
+        Providers and hardware connect Clyde to AI brains and audio signals. Clyde Managed Cloud uses Gemini 3.5 Flash. BYOK supports Google Gemini 3.5 Flash or OpenAI GPT-4o automatically.
       </p>
       <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => {
         const val = event.target.value;
@@ -11467,16 +11474,17 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate,
           return;
         }
         update('llmProvider', val);
-        if (val === 'clyde-cloud') {
-          update('llmModel', 'gemini-2.5-flash');
+        if (val === 'clyde-cloud' || val === 'gemini') {
+          update('llmModel', 'gemini-3.5-flash');
+        } else if (val === 'openai') {
+          update('llmModel', 'gpt-4o');
+        } else {
+          update('llmModel', '');
         }
-      }}><option value="">Select provider</option><option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option><option value="local">Local LM Studio (Offline)</option><option value="openai">OpenAI (Custom Key)</option><option value="anthropic">Anthropic (Custom Key)</option><option value="gemini">Google Gemini (Custom Key)</option></select></label>
-      {draft.llmProvider && draft.llmProvider !== 'clyde-cloud' ? (
-        <label>Model<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" /></label>
-      ) : null}
+      }}><option value="">Select provider</option><option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option><option value="local">Local LM Studio (Offline)</option><option value="gemini">Google Gemini (Custom Key)</option><option value="openai">OpenAI ChatGPT (Custom Key)</option></select></label>
       {draft.llmProvider === 'local' ? <label className="wide-field">Local LLM URL<input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" /></label> : null}
       {draft.llmProvider === 'openai' ? <label className="wide-field">OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
-      {cloudLlm ? <label className="wide-field">API key<input type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} /></label> : null}
+      {draft.llmProvider === 'gemini' ? <label className="wide-field">Gemini API key<input type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} /></label> : null}
       <label>Transcription provider<select value={draft.transcriptionProvider || ''} onChange={(event) => {
         const val = event.target.value;
         if (val === 'clyde-cloud-whisper' && !proEntitled) {
@@ -11955,18 +11963,6 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
     });
   }
 
-  function renderLlmModelOptions() {
-    const provider = draft.llmProvider || '';
-    let options = [];
-    if (provider === 'openai') {
-      options = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-preview', 'o1-mini', 'o3-mini'];
-    } else if (provider === 'anthropic') {
-      options = ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
-    } else if (provider === 'gemini') {
-      options = ['gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-    }
-    return options.map(opt => <option key={opt} value={opt} />);
-  }
 
   async function connectGoogle() {
     setSaveStatus('Opening Google sign-in...');
@@ -12333,8 +12329,10 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             <select value={draft.llmProvider || ''} onChange={(event) => {
               const val = event.target.value;
               update('llmProvider', val);
-              if (val === 'clyde-cloud') {
+              if (val === 'clyde-cloud' || val === 'gemini') {
                 update('llmModel', 'gemini-3.5-flash');
+              } else if (val === 'openai') {
+                update('llmModel', 'gpt-4o');
               } else {
                 update('llmModel', '');
               }
@@ -12342,9 +12340,8 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               <option value="">Select an LLM provider</option>
               <option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option>
               <option value="local">Local LM Studio (Offline)</option>
-              <option value="openai">OpenAI (Custom Key)</option>
-              <option value="anthropic">Anthropic (Custom Key)</option>
               <option value="gemini">Google Gemini (Custom Key)</option>
+              <option value="openai">OpenAI ChatGPT (Custom Key)</option>
             </select>
           </label>
           {draft.llmProvider === 'clyde-cloud' && !proEntitled && (
@@ -12357,27 +12354,15 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </div>
             </div>
           )}
-          {draft.llmProvider !== 'clyde-cloud' && (
-            <label>
-              Model
-              <input 
-                list="llmModelList" 
-                value={draft.llmModel || ''} 
-                onChange={(event) => update('llmModel', event.target.value)} 
-                placeholder="Model identifier" 
-              />
-              <datalist id="llmModelList">{renderLlmModelOptions()}</datalist>
-            </label>
-          )}
           {draft.llmProvider === 'openai' && (
             <label>
               OpenAI API key
               <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} placeholder="Stored locally" />
             </label>
           )}
-          {draft.llmProvider && !['local', 'openai', 'clyde-cloud'].includes(draft.llmProvider) && (
+          {draft.llmProvider === 'gemini' && (
             <label>
-              API key
+              Gemini API key
               <input autoComplete="new-password" type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} placeholder="Stored locally" />
             </label>
           )}

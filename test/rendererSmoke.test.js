@@ -42,7 +42,7 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'openEntityFileDialog',
     'requiredFields',
     'UpgradeToProButton',
-    'openUpgradePage',
+    'startCheckoutSession',
     'Refresh subscription'
     ,'Account and billing'
     ,'Create account'
@@ -75,13 +75,13 @@ test('first-run onboarding starts with Free vs Pro and has no hidden-app CTAs', 
   assert.match(appSource, /ONBOARDING_GUIDE_DISMISSED_KEY = 'clyde-onboarding-guide-dismissed'/);
   assert.match(appSource, /function OnboardingWizard/);
   assert.match(appSource, /function PlanStep/);
-  assert.match(appSource, /Continue with Free/);
-  assert.match(appSource, /Create Pro account/);
+  assert.match(appSource, /Create Account & Continue/);
+  assert.match(appSource, /Subscribe & Continue to Checkout/);
   assert.match(appSource, /startProSignupCheckout/);
-  assert.match(appSource, /Clyde creates the Supabase account after Stripe confirms payment/);
-  assert.match(appSource, /Finish Pro sign-in/);
-  assert.match(appSource, /Restart onboarding/);
-  assert.match(appSource, /check your email, open the Clyde invite link, and set your password/i);
+  assert.match(appSource, /If you choose a paid plan, we will create the account and direct you immediately to Stripe checkout/);
+  assert.match(appSource, /Sign In & Restore Setup/);
+  assert.match(appSource, /Restart registration/);
+  assert.match(appSource, /Stripe checkout opened\. After payment completes, return here and sign in/i);
   assert.match(appSource, /Do not show this again/);
   assert.match(appSource, /localStorage\.setItem\(ONBOARDING_GUIDE_DISMISSED_KEY, 'true'\)/);
   assert.match(cssSource, /\.onboarding-wizard/);
@@ -101,11 +101,10 @@ test('onboarding gates Pro setup and keeps Free setup local', () => {
   const settingsStart = appSource.indexOf('function SettingsDrawer', wizardStart);
   const wizardSource = appSource.slice(wizardStart, settingsStart);
 
-  assert.match(wizardSource, /llmProvider: settings\.llmProvider \|\| 'local'/);
-  assert.match(wizardSource, /transcriptionProvider: settings\.transcriptionProvider \|\| 'local'/);
+  assert.match(wizardSource, /llmProvider: settings\.llmProvider \|\| \(\s*isPro \? 'clyde-cloud' : 'local'\s*\)/);
+  assert.match(wizardSource, /transcriptionProvider: settings\.transcriptionProvider \|\| \(\s*isPro \? 'clyde-cloud-whisper' : 'local'\s*\)/);
   assert.match(wizardSource, /Local LM Studio/);
   assert.match(wizardSource, /OpenAI/);
-  assert.match(wizardSource, /Anthropic/);
   assert.match(wizardSource, /Google Gemini/);
   assert.match(wizardSource, /Local Whisper/);
   assert.match(wizardSource, /OpenAI Whisper/);
@@ -277,6 +276,26 @@ test('settings expose OpenAI realtime Whisper transcription provider', () => {
   assert.match(appSource, /<option value="">Select a transcription provider<\/option>/);
   assert.match(appSource, /draft\.transcriptionProvider === 'local' \?/);
   assert.match(appSource, /OpenAI API key/);
+});
+
+test('LLM providers are locked to managed Gemini 3.5, BYOK Gemini 3.5, or BYOK GPT-4o without model pickers', () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
+  const providerStepStart = appSource.indexOf('function ProviderStep');
+  const proStepStart = appSource.indexOf('function ProStep', providerStepStart);
+  const setupFieldsStart = appSource.indexOf('function SetupFields');
+  const providerStepSource = appSource.slice(providerStepStart, proStepStart);
+  const setupFieldsSource = appSource.slice(setupFieldsStart);
+
+  assert.match(appSource, /gemini-3\.5-flash/);
+  assert.match(providerStepSource, /update\('llmModel', 'gemini-3\.5-flash'\)/);
+  assert.match(providerStepSource, /update\('llmModel', 'gpt-4o'\)/);
+  assert.match(setupFieldsSource, /update\('llmModel', 'gemini-3\.5-flash'\)/);
+  assert.match(setupFieldsSource, /update\('llmModel', 'gpt-4o'\)/);
+  assert.doesNotMatch(providerStepSource, /Anthropic \(Custom Key\)/);
+  assert.doesNotMatch(setupFieldsSource, /Anthropic \(Custom Key\)/);
+  assert.doesNotMatch(providerStepSource, /Model<input/);
+  assert.doesNotMatch(setupFieldsSource, /list="llmModelList"/);
+  assert.doesNotMatch(setupFieldsSource, /function renderLlmModelOptions/);
 });
 
 test('first-run model and endpoint settings are blank', () => {
