@@ -10180,11 +10180,14 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
     attendeesText: attendeeLines(settings.meetingAttendees || []),
     meetingMemory: settings.meetingMemory || ''
   });
+  
+  const isPro = settings.userTier === 'pro';
   const [settingsDraft, setSettingsDraft] = useState({
     ...settings,
     appMode: mode || settings.appMode || 'interview',
-    llmProvider: settings.llmProvider || 'local',
-    transcriptionProvider: settings.transcriptionProvider || 'local',
+    llmProvider: settings.llmProvider || (isPro ? 'clyde-cloud' : 'local'),
+    llmModel: settings.llmModel || (isPro ? 'gemini-2.5-flash' : ''),
+    transcriptionProvider: settings.transcriptionProvider || (isPro ? 'clyde-cloud-whisper' : 'local'),
     audioEngine: settings.audioEngine || 'rust',
     googleSyncPollMinutes: settings.googleSyncPollMinutes || 15,
     proRealtimeModel: settings.proRealtimeModel || 'gpt-realtime-2',
