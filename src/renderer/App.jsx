@@ -12285,8 +12285,13 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           <label>
             Provider
             <select value={draft.llmProvider || ''} onChange={(event) => {
-              update('llmProvider', event.target.value);
-              update('llmModel', '');
+              const val = event.target.value;
+              update('llmProvider', val);
+              if (val === 'clyde-cloud') {
+                update('llmModel', 'gemini-3.5-flash');
+              } else {
+                update('llmModel', '');
+              }
             }}>
               <option value="">Select an LLM provider</option>
               <option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option>
@@ -12308,7 +12313,13 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           )}
           <label>
             Model
-            <input list="llmModelList" value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Model identifier" />
+            <input 
+              list="llmModelList" 
+              value={draft.llmModel || ''} 
+              disabled={draft.llmProvider === 'clyde-cloud'} 
+              onChange={(event) => update('llmModel', event.target.value)} 
+              placeholder={draft.llmProvider === 'clyde-cloud' ? "gemini-3.5-flash" : "Model identifier"} 
+            />
             <datalist id="llmModelList">{renderLlmModelOptions()}</datalist>
           </label>
           {draft.llmProvider === 'openai' && (
