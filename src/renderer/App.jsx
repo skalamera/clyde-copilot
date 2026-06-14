@@ -10156,14 +10156,15 @@ function EvaluationNotes({ mode = 'interview', summary, examples = [] }) {
 }
 
 function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange, onReload, onSettingsUpdated, onValidate, settings }) {
-  const [stepIndex, setStepIndex] = useState(0);
-  const [selectedPlanId, setSelectedPlanId] = useState('free'); // 'free', 'pro_monthly', 'pro_annual', 'credits_pack'
+  const isUserSignedIn = Boolean(settings.userId && settings.authEmail);
+  const [stepIndex, setStepIndex] = useState(isUserSignedIn ? 1 : 0);
+  const [selectedPlanId, setSelectedPlanId] = useState(settings.userTier === 'pro' ? 'pro_monthly' : 'free'); // 'free', 'pro_monthly', 'pro_annual', 'credits_pack'
   const [wizardMode, setWizardMode] = useState(mode || 'interview');
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [checkoutStarted, setCheckoutStarted] = useState(false);
-  const [completed, setCompleted] = useState({});
+  const [completed, setCompleted] = useState(isUserSignedIn ? { plan: true } : {});
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
   
   // Unified Registration Form State
@@ -10856,7 +10857,7 @@ ${
               <ScheduleStep mode={wizardMode} draft={eventDraft} setDraft={setEventDraft} />
             ) : null}
             {step.id === 'finish' ? (
-              <FinishStep completed={completed} plan={plan || 'free'} proEntitled={proEntitled} />
+              <FinishStep completed={completed} plan={selectedPlanId || 'free'} proEntitled={proEntitled} />
             ) : null}
           </div>
 
