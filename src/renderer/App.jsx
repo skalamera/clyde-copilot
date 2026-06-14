@@ -4624,7 +4624,7 @@ function App() {
         />
       ) : null}
 
-      {settingsOpen ? (
+      {settingsOpen && !onboardingOpen ? (
           <SettingsDrawer
             activeCapture={activeCapture}
             api={api}
