@@ -113,7 +113,7 @@ test('onboarding gates Pro setup and keeps Free setup local', () => {
   assert.match(wizardSource, /Connect Google/);
   assert.match(wizardSource, /Enable RAG with Pinecone/);
   assert.match(wizardSource, /Pinecone API key/);
-  assert.match(wizardSource, /Enable GPT Realtime 2 agent/);
+  assert.match(wizardSource, /Enable Clyde Pro agent/);
   assert.match(wizardSource, /OpenAI Realtime Whisper/);
 });
 

@@ -216,12 +216,15 @@ function normalizeEntitledSettings(settings = {}) {
       : (settings.llmProvider === 'clyde-cloud' && !pro ? '' : (settings.llmModel || ''));
   const transcriptionProvider = settings.transcriptionProvider === 'clyde-cloud-whisper' && !pro ? 'local' : (settings.transcriptionProvider || '');
 
+  const proRealtimeModel = pro && settings.proAgentEnabled ? 'gpt-realtime-2' : (settings.proRealtimeModel || '');
+
   return {
     ...settings,
     userTier,
     llmProvider,
     llmModel,
     transcriptionProvider,
+    proRealtimeModel,
     subscriptionStatus: settings.subscriptionStatus || (pro ? 'active' : 'free'),
     subscriptionCredits: typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0,
     entitlementFeatures: pro ? features : features.filter((feature) => !PRO_FEATURES.has(feature)),
@@ -5018,12 +5021,11 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
     : 'Screen capture protection disabled';
   const activeFiles = activeContext.entityFiles || [];
   const pinnedKnowledgeFiles = activeContext.pinnedKnowledge || [];
-  const activeFileLimit = preflight?.limits?.activeEntityFiles || 5;
-  const pinnedLimit = preflight?.limits?.pinnedKnowledge || activeFileLimit;
+
   const ragSummary = models.ragEnabled
     ? (models.pineconeConfigured ? 'Enabled and configured' : 'Enabled, needs setup')
     : 'Disabled';
-  const proRealtimeSummary = models.proAgentEnabled ? (models.proRealtimeModel || 'Enabled') : 'Disabled';
+  const proRealtimeSummary = models.proAgentEnabled ? 'Enabled' : 'Disabled';
   const questionBankSummary = questionBank.includedCount || questionBank.activeCount || 0;
 
   return (
@@ -5115,7 +5117,7 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
 
               <section className="preflight-panel preflight-rag-panel">
                 <div className="preflight-rag-summary">
-                  <strong>Knowledge page pins: <span className="ready-text">{pinnedKnowledgeFiles.length}/{pinnedLimit}</span></strong>
+                  <strong>Knowledge page pins: <span className="ready-text">{pinnedKnowledgeFiles.length}</span></strong>
                   <small>{proTier ? 'Pro RAG context from the Knowledge page.' : 'Requires Pro RAG.'}</small>
                   {pinnedKnowledgeFiles.length ? (
                     <div className="preflight-file-chip-list">
@@ -5165,11 +5167,11 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
               </button>
               <div className="preflight-dropzone">
                 <strong>Drop .txt, .md, or .pdf files</strong>
-                <span>Files attach to this {callLabel}. Up to {activeFileLimit} active files are included directly in fast context.</span>
+                <span>Files attach to this {callLabel}. All active files are included directly in fast context.</span>
                 <small>{formatBytes(preflight?.limits?.maxUploadBytes || 25 * 1024 * 1024)} max per file</small>
               </div>
               <div className="preflight-upload-pins">
-                <strong>Active opportunity files: <span className="ready-text">{activeFiles.length}/{activeFileLimit}</span></strong>
+                <strong>Active opportunity files: <span className="ready-text">{activeFiles.length}</span></strong>
                 {activeFiles.length ? (
                   <div className="preflight-file-chip-list">
                     {activeFiles.map((file) => (
@@ -11677,9 +11679,7 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
               const checked = event.target.checked;
               update('proAgentEnabled', checked);
               if (checked) {
-                if (!draft.proRealtimeModel) {
-                  update('proRealtimeModel', 'gpt-realtime-2');
-                }
+                update('proRealtimeModel', 'gpt-realtime-2');
                 update('transcriptionProvider', 'openai-realtime-whisper');
                 if (draft.openAiApiKey) {
                   update('transcriptionApiKey', draft.openAiApiKey);
@@ -11689,11 +11689,9 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
           />
           <span className="switch-slider" />
         </span>
-        <span className="switch-label">Enable GPT Realtime 2 agent</span>
+        <span className="switch-label">Enable Clyde Pro agent</span>
       </label>
 
-      <label>Realtime model<input value={draft.proRealtimeModel || 'gpt-realtime-2'} onChange={(event) => update('proRealtimeModel', event.target.value)} /></label>
-      
       {draft.proAgentEnabled && (
         <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', display: 'block', width: '100%', boxSizing: 'border-box' }}>
           ✓ OpenAI Realtime Whisper has been enabled.
@@ -12483,7 +12481,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           )}
           <div className="wide-field settings-section-label">
             <strong>Realtime voice agent</strong>
-            <small>Pro feature. Requires an OpenAI realtime model, such as gpt-realtime-2.</small>
+            <small>Pro feature. Uses OpenAI realtime agent technology.</small>
           </div>
           {!proEntitled ? (
             <div className="wide-field upgrade-pro-callout">
@@ -12508,9 +12506,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   const checked = event.target.checked;
                   update('proAgentEnabled', checked);
                   if (checked) {
-                    if (!draft.proRealtimeModel) {
-                      update('proRealtimeModel', 'gpt-realtime-2');
-                    }
+                    update('proRealtimeModel', 'gpt-realtime-2');
                     update('transcriptionProvider', 'openai-realtime-whisper');
                     if (draft.openAiApiKey) {
                       update('transcriptionApiKey', draft.openAiApiKey);
@@ -12525,11 +12521,6 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           </label>
           {proEntitled && draft.proAgentEnabled && (
             <>
-              <label>
-                Realtime agent model
-                <input value={draft.proRealtimeModel || ''} onChange={(event) => update('proRealtimeModel', event.target.value)} placeholder="gpt-realtime-2" />
-                <small style={{ color: 'var(--muted)' }}>Must be an OpenAI realtime model.</small>
-              </label>
               <label>
                 Realtime OpenAI API key
                 <input 
