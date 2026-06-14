@@ -206,9 +206,18 @@ function normalizeEntitledSettings(settings = {}) {
   const userTier = settings.userTier === 'pro' ? 'pro' : 'free';
   const features = Array.isArray(settings.entitlementFeatures) ? settings.entitlementFeatures : [];
   const pro = userTier === 'pro' && (settings.subscriptionStatus || 'active') === 'active';
+  
+  // Enforce local fallbacks for Free tier users if premium providers are stale in settings
+  const llmProvider = settings.llmProvider === 'clyde-cloud' && !pro ? 'local' : (settings.llmProvider || '');
+  const llmModel = settings.llmProvider === 'clyde-cloud' && !pro ? '' : (settings.llmModel || '');
+  const transcriptionProvider = settings.transcriptionProvider === 'clyde-cloud-whisper' && !pro ? 'local' : (settings.transcriptionProvider || '');
+
   return {
     ...settings,
     userTier,
+    llmProvider,
+    llmModel,
+    transcriptionProvider,
     subscriptionStatus: settings.subscriptionStatus || (pro ? 'active' : 'free'),
     subscriptionCredits: typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0,
     entitlementFeatures: pro ? features : features.filter((feature) => !PRO_FEATURES.has(feature)),
