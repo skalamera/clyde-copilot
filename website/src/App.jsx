@@ -148,7 +148,7 @@ function App() {
   const [upgradeNotice, setUpgradeNotice] = useState('');
 
   function showUpgradeNotice() {
-    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.');
+    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Get Clyde Pro.');
   }
 
   useEffect(() => {
@@ -241,7 +241,7 @@ function Header({ navigate, onDownload, path, upgradeNotice, showUpgradeNotice }
         <a href="#faq">FAQ</a>
       </nav>
       <div className="header-actions">
-        <button className="header-cta header-pro-cta" type="button" onClick={() => navigate('/pricing')}>Upgrade to Pro</button>
+        <button className="header-cta header-pro-cta" type="button" onClick={() => navigate('/pricing')}>Get Clyde Pro</button>
         <a className="header-cta" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
       </div>
       {upgradeNotice ? <span className="header-checkout-status">{upgradeNotice}</span> : null}
@@ -362,6 +362,9 @@ function PricingPage({ showUpgradeNotice }) {
   const [annual, setAnnual] = useState(true);
   const [proCheckout, setProCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
   const [creditsCheckout, setCreditsCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
+  
+  // Custom states for the Web Create Account modal
+  const [signupModal, setSignupModal] = useState({ open: false, email: '', password: '', confirmPassword: '', busy: false, error: '' });
 
   async function startProCheckout(event) {
     event.preventDefault();
@@ -372,26 +375,72 @@ function PricingPage({ showUpgradeNotice }) {
     }
     setProCheckout((s) => ({ ...s, busy: true, error: '', notice: '' }));
     try {
-      const response = await fetch('/api/create-pro-signup-checkout', {
+      // 1. Check if user already exists
+      const existRes = await fetch('/api/check-email-existence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, billingPeriod: annual ? 'annual' : 'monthly' })
+        body: JSON.stringify({ email })
       });
-      const payload = await response.json().catch(() => ({}));
-      if (response.status === 409) {
-        setProCheckout((s) => ({
-          ...s,
-          busy: false,
-          notice: 'An account already exists for this email. Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.'
-        }));
-        return;
+      const existPayload = await existRes.json().catch(() => ({}));
+      
+      if (existPayload.exists) {
+        // If they already exist, continue directly to checkout as we do now
+        const response = await fetch('/api/create-pro-signup-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, billingPeriod: annual ? 'annual' : 'monthly', forceCheckout: true })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.url) {
+          throw new Error(payload.error || 'Checkout could not be started. Please try again.');
+        }
+        window.location.href = payload.url;
+      } else {
+        // If it's a new user, prompt them with the Create Account password modal!
+        setProCheckout((s) => ({ ...s, busy: false }));
+        setSignupModal({ open: true, email, password: '', confirmPassword: '', busy: false, error: '' });
       }
-      if (!response.ok || !payload.url) {
-        throw new Error(payload.error || 'Checkout could not be started. Please try again.');
-      }
-      window.location.href = payload.url;
     } catch (error) {
       setProCheckout((s) => ({ ...s, busy: false, error: error.message || 'Checkout could not be started.' }));
+    }
+  }
+
+  async function handleWebSignupSubmit(event) {
+    event.preventDefault();
+    if (signupModal.password !== signupModal.confirmPassword) {
+      setSignupModal((s) => ({ ...s, error: 'Passwords do not match.' }));
+      return;
+    }
+    if (signupModal.password.length < 6) {
+      setSignupModal((s) => ({ ...s, error: 'Password must be at least 6 characters.' }));
+      return;
+    }
+    setSignupModal((s) => ({ ...s, busy: true, error: '' }));
+    try {
+      // Create user account in supabase directly from the website!
+      const signUpResponse = await fetch('/api/sign-up', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: signupModal.email, password: signupModal.password })
+      });
+      const signUpPayload = await signUpResponse.json().catch(() => ({}));
+      if (!signUpResponse.ok) {
+        throw new Error(signUpPayload.error || 'Account creation failed.');
+      }
+
+      // Automatically launch Stripe checkout immediately after account is successfully created!
+      const checkoutResponse = await fetch('/api/create-pro-signup-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: signupModal.email, billingPeriod: annual ? 'annual' : 'monthly', forceCheckout: true })
+      });
+      const checkoutPayload = await checkoutResponse.json().catch(() => ({}));
+      if (!checkoutResponse.ok || !checkoutPayload.url) {
+        throw new Error(checkoutPayload.error || 'Checkout redirect failed.');
+      }
+      window.location.href = checkoutPayload.url;
+    } catch (error) {
+      setSignupModal((s) => ({ ...s, busy: false, error: error.message }));
     }
   }
 
@@ -445,7 +494,7 @@ function PricingPage({ showUpgradeNotice }) {
       priceMonthly: 29.99,
       priceAnnual: 24.99,
       description: 'Unlock Clyde Pro Agent: deeper memory, RAG across sessions, inbox scans, mock interview scorecards, and calibrated trends.',
-      cta: 'Upgrade to Pro',
+      cta: 'Get Clyde Pro',
       ctaClass: 'primary',
       popular: true,
       features: [
@@ -599,6 +648,154 @@ function PricingPage({ showUpgradeNotice }) {
           ))}
         </div>
       </section>
+
+      {/* Web Create Account Modal */}
+      {signupModal.open ? (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.85)',
+          backdropFilter: 'blur(16px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#f8fafc',
+          fontFamily: 'system-ui, sans-serif',
+          padding: '16px'
+        }}>
+          <div style={{
+            background: 'rgba(30, 41, 59, 0.95)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '16px',
+            padding: '32px',
+            width: '100%',
+            maxWidth: '380px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+            textAlign: 'center',
+            position: 'relative'
+          }}>
+            <button
+              onClick={() => setSignupModal((s) => ({ ...s, open: false }))}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                fontSize: '1.5rem',
+                cursor: 'pointer'
+              }}
+            >
+              ×
+            </button>
+            <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '8px', color: '#f8fafc' }}>
+              Welcome to <span style={{ background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Clyde</span>
+            </h2>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '24px' }}>
+              Sign in or create a free account to unlock your career cockpit.
+            </p>
+
+            <form onSubmit={handleWebSignupSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                Email Address
+                <input
+                  type="email"
+                  required
+                  disabled
+                  value={signupModal.email}
+                  style={{
+                    background: '#0f172a',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#94a3b8',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    cursor: 'not-allowed'
+                  }}
+                />
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                Password
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  disabled={signupModal.busy}
+                  value={signupModal.password}
+                  onChange={(e) => setSignupModal({ ...signupModal, password: e.target.value })}
+                  style={{
+                    background: '#0f172a',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#f8fafc',
+                    fontSize: '0.9rem',
+                    outline: 'none'
+                  }}
+                />
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                Confirm Password
+                <input
+                  type="password"
+                  required
+                  disabled={signupModal.busy}
+                  value={signupModal.confirmPassword}
+                  onChange={(e) => setSignupModal({ ...signupModal, confirmPassword: e.target.value })}
+                  style={{
+                    background: '#0f172a',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#f8fafc',
+                    fontSize: '0.9rem',
+                    outline: 'none'
+                  }}
+                />
+              </label>
+
+              {signupModal.error ? (
+                <p style={{ fontSize: '0.8rem', color: '#ef4444', margin: '4px 0', textAlign: 'center', lineHeight: '1.4' }}>
+                  {signupModal.error}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={signupModal.busy}
+                style={{
+                  background: 'linear-gradient(to right, #6366f1, #a855f7)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#ffffff',
+                  fontSize: '0.95rem',
+                  fontWeight: '600',
+                  cursor: signupModal.busy ? 'wait' : 'pointer',
+                  marginTop: '8px',
+                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
+                  transition: 'opacity 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                {signupModal.busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
+                {signupModal.busy ? 'Creating account...' : 'Create Account'}
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -1417,7 +1614,7 @@ function TierSection() {
   const [upgradeNotice, setUpgradeNotice] = useState('');
 
   function showUpgradeNotice() {
-    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Upgrade to Pro.');
+    setUpgradeNotice('Open Clyde desktop, sign in, then use Settings > Account > Get Clyde Pro.');
   }
 
   return (
@@ -1436,7 +1633,7 @@ function TierSection() {
               <p>{tier.body}</p>
               {tier.name === 'Pro' ? (
                 <button className="primary-link tier-action" type="button" onClick={showUpgradeNotice}>
-                  Upgrade to Pro
+                  Get Clyde Pro
                 </button>
               ) : (
                 <a className="secondary-link tier-action" href={downloadHref} download>

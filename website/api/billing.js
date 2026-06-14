@@ -35,6 +35,8 @@ export default async function handler(req, res) {
         return await handleCreateBillingPortalSession(req, res);
       case 'create-pro-signup-checkout':
         return await handleCreateProSignupCheckout(req, res);
+      case 'check-email-existence':
+        return await handleCheckEmailExistence(req, res);
       case 'activate-pro-checkout':
         return await handleActivateProCheckout(req, res);
       case 'consume-credit':
@@ -161,11 +163,13 @@ async function handleCreateProSignupCheckout(req, res) {
   }
   const price = getProPriceId(body.billingPeriod);
 
-  const existing = await listSupabaseUsersByEmail(email);
-  if (existing.length > 0) {
-    // Anti-enumeration: do not confirm whether an account exists.
-    sendJson(res, 400, { error: 'Unable to start a new Pro signup with this email. If you have a Clyde account, sign in and upgrade from Settings; otherwise contact support.' });
-    return;
+  // Note: We bypass listSupabaseUsersByEmail check here IF the client sends 'forceCheckout: true' (which means we checked email existence first, verified they already exist, and are purposely routing an existing user directly to Stripe with their email context so they can upgrade!)
+  if (!body.forceCheckout) {
+    const existing = await listSupabaseUsersByEmail(email);
+    if (existing.length > 0) {
+      sendJson(res, 400, { error: 'Unable to start a new Pro signup with this email. If you have a Clyde account, sign in and upgrade from Settings; otherwise contact support.' });
+      return;
+    }
   }
 
   const stripe = getStripe();
@@ -198,8 +202,24 @@ async function handleCreateProSignupCheckout(req, res) {
     url: session.url,
     id: session.id,
     email,
-    message: 'Checkout opened. After payment, Clyde sends an account invite email so you can set your password and sign in.'
+    message: 'Checkout opened.'
   });
+}
+
+async function handleCheckEmailExistence(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  if (!email) {
+    sendJson(res, 400, { error: 'Email is required.' });
+    return;
+  }
+
+  const existing = await listSupabaseUsersByEmail(email);
+  sendJson(res, 200, { exists: existing.length > 0 });
 }
 
 async function handleActivateProCheckout(req, res) {

@@ -17,6 +17,10 @@
       "destination": "/api/billing?action=create-pro-signup-checkout"
     },
     {
+      "source": "/api/check-email-existence",
+      "destination": "/api/billing?action=check-email-existence"
+    },
+    {
       "source": "/api/create-credits-checkout",
       "destination": "/api/billing?action=create-credits-checkout"
     },
