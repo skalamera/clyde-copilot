@@ -10342,7 +10342,8 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
         const checkoutPayload = {
           email: signUpForm.email.trim(),
           password: signUpForm.password,
-          credits: selectedPlanId === 'credits_pack'
+          credits: selectedPlanId === 'credits_pack',
+          forceCheckout: true
         };
         const checkout = await api?.startProSignupCheckout?.(checkoutPayload);
         
