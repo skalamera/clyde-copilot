@@ -205,7 +205,7 @@ const MAX_HISTORY_MESSAGES = 8;
       } else if (payload.sourceMode === 'all') {
         sources.push(...draftSessionContextSources(payload));
         sources.push(...allUploadedKnowledgeSources());
-        sources.push(...allSessionSources());
+        sources.push(...allSessionSources(payload.message));
         sources.push(...questionBankSources({ ...payload, allQuestionBank: true }));
         sources.push(...pinnedKnowledgeSources(payload.settings));
         sources.push(...systemKnowledgeSources());
@@ -366,14 +366,55 @@ const MAX_HISTORY_MESSAGES = 8;
       return sources;
     }
 
-  function allSessionSources() {
+  function allSessionSources(query = '') {
     if (!sessionManager?.getSessions) {
       return [];
     }
-    return [
+    const list = [
       ...sessionManager.getSessions({ mode: 'interview' }),
       ...sessionManager.getSessions({ mode: 'meeting' })
-    ].map(sourceFromSession);
+    ];
+
+    const normalizedQuery = String(query || '').toLowerCase().trim();
+    if (!normalizedQuery) {
+      return list.map(sourceFromSession);
+    }
+
+    // Score sessions dynamically based on query keyword matches and direct entity name checks
+    const scored = list.map((session) => {
+      let score = 0;
+      const companyName = String(session.entity?.name || '').toLowerCase();
+      const role = String(session.entity?.role || '').toLowerCase();
+      const title = String(session.title || '').toLowerCase();
+      const phase = String(session.phase || '').toLowerCase();
+
+      // Priority 1: Direct company name match
+      if (companyName && normalizedQuery.includes(companyName)) {
+        score += 100;
+      }
+      // Priority 2: Role or title matches
+      if (role && normalizedQuery.includes(role)) {
+        score += 40;
+      }
+      if (title && normalizedQuery.includes(title)) {
+        score += 30;
+      }
+      if (phase && normalizedQuery.includes(phase)) {
+        score += 20;
+      }
+
+      // Keyword semantic boosts
+      if (normalizedQuery.includes('performance') && (phase.includes('technical') || title.includes('performance') || phase.includes('system'))) {
+        score += 15;
+      }
+
+      return { session, score };
+    });
+
+    // Sort descending by relevance score so high-priority documents occupy the prime spots in our context budget!
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .map(item => sourceFromSession(item.session));
   }
 
   function pinnedKnowledgeSources(effectiveSettings = {}) {
