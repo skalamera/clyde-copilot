@@ -4353,7 +4353,7 @@ function App() {
           onReload={reloadSessions}
           onCalendarChanged={loadCalendarEvents}
           onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
-          onValidate={validateServices}
+          onValidate={validateServicesFromWizard}
         />
       );
     }
