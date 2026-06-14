@@ -120,7 +120,7 @@ function createMockInterviewManager(options = {}) {
     const messages = [
       {
         role: 'system',
-        content: 'You are a direct interview coach. Score the candidate using evidence from the transcript. Be specific and practical.'
+        content: 'You are a direct interview coach. Score the user directly, addressing them as "you". Do NOT refer to them in the third person as "the candidate" or "the user". Be specific and practical.'
       },
       { role: 'user', content: prompt }
     ];
@@ -377,7 +377,9 @@ Duration seconds: ${Number(durationSeconds || 0)}
 Transcript:
 ${transcriptText}
 
-Return a detailed scorecard. Use direct evidence from the transcript. Keep scores on a 0 to 100 scale. Include concrete rewrites for weak answers.`;
+Return a detailed scorecard. Address the user directly as "you" (e.g., "you answered", "your score", "you demonstrated"). 
+Do NOT refer to the user in the third person as "the candidate", "the user", or "he/she/his/her". Address the user as if you are talking directly to them.
+Keep scores on a 0 to 100 scale. Include concrete rewrites for weak answers.`;
 }
 
 function getAssessmentSchema() {
