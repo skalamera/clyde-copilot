@@ -12311,17 +12311,18 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </div>
             </div>
           )}
-          <label>
-            Model
-            <input 
-              list="llmModelList" 
-              value={draft.llmModel || ''} 
-              disabled={draft.llmProvider === 'clyde-cloud'} 
-              onChange={(event) => update('llmModel', event.target.value)} 
-              placeholder={draft.llmProvider === 'clyde-cloud' ? "gemini-3.5-flash" : "Model identifier"} 
-            />
-            <datalist id="llmModelList">{renderLlmModelOptions()}</datalist>
-          </label>
+          {draft.llmProvider !== 'clyde-cloud' && (
+            <label>
+              Model
+              <input 
+                list="llmModelList" 
+                value={draft.llmModel || ''} 
+                onChange={(event) => update('llmModel', event.target.value)} 
+                placeholder="Model identifier" 
+              />
+              <datalist id="llmModelList">{renderLlmModelOptions()}</datalist>
+            </label>
+          )}
           {draft.llmProvider === 'openai' && (
             <label>
               OpenAI API key
