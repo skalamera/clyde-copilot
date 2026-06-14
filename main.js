@@ -649,6 +649,18 @@ async function getFreshAuthSession() {
 }
 
 async function refreshEntitlements() {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store();
+    // loadSettings() intentionally normalizes signed-out/free users by disabling
+    // Pro-only switches. Keep the raw locally saved preferences so signing back
+    // into a valid Pro account can restore the user's chosen toggles instead of
+    // permanently re-saving the signed-out normalized value.
+    const localPreferences = {
+        proAgentEnabled: Boolean(store.get('proAgentEnabled', false)),
+        ragEnabled: Boolean(store.get('ragEnabled', false)),
+        googleSyncEnabled: Boolean(store.get('googleSyncEnabled', false)),
+        googleSyncAutoApprove: Boolean(store.get('googleSyncAutoApprove', false))
+    };
     const settings = loadSettings();
     const authSession = await getFreshAuthSession();
     const entitlements = await fetchEntitlements({
@@ -656,7 +668,10 @@ async function refreshEntitlements() {
         userId: authSession?.userId || settings.userId,
         endpoint: settings.entitlementsUrl
     });
-    const nextSettings = applyEntitlementsToSettings(settings, entitlements);
+    const nextSettings = applyEntitlementsToSettings({
+        ...settings,
+        ...localPreferences
+    }, entitlements);
     saveSettings(nextSettings, { preserveEntitlements: false });
     return entitlementsFromSettings(nextSettings);
 }
