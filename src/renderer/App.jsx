@@ -10786,17 +10786,29 @@ ${
         <aside className="onboarding-steps">
           <span>Getting started</span>
           <h2>Clyde setup</h2>
-          {steps.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`${index === stepIndex ? 'active' : ''} ${completed[item.id] ? 'complete' : ''}`}
-              onClick={() => setStepIndex(index)}
-            >
-              <span>{index + 1}</span>
-              {item.label}
-            </button>
-          ))}
+          {steps.map((item, index) => {
+            const isPlanDisabled = item.id === 'plan' && isUserSignedIn;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`${index === stepIndex ? 'active' : ''} ${completed[item.id] ? 'complete' : ''}`}
+                style={{
+                  opacity: isPlanDisabled ? 0.5 : 1,
+                  cursor: isPlanDisabled ? 'not-allowed' : 'pointer'
+                }}
+                disabled={isPlanDisabled}
+                onClick={() => {
+                  if (!isPlanDisabled) {
+                    setStepIndex(index);
+                  }
+                }}
+              >
+                <span>{index + 1}</span>
+                {item.label}
+              </button>
+            );
+          })}
         </aside>
         <div className="onboarding-panel">
           <div className="onboarding-head">
