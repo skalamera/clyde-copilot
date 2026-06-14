@@ -11660,7 +11660,7 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
         </>
       )}
 
-      {draft.ragEnabled && (
+      {draft.ragEnabled && draft.llmProvider !== 'clyde-cloud' && (
         <>
           <label>Pinecone API key<input type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} /></label>
           <label>Pinecone host<input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="https://index.pinecone.io" /></label>
@@ -12407,20 +12407,20 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                       Embedding API key
                       <input autoComplete="new-password" type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} placeholder="Uses Gemini or OpenAI key when empty" />
                     </label>
+                    <label>
+                      Pinecone API Key
+                      <input autoComplete="new-password" type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} placeholder="Stored locally" />
+                    </label>
+                    <label>
+                      Pinecone Host URL
+                      <input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="e.g. https://index.pinecone.io" />
+                    </label>
+                    <label>
+                      Pinecone namespace
+                      <input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} placeholder="clyde-pro-knowledge" />
+                    </label>
                   </>
                 )}
-                <label>
-                  Pinecone API Key
-                  <input autoComplete="new-password" type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} placeholder="Stored locally" />
-                </label>
-                <label>
-                  Pinecone Host URL
-                  <input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="e.g. https://index.pinecone.io" />
-                </label>
-                <label>
-                  Pinecone namespace
-                  <input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} placeholder="clyde-pro-knowledge" />
-                </label>
               </div>
             )}
           </div>
