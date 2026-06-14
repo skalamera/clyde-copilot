@@ -4573,7 +4573,7 @@ function App() {
           <RealtimeInterview api={api} targetEntity={activeInterview} settings={settings} />
         ) : (
           <section className="assist-split-layout">
-            {setupOpen ? (
+            {setupOpen && !onboardingOpen ? (
               <div className="assist-top-scroll">
                 <SetupPanel
                   api={api}
