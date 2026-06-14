@@ -294,10 +294,12 @@ async function handleCreateCreditsCheckout(req, res) {
 
     // Anti-enumeration: verify they don't already have an account.
     // If they do, they should sign in and buy credits from the app.
-    const existing = await listSupabaseUsersByEmail(email);
-    if (existing.length > 0) {
-      sendJson(res, 400, { error: 'This email is already registered. Please sign in to Clyde and purchase credits from your account Settings.' });
-      return;
+    if (!body.forceCheckout) {
+      const existing = await listSupabaseUsersByEmail(email);
+      if (existing.length > 0) {
+        sendJson(res, 400, { error: 'This email is already registered. Please sign in to Clyde and purchase credits from your account Settings.' });
+        return;
+      }
     }
   }
 
