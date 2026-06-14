@@ -10915,7 +10915,7 @@ function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, pr
         <section className="onboarding-wide-card" style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}>
           <h3>Confirm your subscription</h3>
           <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '20px', lineHeight: '1.5' }}>
-            Complete your payment in the Stripe window. Make sure to check your inbox for an account verification email from Supabase to activate your account if you haven't already, then enter your email and password below to log into your Clyde Cockpit:
+            Complete your payment in the Stripe window, then enter your email and password below to log into your Clyde Cockpit:
           </p>
           <div className="onboarding-form-grid" style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>

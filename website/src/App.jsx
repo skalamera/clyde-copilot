@@ -1268,7 +1268,7 @@ function BillingSuccessPage() {
             ? 'This usually takes a few seconds.'
             : activation.status === 'error'
               ? 'If this keeps failing, contact support with the Stripe checkout email.'
-              : '1. Check your email inbox for an account verification email from Supabase and click the verification link. 2. Return to the Clyde Desktop app to complete sign in and onboarding.'}</p>
+              : 'Return to the Clyde Desktop app to sign in and complete your onboarding!'}</p>
         </aside>
       </section>
     </main>
