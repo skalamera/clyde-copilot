@@ -4340,6 +4340,7 @@ function App() {
     return null; // Don't flash login screen while loading settings
   }
 
+  // Moved early returns to the bottom of the body (after all hooks/functions are initialized) to prevent block hoisting errors during render swap
   if (!signedIn) {
     if (onboardingOpen) {
       // If we are opening signup onboarding, bypass sign-in view and let them go straight through OnboardingWizard
