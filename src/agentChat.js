@@ -247,7 +247,39 @@ const MAX_HISTORY_MESSAGES = 8;
       }
     }
 
-    return uniqueSources(sources).filter((source) => source.text).slice(0, 40);
+    // Filter out empty sources and apply budget-capping to prevent Vercel request payload caps (4.5MB)
+    // and serverless execution timeouts (10 seconds) on large raw transcripts.
+    const validSources = uniqueSources(sources).filter((source) => source.text);
+    const cappedSources = [];
+    let cumulativeChars = 0;
+    const MAX_CUMULATIVE_CHARS = 45000; // ~11,000 tokens of highly detailed context
+
+    for (const source of validSources) {
+        const maxSourceChars = 15000;
+        let text = source.text;
+        if (text.length > maxSourceChars) {
+            text = text.slice(0, maxSourceChars) + '\n... [Transcript truncated for size context limit]';
+        }
+
+        if (cumulativeChars + text.length > MAX_CUMULATIVE_CHARS) {
+            const remainingBudget = MAX_CUMULATIVE_CHARS - cumulativeChars;
+            if (remainingBudget > 1000) {
+                cappedSources.push({
+                    ...source,
+                    text: text.slice(0, remainingBudget) + '\n... [Truncated due to context limit]'
+                });
+            }
+            break;
+        }
+
+        cappedSources.push({
+            ...source,
+            text
+        });
+        cumulativeChars += text.length;
+    }
+
+    return cappedSources.slice(0, 40);
   }
 
   function activeSessionSources(payload = {}) {
