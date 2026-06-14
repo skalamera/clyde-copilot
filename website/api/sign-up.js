@@ -19,10 +19,7 @@ export default async function handler(req, res) {
 
     const existing = await listSupabaseUsersByEmail(email);
     if (existing.length > 0) {
-      // Anti-enumeration: respond exactly like a successful signup so
-      // unauthenticated callers cannot probe which emails have accounts.
-      // The legitimate owner simply won't receive a (duplicate) confirmation.
-      sendJson(res, 200, { user: null, session: null, message: 'Check your email to confirm your account.' });
+      sendJson(res, 400, { error: 'An account with this email already exists. Please sign in instead.' });
       return;
     }
 
