@@ -11024,30 +11024,49 @@ function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, pr
 
       {/* Plan Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-        {plans.map((p) => (
-          <div
-            key={p.id}
-            onClick={() => setSelectedPlanId(p.id)}
-            style={{
-              background: selectedPlanId === p.id ? 'rgba(99, 102, 241, 0.08)' : 'rgba(30, 41, 59, 0.4)',
-              border: selectedPlanId === p.id ? '2px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.06)',
-              borderRadius: '12px',
-              padding: '20px',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              textAlign: 'left',
-              transition: 'border 0.2s, background 0.2s'
-            }}
-          >
-            <h4 style={{ margin: '0 0 6px 0', fontSize: '1rem', color: '#f8fafc', fontWeight: '700' }}>{p.name}</h4>
-            <div style={{ color: '#818cf8', fontWeight: '800', fontSize: '1.4rem', margin: '4px 0 10px 0' }}>{p.price}</div>
-            <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: '0 0 12px 0', lineHeight: '1.4' }}>{p.description}</p>
-            <ul style={{ paddingLeft: '14px', margin: 'auto 0 0 0', fontSize: '0.74rem', color: '#cbd5e1', lineHeight: '1.5' }}>
-              {p.bullets.map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
-          </div>
-        ))}
+        {plans.map((p) => {
+          const isCredits = p.id === 'credits_pack';
+          return (
+            <div
+              key={p.id}
+              onClick={() => setSelectedPlanId(p.id)}
+              style={{
+                background: selectedPlanId === p.id ? 'rgba(99, 102, 241, 0.08)' : 'rgba(30, 41, 59, 0.4)',
+                border: selectedPlanId === p.id ? '2px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.06)',
+                borderRadius: '12px',
+                padding: '20px',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                textAlign: 'left',
+                transition: 'border 0.2s, background 0.2s'
+              }}
+            >
+              <h4 style={{ margin: '0 0 6px 0', fontSize: '1rem', color: '#f8fafc', fontWeight: '700' }}>{p.name}</h4>
+              <div style={{ color: '#818cf8', fontWeight: '800', fontSize: '1.4rem', margin: '4px 0 10px 0' }}>{p.price}</div>
+              
+              {/* Live select menu inside the card for credit packs */}
+              {isCredits && (
+                <div onClick={(e) => e.stopPropagation()} style={{ margin: '4px 0 12px 0', width: '100%' }}>
+                  <select 
+                    value={selectedCreditsSize} 
+                    onChange={(e) => setSelectedCreditsSize(Number(e.target.value))}
+                    style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '6px 10px', color: '#f8fafc', width: '100%', outline: 'none', fontSize: '0.8rem', cursor: 'pointer' }}
+                  >
+                    <option value="20">20 Credits — $4.99</option>
+                    <option value="50">50 Credits — $9.99</option>
+                    <option value="120">120 Credits — $19.99</option>
+                  </select>
+                </div>
+              )}
+
+              <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: '0 0 12px 0', lineHeight: '1.4' }}>{p.description}</p>
+              <ul style={{ paddingLeft: '14px', margin: 'auto 0 0 0', fontSize: '0.74rem', color: '#cbd5e1', lineHeight: '1.5' }}>
+                {p.bullets.map((b, i) => <li key={i}>{b}</li>)}
+              </ul>
+            </div>
+          );
+        })}
       </div>
 
       {/* Unified Registration form (replaces Continue with Free) */}

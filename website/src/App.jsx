@@ -581,6 +581,19 @@ function PricingPage({ showUpgradeNotice }) {
               <div className="tier-name">{tier.name}</div>
               <div className="price">{price(tier)}</div>
               <div className="price-period">{period(tier)}</div>
+              {tier.name === 'Credit Pack' && (
+                <div style={{ margin: '8px 0 16px 0', display: 'flex', flexDirection: 'column', gap: '6px', textAlign: 'center', width: '100%' }}>
+                  <select 
+                    value={selectedCreditsSize} 
+                    onChange={(e) => setSelectedCreditsSize(Number(e.target.value))}
+                    style={{ background: 'rgba(30, 41, 59, 0.7)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '8px 12px', color: '#f8fafc', width: '100%', outline: 'none', fontSize: '0.85rem', cursor: 'pointer', textAlign: 'center', boxSizing: 'border-box' }}
+                  >
+                    <option value="20">20 Credits — $4.99</option>
+                    <option value="50">50 Credits — $9.99</option>
+                    <option value="120">120 Credits — $19.99</option>
+                  </select>
+                </div>
+              )}
               <div className="description">{tier.description}</div>
 
               <ul className="feature-list">
@@ -615,18 +628,6 @@ function PricingPage({ showUpgradeNotice }) {
                 </form>
               ) : tier.name === 'Credit Pack' && creditsCheckout.open ? (
                 <form className="pro-checkout-form" onSubmit={startCreditsCheckout}>
-                  <div style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left' }}>
-                    <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Select Package Size</label>
-                    <select 
-                      value={selectedCreditsSize} 
-                      onChange={(e) => setSelectedCreditsSize(Number(e.target.value))}
-                      style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc', width: '100%', outline: 'none' }}
-                    >
-                      <option value="20">20 Credits — $4.99</option>
-                      <option value="50">50 Credits — $9.99</option>
-                      <option value="120">120 Credits — $19.99</option>
-                    </select>
-                  </div>
                   <input
                     type="email"
                     placeholder="you@email.com"
