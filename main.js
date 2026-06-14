@@ -1271,6 +1271,67 @@ function summarizeContextText(content = '', limit = 320) {
     return text.length > limit ? `${text.slice(0, Math.max(0, limit - 3))}...` : text;
 }
 
+function buildMaterialFallbackPrep({ companyName = '', role = '', jd = '', resumeText = '', opportunityFiles = [], pinnedFiles = [] } = {}) {
+    const corpus = [
+        companyName,
+        role,
+        jd,
+        resumeText,
+        ...(Array.isArray(opportunityFiles) ? opportunityFiles.map((item) => `${item.filename || ''} ${item.content || ''}`) : []),
+        ...(Array.isArray(pinnedFiles) ? pinnedFiles.map((item) => `${item.filename || ''} ${item.content || ''}`) : [])
+    ].join(' ').toLowerCase();
+    const has = (regex) => regex.test(corpus);
+    const companyLabel = companyName || 'this company';
+    const roleLabel = role || 'this role';
+
+    const probableFocus = [];
+    if (has(/support|customer|ticket|escalat|incident|sla|csat|contact center|intercom/)) {
+        probableFocus.push('Expect questions about support operations: diagnosing customer pain, reducing escalations, improving response quality, and proving impact with CSAT, SLA, backlog, deflection, or quality metrics.');
+    }
+    if (has(/ai|automation|llm|agent|bot|workflow|process/)) {
+        probableFocus.push('Expect questions about AI or automation: where you would apply it, how you would evaluate quality, and how you would keep humans in the loop for high-risk customer workflows.');
+    }
+    if (has(/lead|manage|director|head|vp|team|mentor|hiring|performance/)) {
+        probableFocus.push('Prepare leadership examples around coaching, prioritization, stakeholder alignment, performance management, and raising operating standards without losing trust.');
+    }
+    if (has(/sql|data|analytics|dashboard|metric|kpi|forecast|report/)) {
+        probableFocus.push('Be ready to explain how you use data: choosing metrics, finding root causes, separating noise from signal, and turning dashboards into operating decisions.');
+    }
+    if (has(/api|system|architecture|technical|engineering|integration|saas|platform/)) {
+        probableFocus.push('Expect technical and systems questions about integrations, reliability, tradeoffs, implementation constraints, and how you partner with engineering teams.');
+    }
+    while (probableFocus.length < 3) {
+        probableFocus.push(`Prepare role-fit answers that connect your background directly to ${roleLabel}, why ${companyLabel}, and what you would prioritize in the first 30-90 days.`);
+    }
+
+    return {
+        prep_basis: 'materials',
+        pre_call_prep: {
+            cumulative_phase_summary: [
+                `Use a materials-led narrative: tie your answers to ${companyLabel}, ${roleLabel}, the job description, your resume, and any pinned opportunity files rather than prior interview transcripts.`,
+                `Open with a crisp fit statement for ${roleLabel}: the problems you have solved, the stakes, the scale, and why those examples map to this role.`,
+                'Bring five reusable stories: an operating turnaround, an AI/process improvement, a stakeholder conflict, a metrics-driven decision, and a leadership/coaching moment.'
+            ],
+            probable_focus: probableFocus.slice(0, 3),
+            interviewer_question_patterns: [
+                `Lead with the parts of your background that map directly to ${roleLabel}: operating leadership, customer/support systems, AI-enabled workflow design, and measurable process improvement where relevant.`,
+                'Anchor your strongest examples in business outcomes: faster resolution, better quality, higher adoption, revenue protection, lower operational risk, or improved customer experience.',
+                'Use your breadth as an advantage by connecting frontline customer reality, tooling, process design, stakeholder management, and executive communication into one coherent story.'
+            ],
+            gaps_and_mitigation: [
+                'If a requirement is not obvious on paper, bridge it with adjacent experience: name the similar system, user, metric, or operating constraint you have handled and explain how it transfers.',
+                'If the role asks for a tool, domain, or technical stack you have not used directly, avoid apologizing; explain how you would ramp, what comparable tools you have mastered, and what judgment already transfers.',
+                'If your resume looks broader than the role, make the through-line explicit: you solve the exact class of customer, operations, AI, tooling, and workflow problems this role owns.'
+            ],
+            questions_to_ask: [
+                `What would success look like for ${roleLabel} in the first 90 days, and which metrics would show I am moving the right things?`,
+                'Where is the team feeling the most friction today: process, tooling, quality, customer expectations, data visibility, or cross-functional alignment?',
+                'What has already been tried in this area, and what would you want the person in this role to approach differently?'
+            ]
+        }
+    };
+}
+
 function buildAssistantContext(settings = loadSettings()) {
     const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
     const questionBankContext = questionBankManager && (settings.appMode || 'interview') === 'interview'
@@ -4041,10 +4102,13 @@ Address the user directly as "you". Do not call the user "the candidate" or use 
                   console.error("Failed to parse material pre-call prep:", response);
               }
 
-              const normalized = {
+              let normalized = {
                   prep_basis: 'materials',
                   pre_call_prep: normalizeTrendAnalysisResult({ pre_call_prep: parsed.pre_call_prep }, []).pre_call_prep
               };
+              if (!isMaterialPreCallPrepComplete(normalized)) {
+                  normalized = buildMaterialFallbackPrep({ companyName, role, jd, resumeText: settings.resumeText || '', opportunityFiles, pinnedFiles });
+              }
               saveTrendAnalysis(app.getPath('userData'), companyId, {
                   sessionsCount: sortedSessions.length,
                   sessionsSignature: prepSignature,
@@ -4053,7 +4117,13 @@ Address the user directly as "you". Do not call the user "the candidate" or use 
               return normalized;
           } catch (err) {
               console.error("Material pre-call prep error:", err);
-              return null;
+              const fallback = buildMaterialFallbackPrep({ companyName, role, jd, resumeText: settings.resumeText || '', opportunityFiles, pinnedFiles });
+              saveTrendAnalysis(app.getPath('userData'), companyId, {
+                  sessionsCount: sortedSessions.length,
+                  sessionsSignature: prepSignature,
+                  analysis: fallback
+              });
+              return fallback;
           }
       }
 

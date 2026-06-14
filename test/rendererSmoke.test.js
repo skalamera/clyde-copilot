@@ -910,6 +910,9 @@ test('pre-call prep supports material-based interview prep before completed inte
   assert.match(contextSource, /Gaps and mitigation/);
   assert.match(contextSource, /preCallPrep\.gaps_and_mitigation\.map/);
   assert.match(contextSource, /preCallPrep\.questions_to_ask\.map/);
+  assert.match(contextSource, /const prepRequiredSections = materialPrep/);
+  assert.match(contextSource, /gaps_and_mitigation', 'questions_to_ask'/);
+  assert.match(contextSource, /api\.generateTrendAnalysis\(activeId, \{ force: true \}\)/);
   assert.match(contextSource, /const cachedAnalysis = unwrapTrendAnalysisRecord\(parsed\)/);
   assert.match(contextSource, /normalized\.length < 2 && isMaterialPreCallPrepComplete\(cachedAnalysis\)/);
   assert.match(contextSource, /const storedAnalysis = unwrapTrendAnalysisRecord\(stored\)/);

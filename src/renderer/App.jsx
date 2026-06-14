@@ -9085,7 +9085,7 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
     setLoadingTrend(true);
     const cacheKey = `trend-analysis-${activeId}`;
     try {
-      const generated = await api.generateTrendAnalysis(activeId);
+      const generated = await api.generateTrendAnalysis(activeId, { force: true });
       if (generated) {
         setTrendAnalysis(generated);
         const sessionSignature = buildTrendAnalysisSessionSignature(activeSessions);
@@ -9214,10 +9214,12 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
   const interviewFallbackSummary = latestSession?.notes?.summary || 'No summary available yet.';
   const preCallPrep = trendAnalysis?.pre_call_prep || null;
   const materialPrep = trendAnalysis?.prep_basis === 'materials';
+  const prepRequiredSections = materialPrep
+    ? ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'gaps_and_mitigation', 'questions_to_ask']
+    : ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'questions_to_ask'];
   const hasPreCallPrep = Boolean(
     preCallPrep
-    && ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'questions_to_ask']
-      .every((key) => Array.isArray(preCallPrep[key]) && preCallPrep[key].length === 3)
+    && prepRequiredSections.every((key) => Array.isArray(preCallPrep[key]) && preCallPrep[key].length === 3)
   );
   const nextInterviewEvent = mode === 'interview'
     ? [...calendarEvents]
