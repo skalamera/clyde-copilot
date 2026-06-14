@@ -26,16 +26,22 @@ function normalizeSession(payload = {}) {
 async function signUp({ email, password, redirectTo, axiosClient = axios, config } = {}) {
   const signUpEndpoint = String(config?.signUpEndpoint || process.env.CLYDE_SIGN_UP_URL || '').trim();
   if (signUpEndpoint) {
-    const response = await axiosClient.post(signUpEndpoint, {
-      email,
-      password,
-      redirectTo: redirectTo || process.env.CLYDE_AUTH_REDIRECT_URL || 'https://clydeai.live/auth/confirmed'
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      timeout: 15000
-    });
+    let response;
+    try {
+      response = await axiosClient.post(signUpEndpoint, {
+        email,
+        password,
+        redirectTo: redirectTo || process.env.CLYDE_AUTH_REDIRECT_URL || 'https://clydeai.live/auth/confirmed'
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      });
+    } catch (error) {
+      const serverMessage = error?.response?.data?.error || error?.message || 'Account creation failed.';
+      throw new Error(serverMessage);
+    }
     return normalizeSession(response.data || {});
   }
 

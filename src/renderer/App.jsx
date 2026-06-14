@@ -10353,7 +10353,11 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
         setStatus(`Stripe checkout opened. After payment completes, return here and sign in with: ${signUpForm.email}`);
       }
     } catch (error) {
-      setStatus(`Registration failed: ${error.message}`);
+      // Strips Axios/IPC wrapper prefixes to show a clean, native, customer-friendly message
+      let msg = error.message || 'Account creation failed.';
+      msg = msg.replace(/Error invoking remote method '[^']+':\s*/g, '');
+      msg = msg.replace(/Error:\s*/g, '');
+      setStatus(`Registration failed: ${msg}`);
     } finally {
       setBusy(false);
     }
