@@ -1176,7 +1176,7 @@ function AuthConfirmedPage() {
       if (!response.ok) {
         throw new Error(payload.error || 'Password setup failed.');
       }
-      setStatus('Password saved. Open Clyde desktop and sign in with this email.');
+      setStatus('Password saved successfully! You are ready to log in.');
     } catch (error) {
       setStatus(error.message || 'Password setup failed.');
     } finally {
@@ -1189,8 +1189,8 @@ function AuthConfirmedPage() {
       <section className="subpage-hero policy-hero">
         <div className="subpage-copy is-visible">
           <span className="eyebrow">Account</span>
-          <h1>{token ? 'Set your Clyde password' : 'Email confirmed'}</h1>
-          <p>{token ? 'Create the password you will use to sign in to Clyde desktop.' : 'Your Clyde account email is confirmed. You can close this tab, return to the desktop app, and sign in.'}</p>
+          <h1>{token ? 'Set your Clyde password' : 'Email verified!'}</h1>
+          <p>{token ? 'Create the password you will use to sign in to Clyde desktop.' : 'Your Clyde account email has been successfully verified! You can safely close this browser window and return to the Clyde Desktop app to sign in.'}</p>
           {token ? (
             <form className="auth-password-form" onSubmit={completeInvite}>
               <label>Password<input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label>
@@ -1199,11 +1199,10 @@ function AuthConfirmedPage() {
               {status ? <p className="auth-status">{status}</p> : null}
             </form>
           ) : null}
-          <a className="primary-link" href="/">Back to Clyde</a>
         </div>
         <aside className="policy-summary-card is-visible">
           <h2>Next step</h2>
-          <p>{token ? 'After saving your password, open Clyde and sign in from onboarding or Settings.' : 'Open Clyde, go to Settings, then sign in from the Account tab.'}</p>
+          <p>{token ? 'After saving your password, open Clyde and sign in from onboarding or Settings.' : '1. Open the Clyde Desktop app. 2. Log in using your email and password. 3. Complete your onboarding!'}</p>
         </aside>
       </section>
     </main>
