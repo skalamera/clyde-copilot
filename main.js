@@ -602,11 +602,26 @@ function saveAuthSession(session) {
 function clearAuthSession() {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
+    const currentSettings = loadSettings();
     for (const key of ['userId', 'authEmail', 'authAccessToken', 'authRefreshToken', 'authExpiresAt']) {
         store.delete(key);
     }
-    const nextSettings = applyEntitlementsToSettings(loadSettings(), { tier: 'free', userId: '' });
-    saveSettings(nextSettings, { preserveEntitlements: false });
+    // Signing out should clear the authenticated entitlement state, not destroy
+    // local user preferences. Keep Pro toggles/settings so they can re-activate
+    // after the same Pro user signs back in and entitlements refresh.
+    store.set({
+        userTier: 'free',
+        subscriptionStatus: 'free',
+        subscriptionPlan: 'clyde_assistant',
+        subscriptionCredits: currentSettings.subscriptionCredits || 0,
+        entitlementFeatures: [],
+        entitlementsExpiresAt: null,
+        entitlementsCheckedAt: null,
+        proAgentEnabled: Boolean(currentSettings.proAgentEnabled),
+        ragEnabled: Boolean(currentSettings.ragEnabled),
+        googleSyncEnabled: Boolean(currentSettings.googleSyncEnabled),
+        googleSyncAutoApprove: Boolean(currentSettings.googleSyncAutoApprove)
+    });
     return authSessionFromSettings(loadSettings());
 }
 

@@ -44,6 +44,27 @@ test('applyEntitlementsToSettings disables local pro switches for free users', (
   assert.equal(settings.googleSyncAutoApprove, false);
 });
 
+test('local pro preferences are restored when pro entitlements are re-applied', () => {
+  const signedOutLocalPreferences = {
+    userTier: 'free',
+    proAgentEnabled: true,
+    ragEnabled: true,
+    googleSyncEnabled: true,
+    googleSyncAutoApprove: true
+  };
+
+  const restored = applyEntitlementsToSettings(signedOutLocalPreferences, buildEntitlements({
+    tier: 'pro',
+    status: 'active'
+  }));
+
+  assert.equal(restored.userTier, 'pro');
+  assert.equal(restored.proAgentEnabled, true);
+  assert.equal(restored.ragEnabled, true);
+  assert.equal(restored.googleSyncEnabled, true);
+  assert.equal(restored.googleSyncAutoApprove, true);
+});
+
 test('requireFeature throws a typed error when the feature is not available', () => {
   assert.throws(
     () => requireFeature(buildEntitlements({ tier: 'free' }), 'agent_actions'),
