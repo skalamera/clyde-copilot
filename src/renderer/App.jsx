@@ -4332,10 +4332,27 @@ function App() {
   }
 
   if (!signedIn) {
+    if (onboardingOpen) {
+      // If we are opening signup onboarding, bypass sign-in view and let them go straight through OnboardingWizard
+      return (
+        <OnboardingWizard
+          api={api}
+          mode={mode}
+          settings={settings}
+          onClose={() => setOnboardingOpen(false)}
+          onModeChange={chooseMode}
+          onReload={reloadSessions}
+          onCalendarChanged={loadCalendarEvents}
+          onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
+          onValidate={validateServices}
+        />
+      );
+    }
     return (
       <AuthOverlay
         api={api}
         onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
+        onOpenSignUpWizard={() => setOnboardingOpen(true)}
       />
     );
   }
@@ -10140,7 +10157,7 @@ function EvaluationNotes({ mode = 'interview', summary, examples = [] }) {
 
 function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange, onReload, onSettingsUpdated, onValidate, settings }) {
   const [stepIndex, setStepIndex] = useState(0);
-  const [plan, setPlan] = useState(settings.userTier === 'pro' ? 'pro' : '');
+  const [selectedPlanId, setSelectedPlanId] = useState('free'); // 'free', 'pro_monthly', 'pro_annual', 'credits_pack'
   const [wizardMode, setWizardMode] = useState(mode || 'interview');
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -10148,7 +10165,10 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
   const [checkoutStarted, setCheckoutStarted] = useState(false);
   const [completed, setCompleted] = useState({});
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
-  const [proForm, setProForm] = useState({ email: '', password: '', confirmPassword: '' });
+  
+  // Unified Registration Form State
+  const [signUpForm, setSignUpForm] = useState({ email: '', password: '', confirmPassword: '' });
+  
   const [signInForm, setSignInForm] = useState({ email: '', password: '' });
   const [workspaceDraft, setWorkspaceDraft] = useState({
     company: settings.currentCompany || '',
@@ -10214,7 +10234,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
 
   const proEntitled = canUseFeature(settingsDraft, 'pro_realtime_agent') || canUseFeature(settings, 'pro_realtime_agent');
   const steps = [
-    { id: 'plan', label: 'Plan' },
+    { id: 'plan', label: 'Plan & Register' },
     { id: 'mode', label: 'Mode' },
     { id: 'theme', label: 'Theme' },
     { id: 'workspace', label: wizardMode === 'meeting' ? 'Meeting' : 'Opportunity' },
@@ -10280,38 +10300,58 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
     return nextSettings;
   }
 
-  async function continueFree() {
-    setPlan('free');
-    setCompleted((current) => ({ ...current, plan: true }));
-    setStatus('Free setup selected. You can upgrade later from Settings.');
-    setStepIndex(1);
-  }
-
   function restartOnboardingPlan() {
-    setPlan('free');
+    setSelectedPlanId('free');
     setCheckoutStarted(false);
     setCompleted({});
     setStatus('');
     setStepIndex(0);
   }
 
-  async function startProCheckout() {
-    if (!proForm.email) {
-      setStatus('Enter the email address to use for the Pro account.');
+  async function startUnifiedRegister() {
+    if (!signUpForm.email.trim() || !signUpForm.password) {
+      setStatus('Please enter an email and password to register.');
+      return;
+    }
+    if (signUpForm.password !== signUpForm.confirmPassword) {
+      setStatus('Passwords do not match.');
       return;
     }
     setBusy(true);
+    setStatus('Creating account...');
     try {
-      const result = await api?.startProSignupCheckout?.({
-        email: proForm.email,
-        password: proForm.password
+      // 1. Create the account in Supabase
+      const authResult = await api?.signUp?.({
+        email: signUpForm.email.trim(),
+        password: signUpForm.password
       });
-      setPlan('pro');
-      setCheckoutStarted(true);
-      setCompleted((current) => ({ ...current, plan: true }));
-      setStatus(result?.message || 'Checkout opened. After payment, Clyde sends an account invite email so you can set your password and sign in.');
+
+      if (authResult?.settings) {
+        onSettingsUpdated?.(normalizeEntitledSettings(authResult.settings));
+      }
+
+      // 2. Determine checkout routing if Pro or Credit Pack is chosen
+      if (selectedPlanId === 'free') {
+        setCompleted((current) => ({ ...current, plan: true }));
+        setStatus('Account created! Free local tier activated. Continue onboarding.');
+        setStepIndex(1);
+      } else {
+        setStatus('Account created! Opening secure payment checkout in your default browser...');
+        
+        // Launch Stripe checkout session
+        const checkoutPayload = {
+          email: signUpForm.email.trim(),
+          password: signUpForm.password,
+          credits: selectedPlanId === 'credits_pack'
+        };
+        const checkout = await api?.startProSignupCheckout?.(checkoutPayload);
+        
+        setCheckoutStarted(true);
+        setCompleted((current) => ({ ...current, plan: true }));
+        setStatus(`Stripe checkout opened. After payment completes, return here and sign in with: ${signUpForm.email}`);
+      }
     } catch (error) {
-      setStatus(error.message || 'Pro checkout failed.');
+      setStatus(`Registration failed: ${error.message}`);
     } finally {
       setBusy(false);
     }
@@ -10339,18 +10379,18 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
       onSettingsUpdated?.(nextSettings);
       if (entitlements?.tier === 'pro' || entitlements?.userTier === 'pro') {
         setStatus('Pro is active. Pro setup is now available.');
-        setPlan('pro');
-        setCompleted((current) => ({ ...current, plan: true, proActive: true }));
+        setSelectedPlanId('pro_monthly');
+        setCompleted((current) => ({ ...current, plan: true }));
+        setStepIndex(1);
       } else {
-        setStatus('Subscription still shows Free. Complete checkout, then refresh again.');
+        setStatus('License check complete. No active subscription found on this email. Complete checkout first.');
       }
     } catch (error) {
-      setStatus(error.message || 'Sign in failed.');
+      setStatus(error.message || 'Verification failed.');
     } finally {
       setBusy(false);
     }
   }
-
   async function refreshSubscription() {
     setBusy(true);
     try {
@@ -10698,12 +10738,12 @@ ${
 
   function continueCurrentStep() {
     if (step.id === 'plan') {
-      if (!plan) {
-        setStatus('Choose Free or start Pro checkout.');
+      if (!selectedPlanId) {
+        setStatus('Select Free, Pro or Credit Pack first.');
         return;
       }
-      if (plan === 'pro' && !proEntitled) {
-        setStatus('Complete checkout and refresh subscription, or continue with Free for now.');
+      if (selectedPlanId !== 'free' && !proEntitled) {
+        setStatus('Please create your account and complete Stripe checkout to continue with Pro features.');
         return;
       }
       setStepIndex(1);
@@ -10753,15 +10793,15 @@ ${
             {step.id === 'plan' ? (
               <PlanStep
                 busy={busy}
-                plan={plan}
+                selectedPlanId={selectedPlanId}
+                setSelectedPlanId={setSelectedPlanId}
                 checkoutStarted={checkoutStarted}
                 proEntitled={proEntitled}
-                proForm={proForm}
-                setProForm={setProForm}
+                signUpForm={signUpForm}
+                setSignUpForm={setSignUpForm}
                 signInForm={signInForm}
                 setSignInForm={setSignInForm}
-                onContinueFree={continueFree}
-                onStartProCheckout={startProCheckout}
+                onStartUnifiedRegister={startUnifiedRegister}
                 onSignInRefresh={signInAndRefresh}
                 onRefreshSubscription={refreshSubscription}
                 onRestart={restartOnboardingPlan}
@@ -10859,115 +10899,186 @@ ${
   );
 }
 
-function PlanStep({ busy, checkoutStarted, plan, proEntitled, proForm, setProForm, signInForm, setSignInForm, onContinueFree, onStartProCheckout, onSignInRefresh, onRestart }) {
+function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, proEntitled, signUpForm, setSignUpForm, signInForm, setSignInForm, onStartUnifiedRegister, onSignInRefresh, onRestart }) {
   if (checkoutStarted && !proEntitled) {
     return (
-      <div className="onboarding-grid">
-        <p className="wide-field onboarding-note" style={{ margin: '0 0 8px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
-          Finish your registration: check your email, open the Clyde invite link to set your password, then sign in below.
+      <div className="onboarding-grid" style={{ gridTemplateColumns: '1fr' }}>
+        <p className="wide-field onboarding-note" style={{ margin: '0 0 12px 0', fontSize: '0.9rem', lineHeight: '1.5', color: '#38bdf8' }}>
+          ✓ Almost done! Stripe checkout session is open in your browser.
         </p>
-        <section className="onboarding-wide-card">
-          <h3>Finish Pro sign-in</h3>
-          <p>After checkout, check your email, open the Clyde invite link, and set your password. Then sign in here with that email and password.</p>
-          <div className="onboarding-form-grid">
-            <label className="wide-field">Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
-            <label className="wide-field">Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
-            <button type="button" className="primary-action wide-field" disabled={busy} onClick={onSignInRefresh}>Sign in</button>
-            <button type="button" className="ghost wide-field" disabled={busy} onClick={onRestart}>Restart onboarding</button>
+        <section className="onboarding-wide-card" style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}>
+          <h3>Confirm your subscription</h3>
+          <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '20px' }}>
+            Complete your test payment in the Stripe window, then enter your email and password below to log into your Clyde Cockpit:
+          </p>
+          <div className="onboarding-form-grid" style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+              Email Address
+              <input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc' }} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+              Password
+              <input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc' }} />
+            </label>
+            <button type="button" className="primary-action wide-field" disabled={busy} onClick={onSignInRefresh} style={{ padding: '12px', borderRadius: '8px', background: 'linear-gradient(to right, #6366f1, #a855f7)', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: '600' }}>
+              Verify & Sign In
+            </button>
+            <button type="button" className="ghost wide-field" disabled={busy} onClick={onRestart} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>
+              Restart registration
+            </button>
           </div>
         </section>
       </div>
     );
   }
 
+  const plans = [
+    {
+      id: 'free',
+      name: 'Free Tier',
+      price: '$0',
+      description: 'Local helper for live capture, manual opportunity tracking, and current-context guidance.',
+      bullets: [
+        'Local model routing & local transcriptions',
+        'Standard browser auto-fillers',
+        'Manual opportunity & round tracking',
+        'Bring Your Own Keys (BYOK)'
+      ]
+    },
+    {
+      id: 'pro_monthly',
+      name: 'Pro Monthly',
+      price: '$29.99/mo',
+      description: 'Unlock Pro: Managed cloud LLMs, advanced RAG search, mock scorecards, and Realtime voice.',
+      bullets: [
+        'Clyde Managed Cloud (Uncapped Gemini/GPT)',
+        'Continuous Gmail & Google Calendar Sync',
+        'Pinecone Hybrid RAG semantic search',
+        'Low-latency GPT Realtime voice coach'
+      ]
+    },
+    {
+      id: 'pro_annual',
+      name: 'Pro Annual',
+      price: '$24.99/mo',
+      description: 'Get all Clyde Pro features with an annual subscription (Save 16%, billed annually).',
+      bullets: [
+        'All Pro Monthly features included',
+        'Save over $60 annually',
+        'Direct priority support access',
+        'Never worry about monthly renew cycles'
+      ]
+    },
+    {
+      id: 'credits_pack',
+      name: 'Credit Pack (100)',
+      price: '$9.99',
+      description: 'On-demand pay-as-you-go background filler credits. Never expires, perfect for light users.',
+      bullets: [
+        '100 background credits included',
+        'Perfect for extension-focused fillers',
+        'No recurring monthly commitments',
+        'Use credits when you need them'
+      ]
+    }
+  ];
+
   return (
-    <div className="onboarding-grid">
-      <p className="wide-field onboarding-note" style={{ margin: '0 0 12px 0', fontSize: '0.9rem', lineHeight: '1.5' }}>
-        Select a plan to tailor your Clyde experience. Choose the <strong>Free</strong> tier for basic local helper functionality, or upgrade to <strong>Pro</strong> to unlock uncapped, zero-config model access, automated Google sync, advanced Pinecone RAG semantic search, and the low-latency GPT Realtime voice agent.
+    <div className="onboarding-grid" style={{ gridTemplateColumns: '1fr', gap: '24px' }}>
+      <p className="wide-field onboarding-note" style={{ margin: '0', fontSize: '0.9rem', lineHeight: '1.5', color: '#94a3b8' }}>
+        Select your plan up front, then create your new Clyde account below to begin your setup:
       </p>
-      <section className={`plan-card ${plan === 'free' ? 'active' : ''}`}>
-        <h3>Free</h3>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          background: '#0f172a',
-          padding: '6px 16px',
-          borderRadius: '8px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          margin: '6px 0 12px 0'
-        }}>
-          <strong style={{ fontSize: '1.5rem', color: 'var(--lime)', fontWeight: 'bold' }}>$0</strong>
-        </div>
-        <p style={{ fontSize: '0.82rem', margin: '4px 0 12px 0', color: 'var(--muted)' }}>Local helper setup for live capture, manual tracking, and current-context assistance.</p>
-        <ul style={{ paddingLeft: '14px', marginBottom: '16px', fontSize: '0.82rem', textAlign: 'left' }}>
-          <li>Local/basic knowledge & session history</li>
-          <li>Manual opportunity & meeting tracking</li>
-          <li>Standard browser extension form auto-filler</li>
-          <li>Bring Your Own Keys (BYOK) for LLM & transcription</li>
-        </ul>
-        <button type="button" className="ghost" style={{ width: '100%', marginTop: 'auto' }} disabled={busy} onClick={onContinueFree}>Continue with Free</button>
+
+      {/* Plan Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+        {plans.map((p) => (
+          <div
+            key={p.id}
+            onClick={() => setSelectedPlanId(p.id)}
+            style={{
+              background: selectedPlanId === p.id ? 'rgba(99, 102, 241, 0.08)' : 'rgba(30, 41, 59, 0.4)',
+              border: selectedPlanId === p.id ? '2px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.06)',
+              borderRadius: '12px',
+              padding: '20px',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              textAlign: 'left',
+              transition: 'border 0.2s, background 0.2s'
+            }}
+          >
+            <h4 style={{ margin: '0 0 6px 0', fontSize: '1rem', color: '#f8fafc', fontWeight: '700' }}>{p.name}</h4>
+            <div style={{ color: '#818cf8', fontWeight: '800', fontSize: '1.4rem', margin: '4px 0 10px 0' }}>{p.price}</div>
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: '0 0 12px 0', lineHeight: '1.4' }}>{p.description}</p>
+            <ul style={{ paddingLeft: '14px', margin: 'auto 0 0 0', fontSize: '0.74rem', color: '#cbd5e1', lineHeight: '1.5' }}>
+              {p.bullets.map((b, i) => <li key={i}>{b}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* Unified Registration form (replaces Continue with Free) */}
+      <section className="onboarding-wide-card wide-field" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px', marginTop: '8px' }}>
+        <h3 style={{ marginBottom: '8px' }}>Create your Clyde account</h3>
+        <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '20px' }}>
+          Enter your details below to set up your account profile. If you choose a paid plan, we will create the account and direct you immediately to Stripe checkout.
+        </p>
+
+        <form onSubmit={(e) => { e.preventDefault(); onStartUnifiedRegister(); }} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', textAlign: 'left' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+            Email Address
+            <input type="email" required value={signUpForm.email} onChange={(event) => setSignUpForm((current) => ({ ...current, email: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc' }} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+            Password
+            <input type="password" required value={signUpForm.password} onChange={(event) => setSignUpForm((current) => ({ ...current, password: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc' }} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+            Confirm Password
+            <input type="password" required value={signUpForm.confirmPassword} onChange={(event) => setSignUpForm((current) => ({ ...current, confirmPassword: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc' }} />
+          </label>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button
+              type="submit"
+              disabled={busy}
+              style={{
+                background: 'linear-gradient(to right, #6366f1, #a855f7)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '12px 32px',
+                color: '#ffffff',
+                fontSize: '0.95rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)'
+              }}
+            >
+              {busy ? 'Working...' : selectedPlanId === 'free' ? 'Create Account & Continue' : `Subscribe & Continue to Checkout`}
+            </button>
+          </div>
+        </form>
       </section>
-      <section className={`plan-card pro ${plan === 'pro' || proEntitled ? 'active' : ''}`}>
-        <h3>Pro</h3>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          background: '#0f172a',
-          padding: '6px 16px',
-          borderRadius: '8px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          margin: '6px 0 12px 0'
-        }}>
-          <strong style={{ fontSize: '1.5rem', color: 'var(--lime)', fontWeight: 'bold' }}>$29.99 / month</strong>
+
+      {/* Account Restore path for existing subscribers */}
+      <section className="onboarding-wide-card wide-field" style={{ background: 'rgba(15,23,42,0.2)', border: '1px dashed rgba(255,255,255,0.06)' }}>
+        <h4 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: '#f8fafc' }}>Already have a Clyde account?</h4>
+        <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: '0 0 16px 0' }}>Sign in here to instantly load your cockpit setup, configuration, and premium entitlements:</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', textAlign: 'left' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.78rem', color: '#cbd5e1' }}>
+            Email
+            <input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', padding: '8px 10px', color: '#f8fafc' }} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.78rem', color: '#cbd5e1' }}>
+            Password
+            <input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', padding: '8px 10px', color: '#f8fafc' }} />
+          </label>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button type="button" className="ghost wide-field" style={{ padding: '9px', borderRadius: '6px', cursor: 'pointer' }} disabled={busy} onClick={onSignInRefresh}>
+              Sign In & Restore Setup
+            </button>
+          </div>
         </div>
-        <p style={{ fontSize: '0.82rem', margin: '4px 0 12px 0', color: 'var(--muted)' }}>Clyde Pro Agent adds Vercel-proxied model access, deep Google sync, RAG, and Realtime voice.</p>
-        <ul style={{ paddingLeft: '14px', marginBottom: '16px', fontSize: '0.82rem', textAlign: 'left' }}>
-          <li><strong>Clyde Managed Cloud</strong> (Uncapped, zero-config access to Google Gemini & OpenAI models via Vercel proxy, with local BYOK toggle)</li>
-          <li><strong>Automated Google Workspace Sync</strong> (Continuous, hands-free Gmail inbox polling and Google Calendar sync)</li>
-          <li><strong>Advanced Pinecone RAG Semantic Search</strong> across your entire knowledge base, sessions, and tailored documents</li>
-          <li><strong>GPT-Realtime-2 Voice Agent</strong> (Conversational, low-latency mock interview coaching with VAD mic streaming bypass)</li>
-          <li><strong>Interactive Trend Analysis, Mock Interviews</strong>, and cross-platform Agent Actions</li>
-        </ul>
-        {proEntitled ? (
-          <div style={{
-            marginTop: 'auto',
-            display: 'flex',
-            justifyContent: 'center',
-            width: '100%'
-          }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: '#0f172a',
-              border: '1px solid rgba(132, 204, 22, 0.2)',
-              padding: '8px 16px',
-              borderRadius: '9999px',
-              color: 'var(--lime)',
-              fontWeight: '600',
-              fontSize: '0.85rem'
-            }}>
-              ✓ Pro is active on this account
-            </div>
-          </div>
-        ) : (
-          <div className="onboarding-form-grid" style={{ marginTop: 'auto' }}>
-            <label className="wide-field">Email<input type="email" value={proForm.email} onChange={(event) => setProForm((current) => ({ ...current, email: event.target.value }))} /></label>
-            <p className="wide-field onboarding-note" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Clyde creates the Supabase account after Stripe confirms payment. You will receive an email invite to set your password.</p>
-            <button type="button" className="primary-action wide-field" disabled={busy} onClick={onStartProCheckout}>Create Pro account</button>
-          </div>
-        )}
       </section>
-      {!proEntitled ? (
-        <section className="onboarding-wide-card wide-field" style={{ marginTop: '16px' }}>
-          <h3>Already subscribed?</h3>
-          <div className="onboarding-form-grid">
-            <label>Email<input type="email" value={signInForm.email} onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))} /></label>
-            <label>Password<input type="password" value={signInForm.password} onChange={(event) => setSignInForm((current) => ({ ...current, password: event.target.value }))} /></label>
-            <button type="button" className="ghost wide-field" style={{ marginTop: '8px' }} disabled={busy} onClick={onSignInRefresh}>Sign in and refresh subscription</button>
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -12724,39 +12835,26 @@ function parseAttendees(value) {
     .filter((attendee) => attendee.name);
 }
 
-function AuthOverlay({ api, onSettingsUpdated }) {
-  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' });
-  const [isSignUp, setIsSignUp] = useState(false);
+function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard }) {
+  const [form, setForm] = useState({ email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
-  async function handleAuth(action) {
-    if (action === 'sign-up' && form.password !== form.confirmPassword) {
-      setMessage('Passwords do not match.');
-      return;
-    }
+  async function handleAuth() {
     setBusy(true);
-    setMessage(action === 'sign-up' ? 'Creating account...' : 'Signing in...');
+    setMessage('Signing in...');
     try {
       const payload = {
         email: form.email.trim(),
         password: form.password
       };
-      const result = action === 'sign-up'
-        ? await api?.signUp?.(payload)
-        : await api?.signIn?.(payload);
+      const result = await api?.signIn?.(payload);
 
       if (result?.settings) {
         onSettingsUpdated(result.settings);
       }
-      setForm({ email: '', password: '', confirmPassword: '' });
-      if (action === 'sign-up') {
-        window.alert('Account created! Please check your email to confirm your address, then sign in.');
-        setMessage('Check your email to confirm your address, then sign in.');
-        setIsSignUp(false);
-      } else {
-        setMessage('Signed in successfully.');
-      }
+      setForm({ email: '', password: '' });
+      setMessage('Signed in successfully.');
     } catch (error) {
       setMessage(`Error: ${error.message}`);
     } finally {
@@ -12793,10 +12891,10 @@ function AuthOverlay({ api, onSettingsUpdated }) {
           Welcome to <span style={{ background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Clyde</span>
         </h2>
         <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '24px' }}>
-          Sign in or create a free account to unlock your career cockpit.
+          Sign in or create an account to unlock your career cockpit.
         </p>
 
-        <form onSubmit={(e) => { e.preventDefault(); handleAuth(isSignUp ? 'sign-up' : 'sign-in'); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+        <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
             Email Address
             <input
@@ -12837,28 +12935,6 @@ function AuthOverlay({ api, onSettingsUpdated }) {
             />
           </label>
 
-          {isSignUp ? (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
-              Confirm Password
-              <input
-                type="password"
-                required
-                disabled={busy}
-                value={form.confirmPassword}
-                onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '8px',
-                  padding: '10px 12px',
-                  color: '#f8fafc',
-                  fontSize: '0.9rem',
-                  outline: 'none'
-                }}
-              />
-            </label>
-          ) : null}
-
           {message ? (
             <p style={{
               fontSize: '0.8rem',
@@ -12886,16 +12962,16 @@ function AuthOverlay({ api, onSettingsUpdated }) {
               transition: 'opacity 0.2s'
             }}
           >
-            {busy ? 'Working...' : isSignUp ? 'Create Account' : 'Sign In'}
+            {busy ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 
         <p style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '20px' }}>
-          {isSignUp ? 'Already have an account?' : "Don't have an account yet?"}{' '}
+          Don't have an account yet?{' '}
           <button
             type="button"
             disabled={busy}
-            onClick={() => { setIsSignUp(!isSignUp); setMessage(''); }}
+            onClick={onOpenSignUpWizard}
             style={{
               background: 'none',
               border: 'none',
@@ -12907,7 +12983,7 @@ function AuthOverlay({ api, onSettingsUpdated }) {
               textDecoration: 'underline'
             }}
           >
-            {isSignUp ? 'Sign In' : 'Create Account'}
+            Create Account
           </button>
         </p>
       </div>

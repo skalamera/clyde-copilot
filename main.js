@@ -238,6 +238,7 @@ const CLYDE_ENTITLEMENTS_URL = process.env.CLYDE_ENTITLEMENTS_URL || `${CLYDE_AP
 const CLYDE_LIVEAVATAR_TOKEN_URL = process.env.CLYDE_LIVEAVATAR_TOKEN_URL || `${CLYDE_API_BASE_URL}/liveavatar-token`;
 const CLYDE_SIGN_UP_URL = process.env.CLYDE_SIGN_UP_URL || `${CLYDE_API_BASE_URL}/sign-up`;
 const CLYDE_PRO_SIGNUP_CHECKOUT_URL = process.env.CLYDE_PRO_SIGNUP_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-pro-signup-checkout`;
+const CLYDE_CREDITS_CHECKOUT_URL = process.env.CLYDE_CREDITS_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-credits-checkout`;
 const CLYDE_GOOGLE_OAUTH_TOKEN_URL = process.env.CLYDE_GOOGLE_OAUTH_TOKEN_URL || `${CLYDE_API_BASE_URL}/google-oauth-token`;
 const CLYDE_GOOGLE_OAUTH_CLIENT_ID = '186934404244-p69m7rbeie0nen66gvomufiodoeviv54.apps.googleusercontent.com';
 const CLYDE_SUPABASE_URL = 'https://ijcoheaovypykliffqwh.supabase.co';
@@ -2519,7 +2520,7 @@ function createWindow () {
       const checkout = await createProSignupCheckout({
           email: payload.email,
           password: payload.password,
-          endpoint: CLYDE_PRO_SIGNUP_CHECKOUT_URL
+          endpoint: payload.credits ? CLYDE_CREDITS_CHECKOUT_URL : CLYDE_PRO_SIGNUP_CHECKOUT_URL
       });
       if (!checkout.url) {
           throw new Error('Checkout URL was not returned.');
