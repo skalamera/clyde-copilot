@@ -16,3 +16,6 @@ native/audio-engine/target/
 /*.wav
 /renderer-dev.log
 *.log
+
+.vercel
+.env*.local
