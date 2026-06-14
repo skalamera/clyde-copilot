@@ -5021,6 +5021,8 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
     : 'Screen capture protection disabled';
   const activeFiles = activeContext.entityFiles || [];
   const pinnedKnowledgeFiles = activeContext.pinnedKnowledge || [];
+  const pinnedLimit = preflight?.limits?.pinnedKnowledge || 3;
+  const activeFileLimit = preflight?.limits?.activeEntityFiles || 5;
 
   const ragSummary = models.ragEnabled
     ? (models.pineconeConfigured ? 'Enabled and configured' : 'Enabled, needs setup')
@@ -5117,7 +5119,7 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
 
               <section className="preflight-panel preflight-rag-panel">
                 <div className="preflight-rag-summary">
-                  <strong>Knowledge page pins: <span className="ready-text">{pinnedKnowledgeFiles.length}</span></strong>
+                  <strong>Knowledge page pins: <span className="ready-text">{pinnedKnowledgeFiles.length}/{pinnedLimit}</span></strong>
                   <small>{proTier ? 'Pro RAG context from the Knowledge page.' : 'Requires Pro RAG.'}</small>
                   {pinnedKnowledgeFiles.length ? (
                     <div className="preflight-file-chip-list">
@@ -5167,11 +5169,11 @@ function CallPreflightModal({ api, mode = 'interview', onCancel, onStart, reques
               </button>
               <div className="preflight-dropzone">
                 <strong>Drop .txt, .md, or .pdf files</strong>
-                <span>Files attach to this {callLabel}. All active files are included directly in fast context.</span>
+                <span>Files attach to this {callLabel}. Up to 5 active files are included directly in fast context.</span>
                 <small>{formatBytes(preflight?.limits?.maxUploadBytes || 25 * 1024 * 1024)} max per file</small>
               </div>
               <div className="preflight-upload-pins">
-                <strong>Active opportunity files: <span className="ready-text">{activeFiles.length}</span></strong>
+                <strong>Active opportunity files: <span className="ready-text">{activeFiles.length}/{activeFileLimit}</span></strong>
                 {activeFiles.length ? (
                   <div className="preflight-file-chip-list">
                     {activeFiles.map((file) => (

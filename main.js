@@ -1474,7 +1474,9 @@ function buildCallPreflightContext(settings = loadSettings()) {
         },
         limits: {
             maxUploadBytes: 25 * 1024 * 1024,
-            supportedUploadTypes: ['.txt', '.md', '.pdf']
+            supportedUploadTypes: ['.txt', '.md', '.pdf'],
+            activeEntityFiles: 5,
+            pinnedKnowledge: 3
         }
     };
 }
