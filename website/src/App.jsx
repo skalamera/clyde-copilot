@@ -362,6 +362,7 @@ function PricingPage({ showUpgradeNotice }) {
   const [annual, setAnnual] = useState(true);
   const [proCheckout, setProCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
   const [creditsCheckout, setCreditsCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
+  const [selectedCreditsSize, setSelectedCreditsSize] = useState(50); // 20, 50, 120
   
   // Custom states for the Web Create Account modal
   const [signupModal, setSignupModal] = useState({ open: false, email: '', password: '', confirmPassword: '', busy: false, error: '' });
@@ -456,7 +457,7 @@ function PricingPage({ showUpgradeNotice }) {
       const response = await fetch('/api/create-credits-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email, creditsAmount: selectedCreditsSize })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.url) {
@@ -512,16 +513,16 @@ function PricingPage({ showUpgradeNotice }) {
     },
     {
       name: 'Credit Pack',
-      priceMonthly: 9.99,
-      priceAnnual: 9.99,
-      description: 'Buy on-demand background credits for the Clyde Go extension. No monthly subscription required.',
-      cta: 'Buy Credit Pack (100)',
+      priceMonthly: selectedCreditsSize === 20 ? 4.99 : selectedCreditsSize === 120 ? 19.99 : 9.99,
+      priceAnnual: selectedCreditsSize === 20 ? 4.99 : selectedCreditsSize === 120 ? 19.99 : 9.99,
+      description: 'Buy on-demand background credits for the Clyde Go extension & mock interviews.',
+      cta: `Buy Credit Pack (${selectedCreditsSize})`,
       ctaClass: 'primary',
       credits: true,
       features: [
-        { label: '100 background credits included', free: false, pro: false, credits: true },
+        { label: `${selectedCreditsSize} background credits included`, free: false, pro: false, credits: true },
         { label: 'Active-context filler', free: false, pro: false, credits: true },
-        { label: 'Extension on-demand usage', free: false, pro: false, credits: true },
+        { label: 'Extension & Mock Interview usage', free: false, pro: false, credits: true },
         { label: 'Never expires', free: false, pro: false, credits: true }
       ]
     }
@@ -614,6 +615,18 @@ function PricingPage({ showUpgradeNotice }) {
                 </form>
               ) : tier.name === 'Credit Pack' && creditsCheckout.open ? (
                 <form className="pro-checkout-form" onSubmit={startCreditsCheckout}>
+                  <div style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left' }}>
+                    <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Select Package Size</label>
+                    <select 
+                      value={selectedCreditsSize} 
+                      onChange={(e) => setSelectedCreditsSize(Number(e.target.value))}
+                      style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc', width: '100%', outline: 'none' }}
+                    >
+                      <option value="20">20 Credits — $4.99</option>
+                      <option value="50">50 Credits — $9.99</option>
+                      <option value="120">120 Credits — $19.99</option>
+                    </select>
+                  </div>
                   <input
                     type="email"
                     placeholder="you@email.com"

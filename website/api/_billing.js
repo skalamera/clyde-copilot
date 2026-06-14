@@ -57,10 +57,19 @@ export function getProPriceId(billingPeriod = 'monthly') {
   return price;
 }
 
-export function getCreditsPriceId() {
-  const price = process.env.STRIPE_CLYDE_CREDITS_100_PRICE_ID;
+export function getCreditsPriceId(amount = 50) {
+  const size = Number(amount) || 50;
+  let price = '';
+  if (size === 20) {
+    price = process.env.STRIPE_CLYDE_CREDITS_20_PRICE_ID;
+  } else if (size === 120) {
+    price = process.env.STRIPE_CLYDE_CREDITS_120_PRICE_ID;
+  } else {
+    price = process.env.STRIPE_CLYDE_CREDITS_50_PRICE_ID || process.env.STRIPE_CLYDE_CREDITS_100_PRICE_ID;
+  }
+
   if (!price) {
-    throw new Error('Stripe price for the 100-credit pack is not configured (STRIPE_CLYDE_CREDITS_100_PRICE_ID).');
+    throw new Error(`Stripe price for the ${size}-credit pack is not configured (STRIPE_CLYDE_CREDITS_${size}_PRICE_ID).`);
   }
   return price;
 }

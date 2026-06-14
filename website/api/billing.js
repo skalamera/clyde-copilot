@@ -239,15 +239,17 @@ async function handleConsumeCredit(req, res) {
   }
   const user = await requireSupabaseUser(req);
   const userId = user.id;
+  const body = await readJson(req).catch(() => ({}));
+  const deductAmount = Math.max(1, Number(body.amount || 1));
 
   const record = await findSubscriptionByUserId(userId);
   const currentCredits = record && typeof record.credits === 'number' ? record.credits : 0;
-  if (currentCredits <= 0) {
-    sendJson(res, 402, { error: 'Insufficient background application credits. Please purchase more credits or subscribe to Clyde Pro.' });
+  if (currentCredits < deductAmount) {
+    sendJson(res, 402, { error: `Insufficient background credits (${currentCredits} available, ${deductAmount} required). Please purchase more credits or subscribe to Clyde Pro.` });
     return;
   }
 
-  const newCredits = currentCredits - 1;
+  const newCredits = currentCredits - deductAmount;
   await upsertSubscriptionRecord({
     ...record,
     credits: newCredits,
@@ -313,7 +315,8 @@ async function handleCreateCreditsCheckout(req, res) {
     }
   }
 
-  const price = getCreditsPriceId();
+  const creditsAmount = Number(body.creditsAmount) || 50;
+  const price = getCreditsPriceId(creditsAmount);
   const appUrl = getAppUrl(req);
 
   const sessionPayload = {
@@ -326,7 +329,7 @@ async function handleCreateCreditsCheckout(req, res) {
     client_reference_id: userId || email,
     metadata: {
       type: 'credits_purchase',
-      amount: '100'
+      amount: String(creditsAmount)
     }
   };
 

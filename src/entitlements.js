@@ -80,6 +80,14 @@ function buildEntitlements(input = {}) {
 
   if (tier !== 'pro') {
     for (const feature of PRO_ONLY_FEATURES) {
+      // Dynamic override: Let Free users access mock interviews and liveavatar sessions
+      // if they have active pay-as-you-go credits!
+      if (feature === 'mock_interviews' || feature === 'liveavatar_mock_interviews') {
+        if (typeof input.credits === 'number' && input.credits > 0) {
+          featureSet.add(feature);
+          continue;
+        }
+      }
       featureSet.delete(feature);
     }
   }

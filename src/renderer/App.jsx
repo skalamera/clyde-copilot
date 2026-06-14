@@ -10168,6 +10168,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
   const isUserSignedIn = Boolean(settings.userId && settings.authEmail);
   const [stepIndex, setStepIndex] = useState(isUserSignedIn ? 1 : 0);
   const [selectedPlanId, setSelectedPlanId] = useState(settings.userTier === 'pro' ? 'pro_monthly' : 'free'); // 'free', 'pro_monthly', 'pro_annual', 'credits_pack'
+  const [selectedCreditsSize, setSelectedCreditsSize] = useState(50); // 20, 50, 120
   const [wizardMode, setWizardMode] = useState(mode || 'interview');
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -10356,6 +10357,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
           email: signUpForm.email.trim(),
           password: signUpForm.password,
           credits: selectedPlanId === 'credits_pack',
+          creditsAmount: selectedPlanId === 'credits_pack' ? selectedCreditsSize : undefined,
           forceCheckout: true
         };
         const checkout = await api?.startProSignupCheckout?.(checkoutPayload);
@@ -11002,11 +11004,11 @@ function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, pr
     },
     {
       id: 'credits_pack',
-      name: 'Credit Pack (100)',
-      price: '$9.99',
-      description: 'On-demand pay-as-you-go background filler credits. Never expires, perfect for light users.',
+      name: `Credit Pack (${selectedCreditsSize})`,
+      price: selectedCreditsSize === 20 ? '$4.99' : selectedCreditsSize === 120 ? '$19.99' : '$9.99',
+      description: 'On-demand pay-as-you-go background extension & mock interview credits. Never expires.',
       bullets: [
-        '100 background credits included',
+        `${selectedCreditsSize} background credits included`,
         'Perfect for extension-focused fillers',
         'No recurring monthly commitments',
         'Use credits when you need them'
@@ -11056,6 +11058,20 @@ function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, pr
         </p>
 
         <form onSubmit={(e) => { e.preventDefault(); onStartUnifiedRegister(); }} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', textAlign: 'left' }}>
+          {selectedPlanId === 'credits_pack' && (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', gridColumn: '1 / -1', marginBottom: '8px' }}>
+              Select Package Size
+              <select 
+                value={selectedCreditsSize} 
+                onChange={(e) => setSelectedCreditsSize(Number(e.target.value))}
+                style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc', width: '100%', outline: 'none' }}
+              >
+                <option value="20">20 Credits — $4.99</option>
+                <option value="50">50 Credits — $9.99</option>
+                <option value="120">120 Credits — $19.99</option>
+              </select>
+            </label>
+          )}
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
             Email Address
             <input type="email" required value={signUpForm.email} onChange={(event) => setSignUpForm((current) => ({ ...current, email: event.target.value }))} style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', padding: '10px 12px', color: '#f8fafc' }} />

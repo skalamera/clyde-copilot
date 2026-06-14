@@ -2521,6 +2521,7 @@ function createWindow () {
           email: payload.email,
           password: payload.password,
           forceCheckout: payload.forceCheckout,
+          creditsAmount: payload.creditsAmount,
           endpoint: payload.credits ? CLYDE_CREDITS_CHECKOUT_URL : CLYDE_PRO_SIGNUP_CHECKOUT_URL
       });
       if (!checkout.url) {
