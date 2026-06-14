@@ -1259,9 +1259,7 @@ function BillingSuccessPage() {
           <span className="eyebrow">Billing</span>
           <h1>Pro checkout complete</h1>
           <p>{activation.message}</p>
-          {activation.status === 'success' ? (
-            <a className="primary-link" href="clyde://">Open Clyde Desktop App</a>
-          ) : (
+          {activation.status !== 'success' && (
             <a className="primary-link" href="/">Return Home</a>
           )}
         </div>
@@ -1271,9 +1269,7 @@ function BillingSuccessPage() {
             ? 'This usually takes a few seconds.'
             : activation.status === 'error'
               ? 'If this keeps failing, contact support with the Stripe checkout email.'
-              : activation.invited
-                ? '1. Check your email for a message from Supabase. 2. Open the confirmation link. 3. Set your Clyde password. 4. Open Clyde desktop and sign in from onboarding or Settings.'
-                : '1. Open your local Clyde Desktop App (or select it from your system tray). 2. Go to Settings > Account. 3. Click "Refresh Subscription". Your Pro status is now active!'}</p>
+              : '1. Check your email inbox for an account verification email from Supabase and click the verification link. 2. Return to the Clyde Desktop app to complete sign in and onboarding.'}</p>
         </aside>
       </section>
     </main>
