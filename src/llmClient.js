@@ -387,6 +387,12 @@ function mapToGeminiSchema(schema) {
     if (geminiSchema.type) {
         geminiSchema.type = geminiSchema.type.toUpperCase();
     }
+
+    if (geminiSchema.type === 'OBJECT' && (!geminiSchema.properties || Object.keys(geminiSchema.properties).length === 0)) {
+        // Google Gemini API rejects OBJECT types that do not have properties defined.
+        // Return an empty/unconstrained schema to allow any free-form dictionary.
+        return {};
+    }
     
     if (geminiSchema.properties) {
         for (const key in geminiSchema.properties) {

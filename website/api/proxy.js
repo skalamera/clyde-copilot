@@ -190,6 +190,12 @@ function cleanSchemaForGemini(schema) {
     copy.type = String(copy.type).toUpperCase();
   }
 
+  if (copy.type === 'OBJECT' && (!copy.properties || Object.keys(copy.properties).length === 0)) {
+    // Google Gemini API rejects OBJECT types that do not have properties defined.
+    // Return an empty/unconstrained schema to allow any free-form dictionary.
+    return {};
+  }
+
   if (copy.properties) {
     const nextProps = {};
     for (const [key, value] of Object.entries(copy.properties)) {
