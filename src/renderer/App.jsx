@@ -10828,6 +10828,8 @@ ${
                 busy={busy}
                 selectedPlanId={selectedPlanId}
                 setSelectedPlanId={setSelectedPlanId}
+                selectedCreditsSize={selectedCreditsSize}
+                setSelectedCreditsSize={setSelectedCreditsSize}
                 checkoutStarted={checkoutStarted}
                 proEntitled={proEntitled}
                 signUpForm={signUpForm}
@@ -10933,7 +10935,7 @@ ${
   );
 }
 
-function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, proEntitled, signUpForm, setSignUpForm, signInForm, setSignInForm, onStartUnifiedRegister, onSignInRefresh, onRestart }) {
+function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, selectedCreditsSize, setSelectedCreditsSize, proEntitled, signUpForm, setSignUpForm, signInForm, setSignInForm, onStartUnifiedRegister, onSignInRefresh, onRestart }) {
   if (checkoutStarted && !proEntitled) {
     return (
       <div className="onboarding-grid" style={{ gridTemplateColumns: '1fr' }}>
