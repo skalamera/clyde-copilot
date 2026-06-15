@@ -10351,8 +10351,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
                   color: '#ffd166',
                   boxShadow: '0 0 10px rgba(255, 209, 102, 0.08)'
                 }}>
-                  <span style={{ fontSize: '1.05rem', color: '#ffd166', lineHeight: 1 }}>★</span>
-                  <span>{Number(selected.match_score).toFixed(1)}</span>
+                  <span>Match Score {Number(selected.match_score).toFixed(1)}/5</span>
                 </div>
               )}
             </div>
@@ -11994,11 +11993,10 @@ function SettingsDrawer(props) {
             <p>Provider keys are stored by the Electron main process.</p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button type="button" className="ghost" onClick={onOpenOnboarding} style={{ fontSize: '0.8rem', padding: '6px 10px' }}>Setup Wizard</button>
             <button type="button" onClick={onClose}>Close</button>
           </div>
         </div>
-        <SetupFields api={api} initialTab={initialTab} mode={mode} onSave={onSave} onSettingsUpdated={onSettingsUpdated} onValidate={onValidate} serviceChecking={serviceChecking} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} activeCapture={activeCapture} />
+        <SetupFields api={api} initialTab={initialTab} mode={mode} onSave={onSave} onSettingsUpdated={onSettingsUpdated} onValidate={onValidate} serviceChecking={serviceChecking} settings={settings} syncAudit={syncAudit} setSyncAudit={setSyncAudit} activeCapture={activeCapture} onOpenOnboarding={onOpenOnboarding} />
       </section>
     </div>
   );
@@ -12047,7 +12045,7 @@ function settingsDialogTone(message = '') {
   return /failed|error|invalid|missing/i.test(message) ? 'error' : 'success';
 }
 
-function SetupFields({ api, compact = false, initialTab = 'general', mode, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit, activeCapture = false }) {
+function SetupFields({ api, compact = false, initialTab = 'general', mode, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit, activeCapture = false, onOpenOnboarding }) {
   const [draft, setDraft] = useState({ ...settings });
   const [activeTab, setActiveTab] = useState(initialTab || 'general');
   const [audioDevices, setAudioDevices] = useState({ microphones: [], systemOutputs: [] });
@@ -12386,7 +12384,11 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
         <div className="account-billing-panel">
           <div className="settings-section-label wide-field">
             <strong>Account and billing</strong>
-            <small>Sign in to connect Clyde Pro billing to this desktop app.</small>
+            <small>
+              {signedIn
+                ? "Your desktop app is connected to your Clyde account."
+                : "Sign in to connect Clyde Pro billing to this desktop app."}
+            </small>
           </div>
           {!signedIn ? (
             <div className="form-grid account-auth-form">
@@ -12652,6 +12654,15 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             </div>
             <button type="button" className="ghost" onClick={validateServicesFromSettings} disabled={serviceChecking}>
               {serviceChecking ? 'Checking...' : 'Validate services'}
+            </button>
+          </div>
+          <div className="wide-field validate-services-card">
+            <div>
+              <strong>Setup Wizard</strong>
+              <small>Launch the step-by-step wizard to configure your model, speech, and workspace settings.</small>
+            </div>
+            <button type="button" className="ghost" onClick={onOpenOnboarding}>
+              Launch Wizard
             </button>
           </div>
         </>
