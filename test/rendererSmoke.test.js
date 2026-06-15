@@ -42,7 +42,7 @@ test('React renderer defines the required live controls and mode surfaces', () =
     'openEntityFileDialog',
     'requiredFields',
     'UpgradeToProButton',
-    'startCheckoutSession',
+    'startCheckout',
     'Refresh subscription'
     ,'Account and billing'
     ,'Create account'

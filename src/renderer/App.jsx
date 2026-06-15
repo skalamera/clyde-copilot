@@ -218,6 +218,10 @@ function normalizeEntitledSettings(settings = {}) {
 
   const proRealtimeModel = pro && settings.proAgentEnabled ? 'gpt-realtime-2' : (settings.proRealtimeModel || '');
 
+  const credits = typeof settings.subscriptionCredits === 'number'
+    ? settings.subscriptionCredits
+    : (typeof settings.credits === 'number' ? settings.credits : 0);
+
   return {
     ...settings,
     userTier,
@@ -227,7 +231,14 @@ function normalizeEntitledSettings(settings = {}) {
     proRealtimeModel,
     subscriptionStatus: settings.subscriptionStatus || (pro ? 'active' : 'free'),
     subscriptionCredits: typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0,
-    entitlementFeatures: pro ? features : features.filter((feature) => !PRO_FEATURES.has(feature)),
+    entitlementFeatures: pro 
+      ? features 
+      : features.filter((feature) => {
+          if ((feature === 'mock_interviews' || feature === 'liveavatar_mock_interviews') && credits > 0) {
+            return true;
+          }
+          return !PRO_FEATURES.has(feature);
+        }),
     proAgentEnabled: pro ? Boolean(settings.proAgentEnabled) : false,
     ragEnabled: pro ? Boolean(settings.ragEnabled) : false
   };
@@ -2740,6 +2751,241 @@ const calendarStyles = `
     background: rgba(255,255,255,0.02);
     border-radius: 12px;
     border: 1px dashed rgba(255,255,255,0.1);
+  }
+
+  /* Light Theme Overrides */
+  .theme-snow .calendar-header {
+    background: rgba(255, 255, 255, 0.6) !important;
+    border-color: rgba(79, 70, 229, 0.15) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05) !important;
+  }
+  .theme-snow .calendar-body {
+    background: rgba(255, 255, 255, 0.6) !important;
+    border-color: rgba(79, 70, 229, 0.15) !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.05) !important;
+  }
+  .theme-snow .calendar-day-view {
+    background: transparent !important;
+  }
+  .theme-snow .day-view-header h2 {
+    color: var(--cyan) !important;
+    text-shadow: none !important;
+  }
+  .theme-snow .calendar-event-card.large {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border: 1px solid rgba(79, 70, 229, 0.18) !important;
+    border-left: 6px solid var(--cyan) !important;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.05) !important;
+  }
+  .theme-snow .calendar-event-card.large .event-time {
+    color: var(--text) !important;
+  }
+  .theme-snow .calendar-event-card.large .event-title {
+    color: var(--text) !important;
+  }
+  .theme-snow .calendar-event-card.large .event-entity {
+    background: rgba(79, 70, 229, 0.08) !important;
+    border-color: rgba(79, 70, 229, 0.22) !important;
+    color: var(--cyan) !important;
+  }
+  .theme-snow .calendar-event-card.large .event-desc {
+    background: rgba(248, 250, 252, 0.95) !important;
+    border-color: rgba(79, 70, 229, 0.15) !important;
+    color: var(--text) !important;
+  }
+  .theme-snow .calendar-event-card {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(79, 70, 229, 0.15) !important;
+    border-left: 4px solid var(--cyan) !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04) !important;
+  }
+  .theme-snow .calendar-event-card .event-title {
+    color: var(--text) !important;
+  }
+  .theme-snow .calendar-event-card .event-time {
+    color: var(--cyan) !important;
+  }
+  .theme-snow .calendar-day {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-color: rgba(79, 70, 229, 0.12) !important;
+  }
+  .theme-snow .calendar-day.empty {
+    background: rgba(255, 255, 255, 0.45) !important;
+  }
+  .theme-snow .calendar-day:hover {
+    background: rgba(255, 255, 255, 0.95) !important;
+  }
+  .theme-snow .calendar-day.today {
+    background: rgba(79, 70, 229, 0.06) !important;
+    border-color: var(--cyan) !important;
+  }
+  .theme-snow .calendar-day.today .day-number {
+    color: var(--cyan) !important;
+    font-weight: bold;
+  }
+  .theme-snow .calendar-days-header {
+    background: rgba(255, 255, 255, 0.5) !important;
+    border-bottom-color: rgba(79, 70, 229, 0.15) !important;
+    color: var(--text) !important;
+  }
+  .theme-snow .week-day-col {
+    background: rgba(255, 255, 255, 0.7) !important;
+    border-color: rgba(79, 70, 229, 0.1) !important;
+  }
+  .theme-snow .week-day-header {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-bottom-color: rgba(79, 70, 229, 0.15) !important;
+    color: var(--text) !important;
+  }
+  .theme-snow .week-day-col.today .week-day-header {
+    background: rgba(79, 70, 229, 0.08) !important;
+    border-bottom-color: rgba(79, 70, 229, 0.2) !important;
+  }
+  .theme-snow .empty-events {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(79, 70, 229, 0.12) !important;
+    color: var(--muted) !important;
+  }
+  .theme-snow .calendar-controls button,
+  .theme-snow .calendar-actions button:not(.primary-action) {
+    background: rgba(255, 255, 255, 0.7) !important;
+    border-color: rgba(79, 70, 229, 0.18) !important;
+    color: var(--text) !important;
+  }
+  .theme-snow .calendar-controls button:hover,
+  .theme-snow .calendar-actions button:not(.primary-action):hover {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-color: rgba(79, 70, 229, 0.3) !important;
+  }
+  .theme-snow .view-toggles {
+    background: rgba(255, 255, 255, 0.4) !important;
+    border-color: rgba(79, 70, 229, 0.15) !important;
+  }
+  .theme-snow .view-toggles button {
+    color: var(--muted) !important;
+  }
+  .theme-snow .view-toggles button.active {
+    background: var(--cyan) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2) !important;
+    border: none !important;
+  }
+
+  .theme-blossom .calendar-header {
+    background: rgba(255, 255, 255, 0.75) !important;
+    border-color: rgba(219, 39, 119, 0.15) !important;
+    box-shadow: 0 8px 32px rgba(219, 39, 119, 0.05) !important;
+  }
+  .theme-blossom .calendar-body {
+    background: rgba(255, 255, 255, 0.75) !important;
+    border-color: rgba(219, 39, 119, 0.15) !important;
+    box-shadow: 0 12px 40px rgba(219, 39, 119, 0.03) !important;
+  }
+  .theme-blossom .calendar-day-view {
+    background: transparent !important;
+  }
+  .theme-blossom .day-view-header h2 {
+    color: var(--cyan) !important;
+    text-shadow: none !important;
+  }
+  .theme-blossom .calendar-event-card.large {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid rgba(219, 39, 119, 0.18) !important;
+    border-left: 6px solid var(--cyan) !important;
+    box-shadow: 0 8px 30px rgba(219, 39, 119, 0.05) !important;
+  }
+  .theme-blossom .calendar-event-card.large .event-time {
+    color: var(--text) !important;
+  }
+  .theme-blossom .calendar-event-card.large .event-title {
+    color: var(--text) !important;
+  }
+  .theme-blossom .calendar-event-card.large .event-entity {
+    background: rgba(219, 39, 119, 0.08) !important;
+    border-color: rgba(219, 39, 119, 0.22) !important;
+    color: var(--cyan) !important;
+  }
+  .theme-blossom .calendar-event-card.large .event-desc {
+    background: rgba(255, 251, 251, 0.95) !important;
+    border-color: rgba(219, 39, 119, 0.15) !important;
+    color: var(--text) !important;
+  }
+  .theme-blossom .calendar-event-card {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-color: rgba(219, 39, 119, 0.15) !important;
+    border-left: 4px solid var(--cyan) !important;
+    box-shadow: 0 4px 15px rgba(219, 39, 119, 0.04) !important;
+  }
+  .theme-blossom .calendar-event-card .event-title {
+    color: var(--text) !important;
+  }
+  .theme-blossom .calendar-event-card .event-time {
+    color: var(--cyan) !important;
+  }
+  .theme-blossom .calendar-day {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border-color: rgba(219, 39, 119, 0.12) !important;
+  }
+  .theme-blossom .calendar-day.empty {
+    background: rgba(255, 255, 255, 0.5) !important;
+  }
+  .theme-blossom .calendar-day:hover {
+    background: rgba(255, 255, 255, 0.98) !important;
+  }
+  .theme-blossom .calendar-day.today {
+    background: rgba(219, 39, 119, 0.06) !important;
+    border-color: var(--cyan) !important;
+  }
+  .theme-blossom .calendar-day.today .day-number {
+    color: var(--cyan) !important;
+    font-weight: bold;
+  }
+  .theme-blossom .calendar-days-header {
+    background: rgba(255, 255, 255, 0.6) !important;
+    border-bottom-color: rgba(219, 39, 119, 0.15) !important;
+    color: var(--text) !important;
+  }
+  .theme-blossom .week-day-col {
+    background: rgba(255, 255, 255, 0.75) !important;
+    border-color: rgba(219, 39, 119, 0.1) !important;
+  }
+  .theme-blossom .week-day-header {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border-bottom-color: rgba(219, 39, 119, 0.15) !important;
+    color: var(--text) !important;
+  }
+  .theme-blossom .week-day-col.today .week-day-header {
+    background: rgba(219, 39, 119, 0.08) !important;
+    border-bottom-color: rgba(219, 39, 119, 0.2) !important;
+  }
+  .theme-blossom .empty-events {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-color: rgba(219, 39, 119, 0.12) !important;
+    color: var(--muted) !important;
+  }
+  .theme-blossom .calendar-controls button,
+  .theme-blossom .calendar-actions button:not(.primary-action) {
+    background: rgba(255, 255, 255, 0.7) !important;
+    border-color: rgba(219, 39, 119, 0.18) !important;
+    color: var(--text) !important;
+  }
+  .theme-blossom .calendar-controls button:hover,
+  .theme-blossom .calendar-actions button:not(.primary-action):hover {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-color: rgba(219, 39, 119, 0.3) !important;
+  }
+  .theme-blossom .view-toggles {
+    background: rgba(255, 255, 255, 0.4) !important;
+    border-color: rgba(219, 39, 119, 0.15) !important;
+  }
+  .theme-blossom .view-toggles button {
+    color: var(--muted) !important;
+  }
+  .theme-blossom .view-toggles button.active {
+    background: var(--cyan) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(219, 39, 119, 0.2) !important;
+    border: none !important;
   }
 `;
 
@@ -9366,9 +9612,9 @@ function ContextPanel({ mode, settings, entities, calendarEvents = [], onStart }
                 fontSize: '0.78rem',
                 padding: '4px 8px',
                 borderRadius: '6px',
-                border: '1px solid rgba(154, 202, 255, 0.16)',
-                background: 'rgba(154, 202, 255, 0.05)',
-                color: 'rgba(255, 255, 255, 0.85)',
+                border: '1px solid var(--line-strong, rgba(154, 202, 255, 0.16))',
+                background: 'var(--panel, rgba(154, 202, 255, 0.05))',
+                color: 'var(--text, rgba(255, 255, 255, 0.85))',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -10118,7 +10364,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
                     <span style={{ fontSize: '1.25rem', color: '#a6ff6a', display: 'flex', justifyContent: 'center', marginTop: '-2px' }}>✓</span>
                     <div>
                       <strong style={{ color: '#a6ff6a', fontSize: '0.88rem', display: 'block', marginBottom: '2px', fontWeight: 800 }}>Top Strength</strong>
-                      <span style={{ color: 'var(--text)', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.top_strength}</span>
+                      <span style={{ color: '#f1f5f9', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.top_strength}</span>
                     </div>
                   </div>
                 )}
@@ -10128,7 +10374,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
                     <span style={{ fontSize: '1.25rem', color: '#ff5c7a', display: 'flex', justifyContent: 'center', marginTop: '-2px' }}>✗</span>
                     <div>
                       <strong style={{ color: '#ff5c7a', fontSize: '0.88rem', display: 'block', marginBottom: '2px', fontWeight: 800 }}>Main Gap</strong>
-                      <span style={{ color: 'var(--text)', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.main_gap}</span>
+                      <span style={{ color: '#f1f5f9', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.main_gap}</span>
                     </div>
                   </div>
                 )}
@@ -10138,7 +10384,7 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
                     <span style={{ fontSize: '1.25rem', color: '#ffd166', display: 'flex', justifyContent: 'center', marginTop: '-2px' }}>💡</span>
                     <div>
                       <strong style={{ color: '#ffd166', fontSize: '0.88rem', display: 'block', marginBottom: '2px', fontWeight: 800 }}>Mitigation</strong>
-                      <span style={{ color: 'var(--text)', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.mitigation}</span>
+                      <span style={{ color: '#f1f5f9', fontSize: '0.86rem', lineHeight: '1.5' }}>{selected.mitigation}</span>
                     </div>
                   </div>
                 )}

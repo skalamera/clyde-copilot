@@ -143,3 +143,11 @@ test('isEntitlementStale never flags free tier', () => {
   assert.equal(isEntitlementStale({ tier: 'free' }), false);
   assert.equal(isEntitlementStale({}), false);
 });
+
+test('buildEntitlements includes mock interviews for free tier with credits', () => {
+  const entitlements = buildEntitlements({ tier: 'free', credits: 10 });
+
+  assert.equal(entitlements.tier, 'free');
+  assert.equal(canUseFeature(entitlements, 'mock_interviews'), true);
+  assert.equal(canUseFeature(entitlements, 'liveavatar_mock_interviews'), true);
+});

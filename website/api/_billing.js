@@ -172,6 +172,11 @@ export function normalizeEmail(value = '') {
 }
 
 export function freeEntitlements(userId = '', subscription = {}) {
+  const credits = subscription && typeof subscription.credits === 'number' ? subscription.credits : 0;
+  const features = [...FREE_FEATURES];
+  if (credits > 0) {
+    features.push('mock_interviews', 'liveavatar_mock_interviews');
+  }
   return {
     userId,
     tier: 'free',
@@ -179,8 +184,8 @@ export function freeEntitlements(userId = '', subscription = {}) {
     plan: 'clyde_assistant',
     status: 'free',
     pro: false,
-    features: FREE_FEATURES,
-    credits: subscription && typeof subscription.credits === 'number' ? subscription.credits : 0,
+    features,
+    credits,
     expiresAt: null,
     checkedAt: new Date().toISOString()
   };

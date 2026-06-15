@@ -74,8 +74,9 @@ export default async function handler(request, response) {
     if (hasAuth) {
       const user = await requireSupabaseUser(request);
       const subscription = await findSubscriptionByUserId(user.id);
-      if (!isActiveSubscription(subscription)) {
-        response.status(403).json({ error: 'Clyde Pro Agent is required for LiveAvatar mock interviews.' });
+      const hasCredits = subscription && typeof subscription.credits === 'number' && subscription.credits > 0;
+      if (!isActiveSubscription(subscription) && !hasCredits) {
+        response.status(403).json({ error: 'Clyde Pro Agent or active credits are required for LiveAvatar mock interviews.' });
         return;
       }
 

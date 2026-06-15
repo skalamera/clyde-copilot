@@ -9720,6 +9720,11 @@ input:checked + .toggle-slider:before {
   color: #ffffff !important;
   border-color: transparent !important;
 }
+.theme-snow .view-tab.disabled-tab .view-tab-copy,
+.theme-snow .view-tab.disabled-tab .view-tab-copy strong {
+  color: var(--text) !important;
+  opacity: 0.65 !important;
+}
 .theme-snow .mode-toggle {
   background: transparent !important;
   border-color: transparent !important;
@@ -9999,6 +10004,11 @@ input:checked + .toggle-slider:before {
 .theme-blossom .view-tab:hover {
   background: rgba(255, 255, 255, 0.4) !important;
   color: #4c0519 !important;
+}
+.theme-blossom .view-tab.disabled-tab .view-tab-copy,
+.theme-blossom .view-tab.disabled-tab .view-tab-copy strong {
+  color: var(--text) !important;
+  opacity: 0.65 !important;
 }
 .theme-blossom .mode-toggle {
   background: transparent !important;
