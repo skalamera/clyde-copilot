@@ -113,28 +113,31 @@ async function saveSubscription(customerId, subscription, context = {}) {
     return;
   }
 
-  // Make sure metadata is synced back to Stripe so future webhooks can resolve immediately
-  try {
-    if (customerId) {
-      await stripe.customers.update(customerId, {
-        metadata: { userId: resolvedUserId, plan: 'clyde_pro_agent' }
-      });
-    }
-    await stripe.subscriptions.update(subscription.id, {
-      metadata: { userId: resolvedUserId, plan: 'clyde_pro_agent' }
-    });
-  } catch (err) {
-    // Ignore metadata write locks
-  }
-
-  // Retrieve existing record to retain credits balance
+  // Retrieve existing record to retain credits balance and prevent out-of-order race conditions
   let existingCredits = 0;
+  let existingStatus = '';
+  let existingSubId = '';
   try {
     const record = await findSubscriptionByUserId(resolvedUserId);
-    if (record && typeof record.credits === 'number') {
-      existingCredits = record.credits;
+    if (record) {
+      if (typeof record.credits === 'number') {
+        existingCredits = record.credits;
+      }
+      existingStatus = String(record.status || '').toLowerCase();
+      existingSubId = String(record.stripe_subscription_id || '').trim();
     }
   } catch (_) {}
+
+  // Out-of-order guard: once a subscription is canceled/deleted, the database record cannot 
+  // be overwritten by an "active" status for the SAME subscription ID (canceled subscriptions cannot be reactivated).
+  if (
+    existingSubId === String(subscription.id).trim() 
+    && existingStatus === 'canceled' 
+    && String(subscription.status).toLowerCase() === 'active'
+  ) {
+    console.log(`[stripe-webhook] Ignored out-of-order active event for already canceled subscription: ${subscription.id}`);
+    return;
+  }
 
   await upsertSubscriptionRecord({
     user_id: resolvedUserId,

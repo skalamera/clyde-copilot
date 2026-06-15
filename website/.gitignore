@@ -2,3 +2,5 @@ node_modules/
 dist/
 .vercel/
 public/downloads/*.exe
+
+.env*.local

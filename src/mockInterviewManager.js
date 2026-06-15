@@ -243,7 +243,7 @@ async function generateOpenAIResponse({ apiKey, model, messages, schema, axiosCl
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
-    timeout: 120000
+    timeout: 300000
   });
 
   return extractResponseText(response.data);

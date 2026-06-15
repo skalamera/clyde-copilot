@@ -69,6 +69,9 @@ function buildEntitlements(input = {}) {
   const tier = normalizeTier(input.tier || input.userTier);
   const status = input.status || (tier === 'pro' ? 'active' : 'free');
   const featureSet = new Set(FEATURE_SETS[tier]);
+  const credits = typeof input.credits === 'number' 
+    ? input.credits 
+    : (typeof input.subscriptionCredits === 'number' ? input.subscriptionCredits : 0);
 
   if (Array.isArray(input.features)) {
     for (const feature of input.features) {
@@ -83,7 +86,7 @@ function buildEntitlements(input = {}) {
       // Dynamic override: Let Free users access mock interviews and liveavatar sessions
       // if they have active pay-as-you-go credits!
       if (feature === 'mock_interviews' || feature === 'liveavatar_mock_interviews') {
-        if (typeof input.credits === 'number' && input.credits > 0) {
+        if (credits > 0) {
           featureSet.add(feature);
           continue;
         }
@@ -99,7 +102,7 @@ function buildEntitlements(input = {}) {
     plan: input.plan || (tier === 'pro' ? 'clyde_pro_agent' : 'clyde_assistant'),
     status,
     pro: tier === 'pro' && status === 'active',
-    credits: typeof input.credits === 'number' ? input.credits : 0,
+    credits: credits,
     features: [...featureSet].sort(),
     expiresAt: input.expiresAt || null,
     checkedAt: input.checkedAt || new Date().toISOString()

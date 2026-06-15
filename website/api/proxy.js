@@ -517,8 +517,9 @@ export default async function handler(request, response) {
     if (maxTokens) {
       generationConfig.maxOutputTokens = Number(maxTokens);
     }
-    if (jsonSchema && jsonSchema.schema) {
-      generationConfig.responseSchema = cleanSchemaForGemini(jsonSchema.schema);
+    const incomingSchema = (jsonSchema && jsonSchema.schema) || body.generationConfig?.responseSchema || jsonSchema;
+    if (incomingSchema) {
+      generationConfig.responseSchema = cleanSchemaForGemini(incomingSchema);
     }
     geminiPayload.generationConfig = generationConfig;
 

@@ -62,7 +62,11 @@ async function handleEntitlements(req, res) {
 
   let record = await findSubscriptionByUserId(userId);
   if (!record || !['active', 'trialing'].includes(String(record.status || '').toLowerCase())) {
+    const backupRecord = record;
     record = await reconcileSubscriptionByEmail(user);
+    if (!record) {
+      record = backupRecord;
+    }
   }
   if (!record || !['active', 'trialing'].includes(record.status)) {
     sendJson(res, 200, freeEntitlements(userId, record));

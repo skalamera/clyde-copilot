@@ -2652,6 +2652,28 @@ function createWindow () {
       return true;
   });
 
+  ipcMain.handle('get-license-token', async () => {
+      const authSession = await getFreshAuthSession();
+      if (!authSession || !authSession.accessToken) {
+          throw new Error('You must be signed in to retrieve a license token.');
+      }
+      try {
+          const response = await axios.post(`${CLYDE_API_BASE_URL}/license-token`, {}, {
+              headers: {
+                  'Authorization': `Bearer ${authSession.accessToken}`,
+                  'Content-Type': 'application/json'
+              },
+              timeout: 15000
+          });
+          return response.data;
+      } catch (error) {
+          if (error.response && error.response.data && error.response.data.error) {
+              throw new Error(error.response.data.error);
+          }
+          throw new Error(error.message || 'Failed to retrieve license token.');
+      }
+  });
+
   ipcMain.handle('get-realtime-token', async () => {
       assertFeature('pro_realtime_agent');
       const settings = loadSettings();

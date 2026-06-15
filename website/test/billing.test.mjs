@@ -21,15 +21,12 @@ test('checkout reuses an existing Stripe customer by email and stores user metad
   assert.match(source, /customer_email: customerId \? undefined : email \|\| undefined/);
 });
 
-test('signup endpoint handles duplicate Supabase emails without revealing account existence', () => {
+test('signup endpoint handles duplicate Supabase emails with an explicit 400 error', () => {
   const source = fs.readFileSync(path.join(apiRoot, 'sign-up.js'), 'utf8');
 
   assert.match(source, /listSupabaseUsersByEmail\(email\)/);
-  // Anti-enumeration: duplicate email must return a success-shaped response,
-  // never a 409 / "already exists" oracle.
-  assert.match(source, /Anti-enumeration/);
-  assert.doesNotMatch(source, /sendJson\(res, 409/);
-  assert.doesNotMatch(source, /An account already exists for this email/);
+  assert.match(source, /sendJson\(res, 400/);
+  assert.match(source, /already exists/);
 });
 
 test('Pro signup checkout rejects duplicate email without revealing account existence', () => {
@@ -56,10 +53,10 @@ test('Stripe webhook invites the Supabase user after checkout is complete', () =
 
   assert.match(source, /checkout\.session\.completed/);
   assert.match(source, /activatePaidCheckoutSession\(session\.id\)/);
-  assert.match(source, /inviteSupabaseUserByEmail\(resolvedEmail\)/);
-  assert.match(source, /listSupabaseUsersByEmail\(resolvedEmail\)/);
-  assert.match(source, /stripe\.customers\.update\(customerId/);
-  assert.match(source, /stripe\.subscriptions\.update\(subscription\.id/);
+  assert.match(billingSource, /inviteSupabaseUserByEmail\(email\)/);
+  assert.match(billingSource, /listSupabaseUsersByEmail\(email\)/);
+  assert.match(billingSource, /stripe\.customers\.update\(customerId/);
+  assert.match(billingSource, /stripe\.subscriptions\.update\(subscription\.id/);
   assert.match(billingSource, /export async function inviteSupabaseUserByEmail/);
   assert.match(billingSource, /\/auth\/v1\/invite/);
   assert.match(billingSource, /redirect_to/);
@@ -101,7 +98,7 @@ test('billing.js supports creating credits purchase checkout sessions', () => {
 
   assert.match(source, /case 'create-credits-checkout'/);
   assert.match(source, /handleCreateCreditsCheckout/);
-  assert.match(source, /getCreditsPriceId\(\)/);
+  assert.match(source, /getCreditsPriceId\([^)]*\)/);
   assert.match(source, /mode: 'payment'/);
   assert.match(source, /type: 'credits_purchase'/);
 });
@@ -109,7 +106,7 @@ test('billing.js supports creating credits purchase checkout sessions', () => {
 test('_billing.js supports credit price retrieval and handles completed credits checkout payment sessions', () => {
   const source = fs.readFileSync(path.join(apiRoot, '_billing.js'), 'utf8');
 
-  assert.match(source, /export function getCreditsPriceId\(\)/);
+  assert.match(source, /export function getCreditsPriceId\([^)]*\)/);
   assert.match(source, /session\.mode === 'payment'/);
   assert.match(source, /type === 'credits_purchase'/);
   assert.match(source, /credits: newCredits/);

@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     startCheckoutSession: () => ipcRenderer.invoke('start-checkout-session'),
     startProSignupCheckout: (payload) => ipcRenderer.invoke('start-pro-signup-checkout', payload),
     openBillingPortal: () => ipcRenderer.invoke('open-billing-portal'),
+    getLicenseToken: () => ipcRenderer.invoke('get-license-token'),
     getRealtimeToken: () => ipcRenderer.invoke('get-realtime-token'),
     startAgentChat: (payload) => ipcRenderer.invoke('start-agent-chat', payload),
     sendAgentChatMessage: (payload) => ipcRenderer.invoke('send-agent-chat-message', payload),

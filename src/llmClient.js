@@ -25,7 +25,7 @@ async function generateChat({ provider, apiKey, model, messages, jsonSchema, tem
         return await generateOpenAI({ apiKey, model: 'gpt-4o', messages, jsonSchema, temperature, maxTokens, axiosClient, url: 'https://api.openai.com/v1/chat/completions', images });
     } else {
         const url = normalizeOpenAIChatUrl(localUrl || process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions');
-        return generateOpenAI({ apiKey: apiKey || 'lm-studio', model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images });
+        return generateOpenAI({ apiKey: 'lm-studio', model, messages, jsonSchema, temperature, maxTokens, axiosClient, url, images });
     }
 }
 
@@ -206,7 +206,7 @@ async function generateOpenAI({ apiKey, model, messages, jsonSchema, temperature
         'Authorization': `Bearer ${apiKey}`
     };
 
-    const response = await axiosClient.post(url, payload, { headers, timeout: 120000 });
+    const response = await axiosClient.post(url, payload, { headers, timeout: 300000 });
     return response.data?.choices?.[0]?.message?.content || '';
 }
 
@@ -257,7 +257,7 @@ async function generateAnthropic({ apiKey, model, messages, jsonSchema, temperat
         'anthropic-version': '2023-06-01'
     };
 
-    const response = await axiosClient.post('https://api.anthropic.com/v1/messages', payload, { headers, timeout: 120000 });
+    const response = await axiosClient.post('https://api.anthropic.com/v1/messages', payload, { headers, timeout: 300000 });
     
     if (jsonSchema) {
         // Extract tool use
@@ -501,7 +501,7 @@ async function generateClydeCloud({ model, messages, jsonSchema, temperature, ma
     const url = 'https://clydeai.live/api/proxy?type=chat';
     
     try {
-        const response = await axiosClient.post(url, payload, { headers, timeout: 120000 });
+        const response = await axiosClient.post(url, payload, { headers, timeout: 300000 });
         
         // Extract reply from Gemini format returned by proxy
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;

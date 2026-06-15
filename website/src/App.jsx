@@ -152,6 +152,18 @@ function App() {
   }
 
   useEffect(() => {
+    // If we land with a hash containing access_token, check if we need to redirect to auth/confirmed
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const token = hashParams.get('access_token');
+    const type = hashParams.get('type');
+    if (token && (type === 'recovery' || type === 'invite' || type === 'signup')) {
+      // Redirect them to /auth/confirmed with the same hash so AuthConfirmedPage can read it
+      window.history.replaceState({}, '', `/auth/confirmed${window.location.hash}`);
+      setPath('/auth/confirmed');
+    }
+  }, []);
+
+  useEffect(() => {
     const handlePop = () => setPath(normalizePath(window.location.pathname));
     window.addEventListener('popstate', handlePop);
     return () => window.removeEventListener('popstate', handlePop);
@@ -198,7 +210,7 @@ function App() {
   const currentPage = path === '/how-it-works'
     ? <HowItWorksPage onDownload={handleDownload} />
     : path === '/pricing'
-      ? <PricingPage showUpgradeNotice={showUpgradeNotice} />
+      ? <PricingPage showUpgradeNotice={showUpgradeNotice} navigate={navigate} />
     : path === '/clyde-go'
       ? <ClydeGoPage />
     : path === '/support'
@@ -211,6 +223,8 @@ function App() {
           ? <AuthConfirmedPage />
           : path === '/billing/success'
             ? <BillingSuccessPage />
+          : path === '/forgot-password'
+            ? <ForgotPasswordPage navigate={navigate} />
     : <LandingPage onDownload={handleDownload} navigate={navigate} />;
 
   return (
@@ -358,14 +372,14 @@ function LandingPage({ navigate, onDownload }) {
   );
 }
 
-function PricingPage({ showUpgradeNotice }) {
+function PricingPage({ showUpgradeNotice, navigate }) {
   const [annual, setAnnual] = useState(true);
   const [proCheckout, setProCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
   const [creditsCheckout, setCreditsCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
   const [selectedCreditsSize, setSelectedCreditsSize] = useState(50); // 20, 50, 120
   
   // Custom states for the Web Create Account modal
-  const [signupModal, setSignupModal] = useState({ open: false, email: '', password: '', confirmPassword: '', busy: false, error: '' });
+  const [signupModal, setSignupModal] = useState({ open: false, email: '', password: '', confirmPassword: '', busy: false, error: '', checkoutType: 'pro' });
 
   async function startProCheckout(event) {
     event.preventDefault();
@@ -399,7 +413,7 @@ function PricingPage({ showUpgradeNotice }) {
       } else {
         // If it's a new user, prompt them with the Create Account password modal!
         setProCheckout((s) => ({ ...s, busy: false }));
-        setSignupModal({ open: true, email, password: '', confirmPassword: '', busy: false, error: '' });
+        setSignupModal({ open: true, email, password: '', confirmPassword: '', busy: false, error: '', checkoutType: 'pro' });
       }
     } catch (error) {
       setProCheckout((s) => ({ ...s, busy: false, error: error.message || 'Checkout could not be started.' }));
@@ -430,16 +444,29 @@ function PricingPage({ showUpgradeNotice }) {
       }
 
       // Automatically launch Stripe checkout immediately after account is successfully created!
-      const checkoutResponse = await fetch('/api/create-pro-signup-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: signupModal.email, billingPeriod: annual ? 'annual' : 'monthly', forceCheckout: true })
-      });
-      const checkoutPayload = await checkoutResponse.json().catch(() => ({}));
-      if (!checkoutResponse.ok || !checkoutPayload.url) {
-        throw new Error(checkoutPayload.error || 'Checkout redirect failed.');
+      if (signupModal.checkoutType === 'credits') {
+        const checkoutResponse = await fetch('/api/create-credits-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: signupModal.email, creditsAmount: selectedCreditsSize, forceCheckout: true })
+        });
+        const checkoutPayload = await checkoutResponse.json().catch(() => ({}));
+        if (!checkoutResponse.ok || !checkoutPayload.url) {
+          throw new Error(checkoutPayload.error || 'Credits checkout redirect failed.');
+        }
+        window.location.href = checkoutPayload.url;
+      } else {
+        const checkoutResponse = await fetch('/api/create-pro-signup-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: signupModal.email, billingPeriod: annual ? 'annual' : 'monthly', forceCheckout: true })
+        });
+        const checkoutPayload = await checkoutResponse.json().catch(() => ({}));
+        if (!checkoutResponse.ok || !checkoutPayload.url) {
+          throw new Error(checkoutPayload.error || 'Checkout redirect failed.');
+        }
+        window.location.href = checkoutPayload.url;
       }
-      window.location.href = checkoutPayload.url;
     } catch (error) {
       setSignupModal((s) => ({ ...s, busy: false, error: error.message }));
     }
@@ -454,16 +481,31 @@ function PricingPage({ showUpgradeNotice }) {
     }
     setCreditsCheckout((s) => ({ ...s, busy: true, error: '', notice: '' }));
     try {
-      const response = await fetch('/api/create-credits-checkout', {
+      // 1. Check if user already exists
+      const existRes = await fetch('/api/check-email-existence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, creditsAmount: selectedCreditsSize })
+        body: JSON.stringify({ email })
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.url) {
-        throw new Error(payload.error || 'Credits checkout could not be started. Please try again.');
+      const existPayload = await existRes.json().catch(() => ({}));
+
+      if (existPayload.exists) {
+        // If they already exist, continue directly to credits checkout (force to bypass registration check in billing.js)
+        const response = await fetch('/api/create-credits-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, creditsAmount: selectedCreditsSize, forceCheckout: true })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.url) {
+          throw new Error(payload.error || 'Credits checkout could not be started. Please try again.');
+        }
+        window.location.href = payload.url;
+      } else {
+        // If it's a new user, prompt them with the Create Account password modal first!
+        setCreditsCheckout((s) => ({ ...s, busy: false }));
+        setSignupModal({ open: true, email, password: '', confirmPassword: '', busy: false, error: '', checkoutType: 'credits' });
       }
-      window.location.href = payload.url;
     } catch (error) {
       setCreditsCheckout((s) => ({ ...s, busy: false, error: error.message || 'Checkout could not be started.' }));
     }
@@ -623,7 +665,14 @@ function PricingPage({ showUpgradeNotice }) {
                     {proCheckout.busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
                     {proCheckout.busy ? 'Opening checkout...' : `Continue to Checkout (${annual ? 'Annual' : 'Monthly'})`}
                   </button>
-                  {proCheckout.error ? <p className="checkout-status checkout-error">{proCheckout.error}</p> : null}
+                  {proCheckout.error ? (
+                    <p className="checkout-status checkout-error">
+                      {proCheckout.error}{' '}
+                      {(proCheckout.error.toLowerCase().includes('registered') || proCheckout.error.toLowerCase().includes('exists')) && (
+                        <a href="/forgot-password" onClick={(e) => { e.preventDefault(); navigate('/forgot-password'); }} style={{ color: '#6366f1', textDecoration: 'underline', marginLeft: '4px' }}>Reset password</a>
+                      )}
+                    </p>
+                  ) : null}
                   {proCheckout.notice ? <p className="checkout-status">{proCheckout.notice}</p> : null}
                 </form>
               ) : tier.name === 'Credit Pack' && creditsCheckout.open ? (
@@ -640,7 +689,14 @@ function PricingPage({ showUpgradeNotice }) {
                     {creditsCheckout.busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
                     {creditsCheckout.busy ? 'Opening checkout...' : 'Continue to Checkout'}
                   </button>
-                  {creditsCheckout.error ? <p className="checkout-status checkout-error">{creditsCheckout.error}</p> : null}
+                  {creditsCheckout.error ? (
+                    <p className="checkout-status checkout-error">
+                      {creditsCheckout.error}{' '}
+                      {(creditsCheckout.error.toLowerCase().includes('registered') || creditsCheckout.error.toLowerCase().includes('exists')) && (
+                        <a href="/forgot-password" onClick={(e) => { e.preventDefault(); navigate('/forgot-password'); }} style={{ color: '#6366f1', textDecoration: 'underline', marginLeft: '4px' }}>Reset password</a>
+                      )}
+                    </p>
+                  ) : null}
                 </form>
               ) : (
                 <button
@@ -806,6 +862,25 @@ function PricingPage({ showUpgradeNotice }) {
                 {signupModal.busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
                 {signupModal.busy ? 'Creating account...' : 'Create Account'}
               </button>
+
+              <div style={{ textAlign: 'center', marginTop: '12px' }}>
+                <a
+                  href="/forgot-password"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setSignupModal((s) => ({ ...s, open: false }));
+                    navigate('/forgot-password');
+                  }}
+                  style={{
+                    color: '#6366f1',
+                    fontSize: '0.8rem',
+                    textDecoration: 'underline',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Forgot Password?
+                </a>
+              </div>
             </form>
           </div>
         </div>
@@ -1156,6 +1231,117 @@ function PrivacyPolicyPage() {
             </article>
           ))}
         </div>
+      </section>
+    </main>
+  );
+}
+
+function ForgotPasswordPage({ navigate }) {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleResetSubmit(event) {
+    event.preventDefault();
+    const targetEmail = email.trim();
+    if (!targetEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    setBusy(true);
+    setStatus('');
+    setError('');
+    try {
+      const response = await fetch('/api/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: targetEmail })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'Password reset failed.');
+      }
+      setStatus('Password reset email sent successfully! Please check your inbox (including spam) for the reset link.');
+      setEmail('');
+    } catch (err) {
+      setError(err.message || 'Password reset failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-confirmed-page">
+      <section className="subpage-hero policy-hero">
+        <div className="subpage-copy is-visible">
+          <span className="eyebrow">Account Security</span>
+          <h1>Reset your Clyde password</h1>
+          <p>Enter the email address associated with your Clyde account, and we will send you a secure link to reset your password.</p>
+          
+          <form className="auth-password-form" onSubmit={handleResetSubmit} style={{ marginTop: '24px' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9rem', color: '#cbd5e1' }}>
+              Email Address
+              <input
+                type="email"
+                required
+                disabled={busy}
+                autoFocus
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@email.com"
+                style={{
+                  background: '#0f172a',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#f8fafc',
+                  fontSize: '0.95rem',
+                  outline: 'none',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </label>
+            <button
+              className="primary-link"
+              type="submit"
+              disabled={busy}
+              style={{
+                background: 'linear-gradient(to right, #6366f1, #a855f7)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '14px',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: busy ? 'wait' : 'pointer',
+                marginTop: '16px',
+                width: '100%',
+                boxSizing: 'border-box',
+                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              {busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
+              {busy ? 'Sending link...' : 'Send Reset Link'}
+            </button>
+            {error ? <p className="auth-status" style={{ color: '#ef4444', marginTop: '12px' }}>{error}</p> : null}
+            {status ? <p className="auth-status" style={{ color: '#10b981', marginTop: '12px' }}>{status}</p> : null}
+          </form>
+        </div>
+        <aside className="policy-summary-card is-visible">
+          <h2>Sign In Help</h2>
+          <p>
+            After resetting your password, you can sign in directly to the Clyde Desktop app.
+          </p>
+          <p style={{ marginTop: '12px', fontSize: '0.85rem', color: '#94a3b8' }}>
+            Need further help? Visit our <a href="/support" onClick={(e) => { e.preventDefault(); navigate('/support'); }} style={{ color: '#6366f1', textDecoration: 'underline' }}>Support Page</a>.
+          </p>
+        </aside>
       </section>
     </main>
   );

@@ -192,6 +192,7 @@ test('main process exposes knowledge base and tier IPC handlers', () => {
   assert.match(source, /ipcMain\.handle\('start-pro-signup-checkout'/);
   assert.match(source, /ipcMain\.handle\('start-checkout-session'/);
   assert.match(source, /ipcMain\.handle\('open-billing-portal'/);
+  assert.match(source, /ipcMain\.handle\('get-license-token'/);
   assert.match(source, /function publicSettings/);
   assert.match(source, /authAccessToken: _authAccessToken/);
   assert.match(source, /authRefreshToken: _authRefreshToken/);

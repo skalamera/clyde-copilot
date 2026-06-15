@@ -39,6 +39,7 @@ test('preload exposes mode-aware session APIs', () => {
     'startProSignupCheckout',
     'signOut',
     'refreshAuthSession',
+    'getLicenseToken',
     'listKnowledge',
     'ingestKnowledgeFile',
     'deleteKnowledgeItem',
@@ -89,6 +90,7 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /startProSignupCheckout:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('start-pro-signup-checkout', payload\)/);
   assert.match(source, /startCheckoutSession:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('start-checkout-session'\)/);
   assert.match(source, /openBillingPortal:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-billing-portal'\)/);
+  assert.match(source, /getLicenseToken:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-license-token'\)/);
   assert.match(source, /openUpgradePage:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-upgrade-page'\)/);
   assert.match(source, /listKnowledge:\s*\(filters\)\s*=>\s*ipcRenderer\.invoke\('list-knowledge', filters\)/);
   assert.match(source, /ingestKnowledgeFile:\s*\(filePath\)\s*=>\s*ipcRenderer\.invoke\('ingest-knowledge-file', filePath\)/);

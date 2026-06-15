@@ -7291,7 +7291,7 @@ function WorkspaceNav({
 
         <div className="view-tabs">
           {tabs.map((tab) => {
-            const isDisabled = tab.requiresPro && !isProTier;
+            const isDisabled = tab.requiresPro && !isProTier && !(tab.id === 'mock-interview' && canUseFeature(settings, 'mock_interviews'));
             return (
             <button
               key={tab.id}
@@ -10326,7 +10326,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
       ? 'gpt-4o'
       : (settings.llmProvider === 'gemini' || settings.llmProvider === 'clyde-cloud' || isPro)
         ? 'gemini-3.5-flash'
-        : '',
+        : (settings.llmModel || ''),
     transcriptionProvider: settings.transcriptionProvider || (isPro ? 'clyde-cloud-whisper' : 'local'),
     audioEngine: settings.audioEngine || 'rust',
     googleSyncPollMinutes: settings.googleSyncPollMinutes || 15,
@@ -11596,6 +11596,7 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate,
         }
       }}><option value="">Select provider</option><option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option><option value="local">Local LM Studio (Offline)</option><option value="gemini">Google Gemini (Custom Key)</option><option value="openai">OpenAI ChatGPT (Custom Key)</option></select></label>
       {draft.llmProvider === 'local' ? <label className="wide-field">Local LLM URL<input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" /></label> : null}
+      {draft.llmProvider === 'local' ? <label className="wide-field">Model name<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Name of the model loaded in LM Studio" /></label> : null}
       {draft.llmProvider === 'openai' ? <label className="wide-field">OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
       {draft.llmProvider === 'gemini' ? <label className="wide-field">Gemini API key<input type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} /></label> : null}
       <label>Transcription provider<select value={draft.transcriptionProvider || ''} onChange={(event) => {
@@ -11764,7 +11765,7 @@ function ProSettingsBadge() {
 function UpgradeToProButton({ className = '' }) {
   async function handleUpgradeClick() {
     try {
-      await window.electronAPI?.startCheckoutSession?.();
+      await window.electronAPI?.openExternalUrl?.('https://clydeai.live/pricing');
     } catch (error) {
       console.error('Stripe redirect failed:', error);
     }
@@ -11775,7 +11776,7 @@ function UpgradeToProButton({ className = '' }) {
       type="button"
       onClick={handleUpgradeClick}
     >
-      Upgrade to Pro
+      Upgrade to Pro or Get Clyde Credits
     </button>
   );
 }
@@ -11811,6 +11812,8 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
   const [saving, setSaving] = useState(false);
   const [authForm, setAuthForm] = useState({ email: '', password: '', confirmPassword: '' });
   const [authBusy, setAuthBusy] = useState(false);
+  const [licenseToken, setLicenseToken] = useState('');
+  const [licenseStatus, setLicenseStatus] = useState('');
   const mountedRef = useRef(true);
   const preserveStatusOnSettingsUpdateRef = useRef(false);
   const proEntitled = canUseFeature(settings, 'pro_realtime_agent');
@@ -11889,12 +11892,12 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
   }
 
   async function startCheckout() {
-    setSaveStatus('Opening Stripe checkout...');
+    setSaveStatus('Opening pricing page...');
     try {
-      await api?.startCheckoutSession?.();
-      setSaveStatus('Checkout opened in your browser. Return here and refresh after payment.');
+      await api?.openExternalUrl?.('https://clydeai.live/pricing');
+      setSaveStatus('Pricing page opened in your browser.');
     } catch (error) {
-      setSaveStatus(`Checkout failed: ${error.message}`);
+      setSaveStatus(`Opening pricing failed: ${error.message}`);
     }
   }
 
@@ -12188,6 +12191,81 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                 <strong>{settings.userId}</strong>
               </div>
               <div>
+                <span>Clyde Pro License Token</span>
+                {settings.userTier !== 'pro' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <button
+                      type="button"
+                      className="ghost compact"
+                      disabled
+                      style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'fit-content', opacity: 0.5, cursor: 'not-allowed' }}
+                    >
+                      Reveal License Token
+                    </button>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--red, #ff5c7a)', marginTop: '2px' }}>
+                      Clyde Pro required
+                    </span>
+                  </div>
+                ) : licenseToken ? (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <strong style={{ userSelect: 'all', fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--success)' }}>
+                      {licenseToken.slice(0, 15)}...
+                    </strong>
+                    <button
+                      type="button"
+                      className="ghost compact"
+                      onClick={() => {
+                        navigator.clipboard.writeText(licenseToken);
+                        setLicenseStatus('Copied!');
+                        setTimeout(() => setLicenseStatus(''), 2000);
+                      }}
+                      style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+                    >
+                      {licenseStatus || 'Copy'}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className="ghost compact"
+                      disabled={licenseStatus === 'Requesting...'}
+                      onClick={async () => {
+                        try {
+                          setLicenseStatus('Requesting...');
+                          const result = await api?.getLicenseToken?.();
+                          if (result && result.token) {
+                            setLicenseToken(result.token);
+                            setLicenseStatus('');
+                          } else {
+                            setLicenseStatus('Failed to generate');
+                          }
+                        } catch (err) {
+                          const cleanMsg = (err.message || '')
+                            .replace(/^Error invoking remote method '[^']+'::?\s*(Error:\s*)?/, '')
+                            .replace(/^Error invoking remote method '[^']+'\s*(Error:\s*)?/, '');
+                          setLicenseStatus(`Error: ${cleanMsg}`);
+                        }
+                      }}
+                      style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'fit-content' }}
+                    >
+                      {licenseStatus === 'Requesting...' ? 'Requesting...' : 'Reveal License Token'}
+                    </button>
+                    {licenseStatus && licenseStatus !== 'Requesting...' && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--red, #ff5c7a)', marginTop: '2px', maxWidth: '300px', wordBreak: 'break-all' }}>
+                        {licenseStatus}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div>
+                <span>Extension Pairing Code</span>
+                <strong style={{ userSelect: 'all', fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--cyan)' }}>
+                  {settings.extensionPairingToken || 'Not generated'}
+                </strong>
+              </div>
+              <div>
                 <span>Tier</span>
                 <strong>{settings.userTier === 'pro' ? 'Clyde Pro Agent' : 'Clyde Assistant'}</strong>
               </div>
@@ -12215,7 +12293,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                 {settings.userTier === 'pro' ? (
                   <button type="button" className="primary-action" onClick={openBillingPortal}>Manage billing</button>
                 ) : (
-                  <button type="button" className="primary-action" onClick={startCheckout}>Upgrade to Pro</button>
+                  <button type="button" className="primary-action" onClick={startCheckout}>Upgrade to Pro or Get Clyde Credits</button>
                 )}
                 <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
                 <button type="button" className="ghost" disabled={authBusy} onClick={signOut}>Sign out</button>
@@ -12479,6 +12557,12 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             <label>
               Local LLM URL
               <input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" />
+            </label>
+          )}
+          {draft.llmProvider === 'local' && (
+            <label>
+              Model name
+              <input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Name of the model loaded in LM Studio" />
             </label>
           )}
           <div className="wide-field settings-section-label">
@@ -13070,8 +13154,28 @@ function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard }) {
       alignItems: 'center',
       justifyContent: 'center',
       color: '#f8fafc',
-      fontFamily: 'system-ui, sans-serif'
+      fontFamily: 'system-ui, sans-serif',
+      WebkitAppRegion: 'drag'
     }}>
+      <button
+        onClick={() => api?.closeApp?.()}
+        style={{
+          position: 'absolute',
+          top: '24px',
+          right: '24px',
+          background: 'none',
+          border: 'none',
+          color: '#94a3b8',
+          fontSize: '1.75rem',
+          cursor: 'pointer',
+          zIndex: 10000,
+          WebkitAppRegion: 'no-drag'
+        }}
+        title="Close Clyde"
+      >
+        ×
+      </button>
+
       <div className="auth-card-wrapper" style={{
         background: 'rgba(30, 41, 59, 0.5)',
         border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -13079,7 +13183,8 @@ function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard }) {
         padding: '32px',
         width: '380px',
         boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-        textAlign: 'center'
+        textAlign: 'center',
+        WebkitAppRegion: 'no-drag'
       }}>
         <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '8px', color: '#f8fafc' }}>
           Welcome to <span style={{ background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Clyde</span>
@@ -13159,6 +13264,26 @@ function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard }) {
             {busy ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
+
+        <div style={{ textAlign: 'center', marginTop: '12px' }}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => api?.openExternalUrl?.('https://clydeai.live/forgot-password')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#6366f1',
+              fontSize: '0.8rem',
+              textDecoration: 'underline',
+              cursor: 'pointer',
+              padding: 0,
+              fontFamily: 'inherit'
+            }}
+          >
+            Forgot Password?
+          </button>
+        </div>
 
         <p style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '20px' }}>
           Don't have an account yet?{' '}

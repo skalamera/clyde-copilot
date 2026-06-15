@@ -207,6 +207,7 @@ export async function upsertSubscriptionRecord(record) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
+    console.error('[_billing] WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing! Skipping subscription upsert.');
     return { skipped: true };
   }
 
@@ -235,6 +236,7 @@ export async function findSubscriptionByUserId(userId) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
+    console.error('[_billing] WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing! Skipping subscription lookup.');
     return null;
   }
 
@@ -263,6 +265,9 @@ export async function listSupabaseUsersByEmail(email) {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const target = normalizeEmail(email);
   if (!url || !key || !target) {
+    if (!url || !key) {
+      console.error('[_billing] WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing! Skipping users listing by email.');
+    }
     return [];
   }
 
@@ -396,6 +401,21 @@ export async function activatePaidCheckoutSession(sessionId) {
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.retrieve(cleanSessionId, {
     expand: ['subscription', 'customer']
+  });
+
+  // Idempotency check: if this session is already processed, do not activate again
+  if (session.metadata?.processed === 'true') {
+    console.log(`[_billing] Checkout session ${cleanSessionId} is already processed. Skipping activation.`);
+    return {
+      success: true,
+      alreadyProcessed: true,
+      email: session.customer_details?.email || session.customer_email || session.metadata?.pendingProSignupEmail || session.metadata?.pendingEmail || ''
+    };
+  }
+
+  // Mark as processed in Stripe metadata first to prevent race/double runs
+  await stripe.checkout.sessions.update(cleanSessionId, {
+    metadata: { processed: 'true' }
   });
 
   // Handle one-time credits purchase
