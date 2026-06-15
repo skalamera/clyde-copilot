@@ -12440,7 +12440,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </div>
               <div>
                 <span>Clyde Pro License Token</span>
-                {settings.userTier !== 'pro' ? (
+                {(settings.userTier !== 'pro' && !(typeof settings.subscriptionCredits === 'number' && settings.subscriptionCredits > 0)) ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <button
                       type="button"
@@ -12451,7 +12451,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                       Reveal License Token
                     </button>
                     <span style={{ fontSize: '0.75rem', color: 'var(--red, #ff5c7a)', marginTop: '2px' }}>
-                      Clyde Pro required
+                      Clyde Pro or credits required
                     </span>
                   </div>
                 ) : licenseToken ? (

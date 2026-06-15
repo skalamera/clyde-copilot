@@ -35,8 +35,13 @@ export default async function handler(req, res) {
 
     const subscription = await findSubscriptionByUserId(userId);
     const status = String(subscription?.status || '').toLowerCase();
-    if (!['active', 'trialing'].includes(status)) {
-      sendJson(res, 403, { error: 'An active Clyde Pro subscription is required to mint a license token.' });
+    const credits = subscription && typeof subscription.credits === 'number' ? subscription.credits : 0;
+
+    const isPro = ['active', 'trialing'].includes(status);
+    const hasCredits = credits > 0;
+
+    if (!isPro && !hasCredits) {
+      sendJson(res, 403, { error: 'An active Clyde Pro subscription or paid credits are required to mint a license token.' });
       return;
     }
 

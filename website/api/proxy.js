@@ -15,7 +15,9 @@ const SIGNED_LICENSE_RE = /^clyde_lic_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const SIGNED_LICENSE_V2_RE = /^clyde_lic_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(\d+)\.([A-Za-z0-9_-]{16,})$/i;
 
 function isActiveSubscription(subscription) {
-  return ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
+  const isPro = ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
+  const hasCredits = subscription && typeof subscription.credits === 'number' && subscription.credits > 0;
+  return isPro || hasCredits;
 }
 
 /**
