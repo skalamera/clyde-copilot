@@ -1,6 +1,6 @@
 {
   "name": "clyde",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
@@ -85,7 +85,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "icon.png",
+      "icon": "icon.ico",
       "azureSignOptions": {
         "publisherName": "Stephen Skalamera",
         "endpoint": "https://eus.codesigning.azure.net/",

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveAvatarSession, SessionEvent } from '@heygen/liveavatar-web-sdk';
 
-const downloadHref = 'https://storage.googleapis.com/clydeai-live-downloads/clyde-windows-v1.0.0-beta.2.exe';
+const downloadHref = 'https://storage.googleapis.com/clydeai-live-downloads/clyde-windows-v1.0.0-beta.3.exe';
 
 const tiers = [
   {
