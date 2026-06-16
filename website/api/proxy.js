@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { findSubscriptionByUserId, requireSupabaseUser, sendJson, readJson } from './_billing.js';
+import { findSubscriptionByUserId, requireSupabaseUser, sendJson, readJson, upsertSubscriptionRecord } from './_billing.js';
 
 export const config = {
   api: {
@@ -268,6 +268,24 @@ export default async function handler(request, response) {
     if (!isActiveSubscription(subscription)) {
       sendJson(response, 403, { error: 'Clyde Pro subscription is required to use Clyde-managed cloud API endpoints.' });
       return;
+    }
+
+    // 2b. If they are a credit-based user, deduct 1 credit
+    const isPro = ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
+    if (!isPro) {
+      const currentCredits = subscription && typeof subscription.credits === 'number' ? subscription.credits : 0;
+      if (currentCredits < 1) {
+        sendJson(response, 402, { error: 'Insufficient credits. Please purchase more credits or subscribe to Clyde Pro.' });
+        return;
+      }
+      const newCredits = currentCredits - 1;
+      await upsertSubscriptionRecord({
+        ...subscription,
+        user_id: user.id,
+        credits: newCredits,
+        updated_at: new Date().toISOString()
+      });
+      console.log(`[Proxy] Deducted 1 credit for user ${user.id}. Remaining: ${newCredits}`);
     }
 
     // Determine proxy routing type (query param or fallback)

@@ -12546,6 +12546,19 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                 <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
                 <button type="button" className="ghost" disabled={authBusy} onClick={signOut}>Sign out</button>
               </div>
+              <div style={{ marginTop: '20px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', width: '100%', gridColumn: 'span 2' }}>
+                <span>Need to delete your account? </span>
+                <a 
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    api?.openExternal?.(`https://clydeai.live/delete-account?email=${encodeURIComponent(settings.authEmail || '')}&userId=${settings.userId || ''}`);
+                  }}
+                  style={{ color: '#ff5c7a', textDecoration: 'underline', fontWeight: '500' }}
+                >
+                  Request account and data deletion
+                </a>
+              </div>
             </div>
           )}
         </div>

@@ -225,7 +225,9 @@ function App() {
             ? <BillingSuccessPage />
           : path === '/forgot-password'
             ? <ForgotPasswordPage navigate={navigate} />
-    : <LandingPage onDownload={handleDownload} navigate={navigate} />;
+          : path === '/delete-account'
+            ? <DeleteAccountPage navigate={navigate} />
+          : <LandingPage onDownload={handleDownload} navigate={navigate} />;
 
   return (
     <div className="site-shell">
@@ -2661,6 +2663,143 @@ function FloatingSupportChatbot() {
         </div>
       )}
     </div>
+  );
+}
+
+function DeleteAccountPage({ navigate }) {
+  const params = new URLSearchParams(window.location.search);
+  const [email, setEmail] = useState(params.get('email') || '');
+  const [userId, setUserId] = useState(params.get('userId') || '');
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleDeleteSubmit(event) {
+    event.preventDefault();
+    const targetEmail = email.trim();
+    if (!targetEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    setBusy(true);
+    setStatus('');
+    setError('');
+    try {
+      const response = await fetch('/api/delete-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: targetEmail, userId: userId.trim() })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'Account deletion request failed.');
+      }
+      setStatus('Your account deletion request has been processed successfully! All associated personal data and files will be permanently purged from Clyde within 24 hours. You will receive an automated confirmation email once complete.');
+      setEmail('');
+      setUserId('');
+    } catch (err) {
+      setError(err.message || 'Account deletion failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-confirmed-page">
+      <section className="subpage-hero policy-hero">
+        <div className="subpage-copy is-visible">
+          <span className="eyebrow" style={{ color: '#ef4444' }}>Privacy & Security</span>
+          <h1>Request Account & Data Deletion</h1>
+          <p>Please confirm your account email address and User ID below. On confirmation, we will permanently scrub your experience logs, credentials, custom Q&As, and stored resumes from Clyde within 24 hours.</p>
+          
+          <form className="auth-password-form" onSubmit={handleDeleteSubmit} style={{ marginTop: '24px' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '16px' }}>
+              Email Address
+              <input
+                type="email"
+                required
+                disabled={busy}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@email.com"
+                style={{
+                  background: '#0f172a',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#f8fafc',
+                  fontSize: '0.95rem',
+                  outline: 'none',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9rem', color: '#cbd5e1' }}>
+              User ID (Optional)
+              <input
+                type="text"
+                disabled={busy}
+                value={userId}
+                onChange={(event) => setUserId(event.target.value)}
+                placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                style={{
+                  background: '#0f172a',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#f8fafc',
+                  fontSize: '0.95rem',
+                  outline: 'none',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </label>
+            <button
+              className="primary-link"
+              type="submit"
+              disabled={busy}
+              style={{
+                background: 'linear-gradient(to right, #ef4444, #b91c1c)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '14px',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: busy ? 'wait' : 'pointer',
+                marginTop: '24px',
+                width: '100%',
+                boxSizing: 'border-box',
+                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              {busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
+              {busy ? 'Processing request...' : 'Delete My Account & Data'}
+            </button>
+            {error ? <p className="auth-status" style={{ color: '#ef4444', marginTop: '12px' }}>{error}</p> : null}
+            {status ? <p className="auth-status" style={{ color: '#10b981', marginTop: '12px', lineHeight: '1.5' }}>{status}</p> : null}
+          </form>
+        </div>
+        <aside className="policy-summary-card is-visible">
+          <h2>Data Deletion Policy</h2>
+          <p>
+            Clyde completely respects your privacy and right to be forgotten under GDPR and CCPA regulations.
+          </p>
+          <p style={{ marginTop: '12px' }}>
+            All documents, customized resume revisions, AI billing ledger lines, and active extensions tokens are permanently wiped out and are completely irrecoverable once this deletion resolves.
+          </p>
+          <p style={{ marginTop: '12px', fontSize: '0.85rem', color: '#94a3b8' }}>
+            Need direct help or have questions? Contact support on our <a href="/support" onClick={(e) => { e.preventDefault(); navigate('/support'); }} style={{ color: '#6366f1', textDecoration: 'underline' }}>Support Page</a>.
+          </p>
+        </aside>
+      </section>
+    </main>
   );
 }
 
