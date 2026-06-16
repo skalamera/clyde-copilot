@@ -12552,7 +12552,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
-                    api?.openExternal?.(`https://clydeai.live/delete-account?email=${encodeURIComponent(settings.authEmail || '')}&userId=${settings.userId || ''}`);
+                    api?.openExternalUrl?.(`https://clydeai.live/delete-account?email=${encodeURIComponent(settings.authEmail || '')}&userId=${settings.userId || ''}`);
                   }}
                   style={{ color: '#ff5c7a', textDecoration: 'underline', fontWeight: '500' }}
                 >

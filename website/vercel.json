@@ -5,6 +5,10 @@
   "trailingSlash": false,
   "rewrites": [
     {
+      "source": "/api/delete-account",
+      "destination": "/api/billing?action=delete-account"
+    },
+    {
       "source": "/api/create-checkout-session",
       "destination": "/api/billing?action=create-checkout-session"
     },
