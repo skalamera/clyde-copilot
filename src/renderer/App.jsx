@@ -3403,6 +3403,17 @@ function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [userGuideOpen, setUserGuideOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(true);
+
+  const activeCaptureRef = useRef(activeCapture);
+  const overlayHiddenRef = useRef(overlayHidden);
+
+  useEffect(() => {
+    activeCaptureRef.current = activeCapture;
+  }, [activeCapture]);
+
+  useEffect(() => {
+    overlayHiddenRef.current = overlayHidden;
+  }, [overlayHidden]);
   const [entities, setEntities] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [selectedEntity, setSelectedEntity] = useState('');
@@ -3899,7 +3910,16 @@ function App() {
     });
 
     const unsubscribeAppWindowMinimizedStateChange = api?.onAppWindowMinimizedStateChange?.((_event, isMinimized) => {
-      setAppWindowMinimized(Boolean(isMinimized));
+      const minimized = Boolean(isMinimized);
+      setAppWindowMinimized(minimized);
+      if (activeCaptureRef.current) {
+        if (minimized) {
+          setOverlayHidden(true);
+        } else {
+          setOverlayHidden(false);
+          api?.resizeActiveCaptureWindow?.({ width: 460, height: 320, restore: true });
+        }
+      }
     });
 
     const unsubscribeMaximized = api?.onAppWindowMaximizedStateChange?.((_event, isMaximized) => {
@@ -8380,7 +8400,11 @@ function ActiveCaptureView({
       } else if (matchHotkey(event, settings?.toggleMinMaxHotkey || 'Ctrl+Shift+M')) {
         event.preventDefault();
         event.stopPropagation();
-        window.electronAPI?.minimizeAppWindow?.();
+        if (hidden) {
+          onShow();
+        } else {
+          onHide();
+        }
       } else if (matchHotkey(event, settings?.screenshotAskHotkey || 'Ctrl+Shift+D')) {
         event.preventDefault();
         event.stopPropagation();
@@ -8411,7 +8435,10 @@ function ActiveCaptureView({
     settings?.suggestedQuestionsHotkey,
     settings?.endCallHotkey,
     settings?.hideTaskbarEnabled,
-    isStreaming
+    isStreaming,
+    hidden,
+    onShow,
+    onHide
   ]);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
   const [videoActive, setVideoActive] = useState(false);

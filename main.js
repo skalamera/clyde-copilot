@@ -4856,6 +4856,13 @@ function registerAllGlobalShortcuts(settings) {
 function toggleMinMaxWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     
+    if (activeCaptureWindow) {
+        const minimized = !activeCaptureMinimized;
+        activeCaptureMinimized = minimized;
+        mainWindow.webContents.send('app-window-minimized-state-change', minimized);
+        return;
+    }
+    
     if (appWindowMinimized || mainWindow.isMinimized()) {
         restoreAppWindowBounds();
         appWindowMinimized = false;

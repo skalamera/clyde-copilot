@@ -6674,10 +6674,19 @@ label {
 
 .active-assistant-panel, .active-restore-chip { pointer-events: auto; }
 
-.app-shell-active {
+.app-shell-active,
+.app-shell.app-shell-active,
+.theme-cyberpunk .app-shell.app-shell-active,
+.theme-forest .app-shell.app-shell-active,
+.theme-amber .app-shell.app-shell-active,
+.theme-slate .app-shell.app-shell-active,
+.theme-snow .app-shell.app-shell-active,
+.theme-blossom .app-shell.app-shell-active {
   pointer-events: auto;
   background: transparent !important;
+  background-image: none !important;
   backdrop-filter: none !important;
+  box-shadow: none !important;
 }
 body:has(.app-shell-active) {
   background: transparent !important;
