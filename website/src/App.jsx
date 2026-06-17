@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveAvatarSession, SessionEvent } from '@heygen/liveavatar-web-sdk';
 
-const downloadHref = 'https://storage.googleapis.com/clydeai-live-downloads/clyde-windows-v1.0.0-beta.3.exe';
+const downloadHref = 'https://storage.googleapis.com/clydeai-live-downloads/clyde-windows-v1.0.0-beta.13.exe';
 
 const tiers = [
   {
@@ -242,26 +242,150 @@ function App() {
 }
 
 function Header({ navigate, onDownload, path, upgradeNotice, showUpgradeNotice }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const handleNavigate = (targetPath) => {
+    setMenuOpen(false);
+    navigate(targetPath);
+  };
+
   return (
     <header className="site-header">
-      <a className="brand-link" href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }}>
+      <a className="brand-link" href="/" onClick={(event) => { event.preventDefault(); handleNavigate('/'); }}>
         <img src="/clyde-free-logo-textonly.svg" alt="Clyde" />
       </a>
-      <nav aria-label="Primary navigation">
-        <a href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }} className={path === '/' ? 'active' : ''}>Home</a>
-        <a href="/clyde-go" onClick={(event) => { event.preventDefault(); navigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go</a>
-        <a href="/how-it-works" onClick={(event) => { event.preventDefault(); navigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
-        <a href="/pricing" onClick={(event) => { event.preventDefault(); navigate('/pricing'); }} className={path === '/pricing' ? 'active' : ''}>Pricing</a>
-        <a href="/support" onClick={(event) => { event.preventDefault(); navigate('/support'); }} className={path === '/support' ? 'active' : ''}>Support</a>
-        <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); navigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
+      
+      {/* Desktop Navigation */}
+      <nav aria-label="Primary navigation" className="desktop-nav">
+        <a href="/" onClick={(event) => { event.preventDefault(); handleNavigate('/'); }} className={path === '/' ? 'active' : ''}>Home</a>
+        <a href="/clyde-go" onClick={(event) => { event.preventDefault(); handleNavigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go</a>
+        <a href="/how-it-works" onClick={(event) => { event.preventDefault(); handleNavigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
+        <a href="/pricing" onClick={(event) => { event.preventDefault(); handleNavigate('/pricing'); }} className={path === '/pricing' ? 'active' : ''}>Pricing</a>
+        <a href="/support" onClick={(event) => { event.preventDefault(); handleNavigate('/support'); }} className={path === '/support' ? 'active' : ''}>Support</a>
+        <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); handleNavigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
         <a href="#faq">FAQ</a>
       </nav>
-      <div className="header-actions">
-        <button className="header-cta header-pro-cta" type="button" onClick={() => navigate('/pricing')}>Get Clyde Pro</button>
+
+      <div className="header-actions desktop-actions">
+        <button className="header-cta header-pro-cta" type="button" onClick={() => handleNavigate('/pricing')}>Get Clyde Pro</button>
         <a className="header-cta" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
       </div>
+
+      {/* Mobile Hamburger Button */}
+      <button 
+        type="button" 
+        className={`mobile-menu-toggle ${menuOpen ? 'open' : ''}`} 
+        onClick={() => setMenuOpen(!menuOpen)}
+        aria-label="Toggle navigation menu"
+      >
+        <span className="hamburger-bar" />
+        <span className="hamburger-bar" />
+        <span className="hamburger-bar" />
+      </button>
+
+      {/* Mobile Slide-out Menu Overlay */}
+      <div className={`mobile-slideout-menu ${menuOpen ? 'open' : ''}`}>
+        <img 
+          src="/jedana_studio_mobile_sidemenu.svg" 
+          alt="Jedana Studio" 
+          style={{ 
+            width: '100%', 
+            maxHeight: '180px', 
+            objectFit: 'contain',
+            borderRadius: '16px', 
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: 'rgba(255,255,255,0.02)',
+            padding: '12px',
+            boxSizing: 'border-box',
+            marginBottom: '10px'
+          }} 
+        />
+        <div className="mobile-menu-actions" style={{ marginTop: '0', display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
+          <button className="header-cta header-pro-cta" type="button" onClick={() => handleNavigate('/pricing')}>Get Clyde Pro</button>
+          <a className="header-cta" href={downloadHref} onClick={(e) => { setMenuOpen(false); onDownload(e); }} download>Download for Windows</a>
+        </div>
+        <nav aria-label="Mobile navigation">
+          <a href="/" onClick={(event) => { event.preventDefault(); handleNavigate('/'); }} className={path === '/' ? 'active' : ''}>Home</a>
+          <a href="/clyde-go" onClick={(event) => { event.preventDefault(); handleNavigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go</a>
+          <a href="/how-it-works" onClick={(event) => { event.preventDefault(); handleNavigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
+          <a href="/pricing" onClick={(event) => { event.preventDefault(); handleNavigate('/pricing'); }} className={path === '/pricing' ? 'active' : ''}>Pricing</a>
+          <a href="/support" onClick={(event) => { event.preventDefault(); handleNavigate('/support'); }} className={path === '/support' ? 'active' : ''}>Support</a>
+          <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); handleNavigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
+          <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
+        </nav>
+      </div>
+
       {upgradeNotice ? <span className="header-checkout-status">{upgradeNotice}</span> : null}
     </header>
+  );
+}
+
+function ClydeGoPairingSection() {
+  return (
+    <section className="section-band pairing-band" style={{ background: 'radial-gradient(circle at top right, rgba(0, 245, 255, 0.05), transparent 60%)', borderTop: '1px solid rgba(255,255,255,0.03)', padding: '60px 24px' }} data-reveal>
+      <div className="section-heading" style={{ textAlign: 'center', marginBottom: '40px' }}>
+        <span style={{ fontSize: '0.9rem', color: '#00f5ff', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '8px' }}>
+          Unmatched Synergy
+        </span>
+        <h2 style={{ fontSize: '2.5rem', lineHeight: '1.2', marginBottom: '16px', color: '#fff' }}>
+          Clyde Desktop + Clyde Go: The Complete End-to-End Career Copilot
+        </h2>
+        <p style={{ fontSize: '1.1rem', color: 'var(--muted)', maxWidth: '800px', margin: '0 auto 12px auto' }}>
+          Separately they are powerful. Together they form an unbeatable, automated pipeline from first click to final offer.
+        </p>
+        <strong style={{ fontSize: '1.4rem', color: '#00f5ff', display: 'block', margin: '20px 0', fontFamily: 'inherit', letterSpacing: '-0.5px' }}>
+          "Don't get ghosted. Get Clyde."
+        </strong>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '30px', padding: '0 24px', maxWidth: '1200px', margin: '40px auto 0 auto', boxSizing: 'border-box' }}>
+        
+        {/* Card 1: Clyde Go (The Extension Front-End) */}
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '24px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '20px', backdropFilter: 'blur(10px)', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '2rem' }}>⚡</span>
+            <h3 style={{ margin: 0, fontSize: '1.4rem', color: '#fff' }}>Clyde Go Extension</h3>
+          </div>
+          <p style={{ fontSize: '0.95rem', color: 'var(--muted)', margin: 0, lineHeight: '1.6' }}>
+            Your high-performance browser assistant. Clip jobs, auto-generate materials, and autonomously fill application forms in seconds.
+          </p>
+          <ul style={{ paddingLeft: '20px', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: '1.8', margin: 0 }}>
+            <li><strong style={{ color: '#00f5ff' }}>AI Apply Form Filler:</strong> Autonomously completes complex job forms, including unique, non-standard, and open-ended essay questions on any major applicant portal.</li>
+            <li><strong style={{ color: '#00f5ff' }}>Answer with Clyde:</strong> Instantly answers any custom application prompt or query with personalized responses calibrated directly to your experience.</li>
+            <li><strong style={{ color: '#00f5ff' }}>Auto-Generate Tailored Docs:</strong> Generate bespoke resumes, hyper-tailored cover letters, custom LinkedIn outreach DMs, and comprehensive STAR Q&As in one click.</li>
+            <li><strong style={{ color: '#00f5ff' }}>ATS Readiness Score:</strong> Get an instant readiness rating with actionable keyword suggestions to guarantee you bypass initial parsing bots.</li>
+          </ul>
+        </div>
+
+        {/* Card 2: Clyde Desktop (The Invisible Engine) */}
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '24px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '20px', backdropFilter: 'blur(10px)', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '2rem' }}>🖥️</span>
+            <h3 style={{ margin: 0, fontSize: '1.4rem', color: '#fff' }}>Clyde Desktop App</h3>
+          </div>
+          <p style={{ fontSize: '0.95rem', color: 'var(--muted)', margin: 0, lineHeight: '1.6' }}>
+            Your silent department lead. Synchronizes your clipped opportunities, connects calendar workflows, and guides you undetected during live calls.
+          </p>
+          <ul style={{ paddingLeft: '20px', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: '1.8', margin: 0 }}>
+            <li><strong style={{ color: '#00f5ff' }}>Real-time Clip Sync:</strong> Every job clipped in Chrome instantly synchronizes to your desktop database, setting up your prep workspace automatically.</li>
+            <li><strong style={{ color: '#00f5ff' }}>Undetectable Interview Copilot:</strong> Listens to live call audio, transcribes speaker-aware tracks, and flashes real-time answer cards silently on your screen.</li>
+            <li><strong style={{ color: '#00f5ff' }}>Stealth Shield Capabilities:</strong> Screen-capture protection keeps Clyde hidden on shared screens. Built-in stealth toggles instantly hide your app from the Taskbar and Alt+Tab menu.</li>
+            <li><strong style={{ color: '#00f5ff' }}>Outcome-Based Trends:</strong> Learns from interview results to refine future tailoring, building an increasingly smarter job search engine.</li>
+          </ul>
+        </div>
+
+      </div>
+
+      {/* Synergistic Loop Callout */}
+      <div style={{ maxWidth: '800px', margin: '40px auto 0 auto', padding: '24px 32px', background: 'rgba(0, 245, 255, 0.03)', border: '1px solid rgba(0, 245, 255, 0.12)', borderRadius: '16px', textAlign: 'center', boxSizing: 'border-box' }}>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: '#fff', fontWeight: '700' }}>🔄 The Automated Career Loop</h4>
+        <p style={{ margin: 0, fontSize: '0.92rem', color: 'var(--muted)', lineHeight: '1.6' }}>
+          <strong>Clyde Go</strong> clips the role, refines your resume, and submits your application in under 30 seconds. 
+          The application triggers a live call ➡️ <strong>Clyde Desktop</strong> springs to life, reads the clipped context, and silently feeds you the winning STAR-method answers on the fly. 
+          Use them together to completely automate your job search.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -288,6 +412,8 @@ function LandingPage({ navigate, onDownload }) {
       </section>
 
       <FullOverlayShowcase />
+
+      <ClydeGoPairingSection />
 
       <section className="section-band product-band" data-reveal>
         <div className="section-heading">
@@ -2447,22 +2573,22 @@ function FloatingSupportChatbot() {
           width: '56px',
           height: '56px',
           borderRadius: '50%',
-          background: 'linear-gradient(135deg, #00f5ff, #007aff)',
-          border: 'none',
-          boxShadow: '0 8px 24px rgba(0, 245, 255, 0.4)',
+          background: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          border: '1px solid rgba(79, 231, 255, 0.3)',
+          boxShadow: '0 8px 24px rgba(0, 245, 255, 0.35)',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#ffffff',
-          fontSize: '24px',
           transition: 'transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}
         onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
         onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
         title="Chat with Clyde Support"
       >
-        👻
+        <img src="/clyde-free-coin.svg" alt="Clyde Support" style={{ width: '38px', height: '38px' }} />
       </button>
 
       {/* Expandable Chat Window */}

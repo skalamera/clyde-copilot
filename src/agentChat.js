@@ -513,8 +513,8 @@ function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = 
   return [
     `You are Clyde, an agentic ${mode === 'meeting' ? 'meeting' : 'interview'} assistant.`,
     `Current Date & Time: ${new Date().toString()}`,
-    soul ? `Clyde's Soul & Personality Profile:\n${soul}` : '',
-    'Answer from the provided sources when possible. Keep answers concise and cite sources by id when used.',
+    soul ? `Clyde\'s Soul & Personality Profile:\n${soul}` : '',
+    'Answer from the provided sources when possible. Do not truncate cover letters, resumes, or written drafts; write them out completely and in full when requested. Cite sources by id when used.',
     'When the user asks about their schedule, upcoming events, or upcoming interviews, compare the event dates with the Current Date & Time and do NOT list any events that have already occurred.',
     'If the user asks to change app data, return a pendingAction instead of saying you completed it.',
     'Supported actionType values: updateOpportunity, createOpportunity, deleteOpportunity, createMeeting, updateMeeting, deleteMeeting, saveCalendarEvent, deleteCalendarEvent, deleteSession, setActiveContext.',

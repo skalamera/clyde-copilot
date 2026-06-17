@@ -1,6 +1,6 @@
 {
   "name": "clyde",
-  "version": "1.0.0-beta.3",
+  "version": "1.0.0-beta.13",
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
@@ -57,7 +57,7 @@
   "build": {
     "appId": "com.clyde.app",
     "productName": "Clyde",
-    "icon": "icon.png",
+    "icon": "build/icon.png",
     "directories": {
       "output": "dist"
     },
@@ -85,7 +85,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "icon.ico",
+      "icon": "build/icon.ico",
       "azureSignOptions": {
         "publisherName": "Stephen Skalamera",
         "endpoint": "https://eus.codesigning.azure.net/",
@@ -104,6 +104,10 @@
         "to": "icon.png"
       },
       {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
         "from": "native/audio-engine/target/release/clyde-audio-engine.exe",
         "to": "clyde-audio-engine.exe"
       },
@@ -111,7 +115,10 @@
       "voicemeeter_banana_settings.xml"
     ],
     "publish": [
-      "github"
+      {
+        "provider": "generic",
+        "url": "https://storage.googleapis.com/clydeai-live-downloads"
+      }
     ]
   }
 }

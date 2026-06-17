@@ -9,6 +9,7 @@ function startAutoUpdater({ enabled = true, isPackaged, logger, requireAutoUpdat
 
   const loadAutoUpdater = requireAutoUpdater || (() => require('electron-updater').autoUpdater);
   const autoUpdater = loadAutoUpdater();
+  const { dialog } = require('electron');
 
   // Secure auto-updates by verifying the cryptographic code signature on Windows/macOS updates.
   autoUpdater.verifyUpdateCodeSignature = true;
@@ -20,6 +21,24 @@ function startAutoUpdater({ enabled = true, isPackaged, logger, requireAutoUpdat
   if (typeof autoUpdater.on === 'function') {
     autoUpdater.on('error', (error) => {
       logger?.warn?.(`Auto update check failed: ${error?.message || error}`);
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      logger?.info?.(`Update ${info.version} downloaded, preparing native confirmation dialog.`);
+      dialog.showMessageBox({
+        type: 'info',
+        buttons: ['Restart and Install', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Clyde Update Available',
+        message: `Version ${info.version} is ready!`,
+        detail: 'A new version of Clyde has been successfully downloaded. Would you like to restart and install the update now?'
+      }).then((result) => {
+        if (result.response === 0) {
+          logger?.info?.('User clicked Restart and Install. Calling quitAndInstall.');
+          autoUpdater.quitAndInstall();
+        }
+      });
     });
   }
 

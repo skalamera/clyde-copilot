@@ -86,11 +86,14 @@ async function createProSignupCheckout({ email, forceCheckout, creditsAmount, en
   }
   let response;
   try {
-    response = await axiosClient.post(cleanEndpoint, {
-      email,
-      forceCheckout: Boolean(forceCheckout),
-      creditsAmount: creditsAmount ? Number(creditsAmount) : undefined
-    }, {
+    const body = { email };
+    if (forceCheckout !== undefined) {
+      body.forceCheckout = Boolean(forceCheckout);
+    }
+    if (creditsAmount !== undefined) {
+      body.creditsAmount = Number(creditsAmount);
+    }
+    response = await axiosClient.post(cleanEndpoint, body, {
       headers: { 'Content-Type': 'application/json' },
       timeout: 15000
     });

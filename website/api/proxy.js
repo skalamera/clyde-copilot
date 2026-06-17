@@ -344,19 +344,7 @@ export default async function handler(request, response) {
         return;
       }
 
-      const contentText = oaiData?.choices?.[0]?.message?.content || '';
-      
-      const geminiCompatibleResponse = {
-        candidates: [
-          {
-            content: {
-              parts: [{ text: contentText }]
-            }
-          }
-        ]
-      };
-
-      sendJson(response, 200, geminiCompatibleResponse);
+      sendJson(response, 200, oaiData);
       return;
     }
 

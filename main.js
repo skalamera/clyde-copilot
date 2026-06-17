@@ -2290,6 +2290,9 @@ function createWindow () {
 
   const settings = loadSettings();
   applyCaptureProtection(settings);
+  if (mainWindow && typeof mainWindow.setSkipTaskbar === 'function') {
+      mainWindow.setSkipTaskbar(Boolean(settings.hideTaskbarEnabled));
+  }
 
   mainWindow.webContents.on('did-finish-load', () => {
       log.info(`🔄 did-finish-load event. Window visible: ${mainWindow.isVisible()}`);
@@ -2544,11 +2547,18 @@ function createWindow () {
   ipcMain.handle('save-settings', (event, settings) => {
       saveSettings(settings);
       refreshSystemKnowledgeFromState('settings-saved');
+      if (mainWindow && typeof mainWindow.setSkipTaskbar === 'function') {
+          mainWindow.setSkipTaskbar(Boolean(settings.hideTaskbarEnabled));
+      }
       return true;
   });
 
   ipcMain.handle('load-settings', (event) => {
       return publicSettings();
+  });
+
+  ipcMain.handle('get-app-version', () => {
+      return app.getVersion();
   });
 
   ipcMain.handle('get-tier-status', () => {
@@ -2901,6 +2911,28 @@ function createWindow () {
           return demoData.listSyncAudit(limit);
       }
       return syncStore ? syncStore.listAudit(limit) : [];
+  });
+
+  ipcMain.handle('check-for-updates', async () => {
+      if (!app.isPackaged) {
+          return { status: 'error', message: 'Manual update checks are only supported in packaged production builds.' };
+      }
+      try {
+          const updater = global.activeAutoUpdater || require('electron-updater').autoUpdater;
+          log.info('Manual update check triggered.');
+          const result = await updater.checkForUpdatesAndNotify();
+          if (result && result.updateInfo) {
+              const info = result.updateInfo;
+              const hasUpdate = info.version !== app.getVersion();
+              if (hasUpdate) {
+                  return { status: 'ok', updateAvailable: true, version: info.version, message: `Update available: v${info.version}. Downloading in background...` };
+              }
+          }
+          return { status: 'ok', updateAvailable: false, message: 'You are running the latest version of Clyde.' };
+      } catch (error) {
+          log.warn(`Manual update check failed: ${error.message}`);
+          return { status: 'error', message: `Update check failed: ${error.message}` };
+      }
   });
 
   ipcMain.handle('mark-sync-audit-read', (event, ids = []) => {
@@ -4520,12 +4552,17 @@ ${jobDescription}`;
 }
 
 function getAppIconPath() {
+  const isWin = process.platform === 'win32';
+  const iconName = isWin ? 'icon.ico' : 'icon.png';
   const candidates = app.isPackaged
     ? [
+        path.join(process.resourcesPath, iconName),
         path.join(process.resourcesPath, 'icon.png'),
+        path.join(__dirname, 'build', iconName),
         path.join(__dirname, 'build', 'icon.png')
       ]
     : [
+        path.join(__dirname, 'build', iconName),
         path.join(__dirname, 'build', 'icon.png'),
         path.join(__dirname, 'clyde-plus-ghost-pro.svg'),
         path.join(__dirname, 'clydepro.svg'),
@@ -4578,13 +4615,16 @@ function startProcessMonitoring() {
 }
 
 app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+        app.setAppUserModelId('com.clyde.app');
+    }
     syncAndMigrateSecrets();
     configureElectronStorage();
     createWindow();
     startProcessMonitoring();
 
-    startAutoUpdater({
-        enabled: process.env.CLYDE_ENABLE_AUTO_UPDATE === '1',
+    global.activeAutoUpdater = startAutoUpdater({
+        enabled: true,
         isPackaged: app.isPackaged,
         logger: log
     });

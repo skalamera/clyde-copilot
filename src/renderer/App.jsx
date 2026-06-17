@@ -525,7 +525,7 @@ function directAddressFeedback(text) {
 }
 
 function parseEvaluationText(value) {
-  const text = String(value || '').trim();
+  const text = String(value || '').replace(/\\n/g, '\n').trim();
   const markerPattern = /(?:^|\s)(?:\d+\.\s*)?\*\*([^:*]+):\*\*\s*/g;
   const markers = Array.from(text.matchAll(markerPattern));
 
@@ -6390,7 +6390,7 @@ function AgentChatSurface({
   const streamingIntervalRef = useRef(null);
 
   const proTier = settings.userTier === 'pro';
-  const searchBadgeUrl = proTier ? proSearchBadgeUrl : freeSearchBadgeUrl;
+  const searchBadgeUrl = freeSearchBadgeUrl;
   const controlled = chatState && typeof setChatState === 'function';
   const sessionId = controlled ? (chatState.sessionId || '') : localSessionId;
   const messages = controlled ? (chatState.messages || []) : localMessages;
@@ -11981,15 +11981,94 @@ function FinishStep({ completed, plan, proEntitled }) {
   );
 }
 
+function UpdateCheckButton({ api }) {
+  const [checking, setChecking] = useState(false);
+  const [message, setMessage] = useState('');
+  const [tone, setTone] = useState('');
+
+  const handleCheck = async () => {
+    setChecking(true);
+    setMessage('Checking...');
+    setTone('info');
+    try {
+      const res = await api?.checkForUpdates?.();
+      if (res?.status === 'ok') {
+        setMessage(res.message);
+        setTone(res.updateAvailable ? 'success' : 'success');
+      } else {
+        setMessage(res?.message || 'Check failed.');
+        setTone('error');
+      }
+    } catch (err) {
+      setMessage(`Check failed: ${err.message}`);
+      setTone('error');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
+      <button
+        type="button"
+        onClick={handleCheck}
+        disabled={checking}
+        className="ghost"
+        style={{
+          padding: '2px 8px',
+          fontSize: '0.7rem',
+          borderRadius: '4px',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          background: 'rgba(255, 255, 255, 0.05)',
+          cursor: 'pointer',
+          height: '22px',
+          lineHeight: '16px',
+          color: 'var(--foreground)'
+        }}
+      >
+        {checking ? 'Checking...' : 'Check for updates'}
+      </button>
+      {message && (
+        <span
+          style={{
+            fontSize: '0.7rem',
+            color: tone === 'error' ? '#f87171' : tone === 'success' ? '#4ade80' : '#38bdf8',
+            fontWeight: 500
+          }}
+        >
+          {message}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function SettingsDrawer(props) {
   const { api, initialTab, mode, onClose, onSave, onSettingsUpdated, onValidate, serviceChecking, settings, syncAudit, setSyncAudit, activeCapture, onOpenOnboarding } = props;
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    window.electronAPI?.getAppVersion?.().then((v) => {
+      if (active && v) setAppVersion(v);
+    }).catch(console.error);
+    return () => { active = false; };
+  }, []);
 
   return (
     <div className="drawer-backdrop">
       <section className="settings-drawer">
         <div className="drawer-head">
           <div>
-            <h2>Settings</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0 }}>Settings</h2>
+              {appVersion && (
+                <span style={{ fontSize: '0.85rem', opacity: 0.6, fontWeight: 500 }}>
+                  v{appVersion}
+                </span>
+              )}
+              <UpdateCheckButton api={api} />
+            </div>
             <p>Provider keys are stored by the Electron main process.</p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -12659,6 +12738,21 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           </div>
           <small className="wide-field" style={{ color: 'var(--muted)', marginTop: '-8px', marginBottom: '10px' }}>
             Choose a visual style for the Clyde desktop application.
+          </small>
+          <div className="wide-field floating-agent-settings">
+            <span>Stealth Taskbar Mode</span>
+            <label className="toggle-row" style={{ margin: 0, padding: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(draft.hideTaskbarEnabled)}
+                onChange={(event) => update('hideTaskbarEnabled', event.target.checked)}
+                style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+              />
+              Hide from Taskbar & Alt+Tab
+            </label>
+          </div>
+          <small className="wide-field" style={{ color: 'var(--muted)', marginTop: '-8px', marginBottom: '10px' }}>
+            When enabled, Clyde instantly hides its icon from your Windows Taskbar and the active Alt+Tab list for maximum stealth.
           </small>
           <div className="wide-field validate-services-card">
             <div>
