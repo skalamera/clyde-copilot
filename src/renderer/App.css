@@ -9797,6 +9797,9 @@ input:checked + .toggle-slider:before {
 .theme-snow .card-bullets-list {
   color: #1e293b !important;
 }
+.theme-snow .card-body-text {
+  color: #0f172a !important;
+}
 .theme-snow .validate-services-card,
 .theme-snow .account-summary-grid > div,
 .theme-snow .account-billing-panel,
@@ -9863,7 +9866,7 @@ input:checked + .toggle-slider:before {
 }
 .theme-snow .trend-overview-rail-button:hover {
   background: rgba(255, 255, 255, 0.5) !important;
-  color: var(--text) !important;
+  color: #1e293b !important;
 }
 
 .theme-snow .question-bank-head h2 {
@@ -10083,6 +10086,9 @@ input:checked + .toggle-slider:before {
   background: #fecdd3 !important;
 }
 .theme-blossom .card-bullets-list {
+  color: #4c0519 !important;
+}
+.theme-blossom .card-body-text {
   color: #4c0519 !important;
 }
 .theme-blossom .validate-services-card,
