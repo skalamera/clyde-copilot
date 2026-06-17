@@ -182,6 +182,12 @@ const EMPTY_SETTINGS = {
   captureProtectionEnabled: true,
   uiOpacity: 100,
   nudgeHotkey: 'Ctrl+Shift+N',
+  toggleCaptureProtectionHotkey: 'Ctrl+Shift+P',
+  toggleStealthTaskbarHotkey: 'Ctrl+Shift+H',
+  toggleMinMaxHotkey: 'Ctrl+Shift+M',
+  screenshotAskHotkey: 'Ctrl+Shift+D',
+  suggestedQuestionsHotkey: 'Ctrl+Shift+Q',
+  endCallHotkey: 'Ctrl+Shift+E',
   theme: 'default'
 };
 
@@ -3858,10 +3864,41 @@ function App() {
     });
 
     const unsubscribeNudge = api?.onTriggerNudge?.(() => {
-      const nudgeBtn = document.querySelector('.composer-action-btn.nudge-btn');
+      const nudgeBtn = document.querySelector('.bottom-bar-action-btn.nudge-btn, .composer-action-btn.nudge-btn');
       if (nudgeBtn) {
         nudgeBtn.click();
       }
+    });
+
+    const unsubscribeScreenshotAsk = api?.onTriggerScreenshotAsk?.(() => {
+      const cameraBtn = document.querySelector('.bottom-bar-action-btn.screenshot-btn');
+      if (cameraBtn) {
+        cameraBtn.click();
+      }
+    });
+
+    const unsubscribeSuggestedQuestions = api?.onTriggerSuggestedQuestions?.(() => {
+      const questionsBtn = document.querySelector('.bottom-bar-action-btn.questions-btn');
+      if (questionsBtn) {
+        questionsBtn.click();
+      }
+    });
+
+    const unsubscribeEndCall = api?.onTriggerEndCall?.(() => {
+      const endCallBtn = document.querySelector('.active-icon-btn.recording-toggle-btn');
+      if (endCallBtn) {
+        endCallBtn.click();
+      }
+    });
+
+    const unsubscribeSettingsUpdated = api?.onSettingsUpdated?.((_event, nextSettings) => {
+      if (nextSettings) {
+        setSettings(normalizeEntitledSettings(nextSettings));
+      }
+    });
+
+    const unsubscribeAppWindowMinimizedStateChange = api?.onAppWindowMinimizedStateChange?.((_event, isMinimized) => {
+      setAppWindowMinimized(Boolean(isMinimized));
     });
 
     const unsubscribeMaximized = api?.onAppWindowMaximizedStateChange?.((_event, isMaximized) => {
@@ -3875,6 +3912,21 @@ function App() {
       }
       if (typeof unsubscribeNudge === 'function') {
         unsubscribeNudge();
+      }
+      if (typeof unsubscribeScreenshotAsk === 'function') {
+        unsubscribeScreenshotAsk();
+      }
+      if (typeof unsubscribeSuggestedQuestions === 'function') {
+        unsubscribeSuggestedQuestions();
+      }
+      if (typeof unsubscribeEndCall === 'function') {
+        unsubscribeEndCall();
+      }
+      if (typeof unsubscribeSettingsUpdated === 'function') {
+        unsubscribeSettingsUpdated();
+      }
+      if (typeof unsubscribeAppWindowMinimizedStateChange === 'function') {
+        unsubscribeAppWindowMinimizedStateChange();
       }
     };
   }, [api]);
@@ -8294,35 +8346,72 @@ function ActiveCaptureView({
   const [showEndCallConfirm, setShowEndCallConfirm] = useState(false);
 
   useEffect(() => {
-    function handleKeyDown(event) {
-      const hotkey = settings?.nudgeHotkey || 'Ctrl+Shift+N';
+    function matchHotkey(event, hotkey) {
+      if (!hotkey) return false;
       const parts = hotkey.split('+').map(p => p.trim().toLowerCase());
-      
       const ctrlRequired = parts.includes('ctrl') || parts.includes('control') || parts.includes('commandorcontrol');
       const shiftRequired = parts.includes('shift');
       const altRequired = parts.includes('alt');
-      
       const mainKeyPart = parts.find(p => !['ctrl', 'control', 'commandorcontrol', 'shift', 'alt', 'meta', 'cmd', 'command'].includes(p));
-      
       const eventCtrl = event.ctrlKey || event.metaKey;
       const eventShift = event.shiftKey;
       const eventAlt = event.altKey;
-      
       let keyMatch = false;
       if (mainKeyPart) {
         keyMatch = event.key.toLowerCase() === mainKeyPart;
       }
-      
-      if (keyMatch && ctrlRequired === eventCtrl && shiftRequired === eventShift && altRequired === eventAlt) {
+      return keyMatch && ctrlRequired === eventCtrl && shiftRequired === eventShift && altRequired === eventAlt;
+    }
+
+    function handleKeyDown(event) {
+      if (matchHotkey(event, settings?.nudgeHotkey || 'Ctrl+Shift+N')) {
         event.preventDefault();
         event.stopPropagation();
         handleNudge();
+      } else if (matchHotkey(event, settings?.toggleCaptureProtectionHotkey || 'Ctrl+Shift+P')) {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggleCaptureProtection();
+      } else if (matchHotkey(event, settings?.toggleStealthTaskbarHotkey || 'Ctrl+Shift+H')) {
+        event.preventDefault();
+        event.stopPropagation();
+        onUpdateSetting('hideTaskbarEnabled', !settings.hideTaskbarEnabled);
+      } else if (matchHotkey(event, settings?.toggleMinMaxHotkey || 'Ctrl+Shift+M')) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.electronAPI?.minimizeAppWindow?.();
+      } else if (matchHotkey(event, settings?.screenshotAskHotkey || 'Ctrl+Shift+D')) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleCameraClick();
+      } else if (matchHotkey(event, settings?.suggestedQuestionsHotkey || 'Ctrl+Shift+Q')) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleFollowUpQuestions();
+      } else if (matchHotkey(event, settings?.endCallHotkey || 'Ctrl+Shift+E')) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (isStreaming) {
+          setShowEndCallConfirm(true);
+        } else {
+          onStartRecording();
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [settings?.nudgeHotkey]);
+  }, [
+    settings?.nudgeHotkey,
+    settings?.toggleCaptureProtectionHotkey,
+    settings?.toggleStealthTaskbarHotkey,
+    settings?.toggleMinMaxHotkey,
+    settings?.screenshotAskHotkey,
+    settings?.suggestedQuestionsHotkey,
+    settings?.endCallHotkey,
+    settings?.hideTaskbarEnabled,
+    isStreaming
+  ]);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
   const [videoActive, setVideoActive] = useState(false);
   const [showMeters, setShowMeters] = useState(false);
@@ -12308,7 +12397,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
     });
   }
 
-  const handleHotkeyKeyDown = (event) => {
+  const handleHotkeyKeyDown = (event, settingKey = 'nudgeHotkey') => {
     event.preventDefault();
     event.stopPropagation();
     
@@ -12331,7 +12420,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
     
     parts.push(keyName);
     const combo = parts.join('+');
-    update('nudgeHotkey', combo);
+    update(settingKey, combo);
   };
 
   async function saveDraft(close) {
@@ -12450,9 +12539,10 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
 
   return (
     <form className={`settings-form ${compact ? 'compact' : ''}`} onSubmit={handleSubmit}>
-      <div className="tabs" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+      <div className="tabs" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
         <button type="button" className={activeTab === 'account' ? 'active' : ''} onClick={() => setActiveTab('account')}>Account</button>
         <button type="button" className={activeTab === 'general' ? 'active' : ''} onClick={() => setActiveTab('general')}>General</button>
+        <button type="button" className={activeTab === 'hotkeys' ? 'active' : ''} onClick={() => setActiveTab('hotkeys')}>Hotkeys</button>
         <button type="button" className={activeTab === 'context' ? 'active' : ''} onClick={() => setActiveTab('context')}>Context</button>
         <button type="button" className={activeTab === 'sync' ? 'active' : ''} onClick={() => setActiveTab('sync')}>Sync</button>
         <button type="button" className={activeTab === 'llm' ? 'active' : ''} onClick={() => setActiveTab('llm')}>LLM</button>
@@ -12687,30 +12777,6 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             </div>
           </div>
           <div className="wide-field floating-agent-settings">
-            <span>Nudge hotkey</span>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <input
-                type="text"
-                value={draft.nudgeHotkey || ''}
-                onKeyDown={handleHotkeyKeyDown}
-                placeholder="Press keys to record hotkey..."
-                readOnly
-                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
-              />
-              <button
-                type="button"
-                className="ghost"
-                style={{ minHeight: 'auto', padding: '6px 12px' }}
-                onClick={() => update('nudgeHotkey', '')}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-          <small className="wide-field" style={{ color: 'var(--muted)', marginTop: '-8px', marginBottom: '10px' }}>
-            Click inside the box and press a key combination (e.g., Ctrl+Shift+N) to record. The shortcut will be registered globally during live calls.
-          </small>
-          <div className="wide-field floating-agent-settings">
             <span>App Color Theme</span>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <select
@@ -12772,6 +12838,165 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               Launch Wizard
             </button>
           </div>
+        </>
+      )}
+
+      {activeTab === 'hotkeys' && (
+        <>
+          <div className="settings-section-label wide-field" style={{ marginTop: '15px', marginBottom: '10px' }}>
+            <strong>Hotkeys</strong>
+            <small>Configure custom key combinations to trigger live capture and window actions globally during live calls.</small>
+          </div>
+          <div className="wide-field floating-agent-settings">
+            <span>Nudge hotkey</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.nudgeHotkey || ''}
+                onKeyDown={(e) => handleHotkeyKeyDown(e, 'nudgeHotkey')}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('nudgeHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="wide-field floating-agent-settings">
+            <span>Toggle screen capture protection</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.toggleCaptureProtectionHotkey || ''}
+                onKeyDown={(e) => handleHotkeyKeyDown(e, 'toggleCaptureProtectionHotkey')}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('toggleCaptureProtectionHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="wide-field floating-agent-settings">
+            <span>Toggle Stealth Taskbar Mode</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.toggleStealthTaskbarHotkey || ''}
+                onKeyDown={(e) => handleHotkeyKeyDown(e, 'toggleStealthTaskbarHotkey')}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('toggleStealthTaskbarHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="wide-field floating-agent-settings">
+            <span>Toggle minimize/maximize window</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.toggleMinMaxHotkey || ''}
+                onKeyDown={(e) => handleHotkeyKeyDown(e, 'toggleMinMaxHotkey')}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('toggleMinMaxHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="wide-field floating-agent-settings">
+            <span>Screenshot desktop & ask Clyde (1-click)</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.screenshotAskHotkey || ''}
+                onKeyDown={(e) => handleHotkeyKeyDown(e, 'screenshotAskHotkey')}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('screenshotAskHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="wide-field floating-agent-settings">
+            <span>Suggested Questions hotkey</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.suggestedQuestionsHotkey || ''}
+                onKeyDown={(e) => handleHotkeyKeyDown(e, 'suggestedQuestionsHotkey')}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('suggestedQuestionsHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="wide-field floating-agent-settings">
+            <span>End Call hotkey</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={draft.endCallHotkey || ''}
+                onKeyDown={(e) => handleHotkeyKeyDown(e, 'endCallHotkey')}
+                placeholder="Press keys to record hotkey..."
+                readOnly
+                style={{ width: '180px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '4px', padding: '6px' }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                style={{ minHeight: 'auto', padding: '6px 12px' }}
+                onClick={() => update('endCallHotkey', '')}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <small className="wide-field" style={{ color: 'var(--muted)', marginTop: '-8px', marginBottom: '20px' }}>
+            Click inside any box and press a key combination to record. The shortcuts will register globally during live calls.
+          </small>
         </>
       )}
 
@@ -13072,7 +13297,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           {!proEntitled ? (
             <div className="upgrade-pro-callout sync-pro-callout">
               <strong>Google sync requires Clyde Pro</strong>
-              <span>Free tier keeps manual calendar, transcripts, local context, and saved sessions. Pro adds Gmail and Calendar scans, suggested actions, and auto-approval.</span>
+              <span>Free tier keeps manual calendar, transcripts, local context, and saved sessions. Pro adds Calendar scans, suggested actions, and auto-approval (Gmail Agent is under development).</span>
               <div className="upgrade-pro-actions">
                 <UpgradeToProButton />
                 <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
@@ -13126,6 +13351,10 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               <button type="button" className="primary-action" onClick={connectGoogle} disabled={!proEntitled}>Connect Google</button>
               <button type="button" className="ghost" onClick={disconnectGoogle} disabled={!proEntitled || !googleStatus?.connected}>Disconnect</button>
               <button type="button" className="ghost" onClick={scanGoogle} disabled={!proEntitled || !googleStatus?.connected}>Scan now</button>
+            </div>
+            <div style={{ marginTop: '14px', fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', alignItems: 'flex-start', gap: '6px', lineHeight: '1.4' }}>
+              <span>ℹ️</span>
+              <span><strong>Note:</strong> Gmail Agent is under development. Google Sync currently only scans Google Calendar events.</span>
             </div>
           </div>
           <div className="sync-audit-log">

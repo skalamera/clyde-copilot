@@ -19,31 +19,20 @@ function createGoogleSyncService(options = {}) {
       throw new Error('Google client is unavailable.');
     }
 
-    const [gmailMessages, calendarEvents] = await Promise.all([
-      googleClient.listGmailMessages({
-        accessToken,
-        query: settings.googleGmailQuery || DEFAULT_GMAIL_QUERY,
-        maxResults: Number(settings.googleSyncGmailLimit || 15) || 15
-      }),
-      googleClient.listCalendarEvents({
-        accessToken,
-        timeMin: now().toISOString(),
-        orderBy: 'startTime',
-        maxResults: Number(settings.googleSyncCalendarLimit || 25) || 25
-      })
-    ]);
+    const calendarEvents = await googleClient.listCalendarEvents({
+      accessToken,
+      timeMin: now().toISOString(),
+      orderBy: 'startTime',
+      maxResults: Number(settings.googleSyncCalendarLimit || 25) || 25
+    });
 
-    const generatedRaw = await Promise.all([
-      ...gmailMessages.map((message) => proposalsFromGmailMessage(message, settings)),
-      ...calendarEvents.map((event) => proposalsFromCalendarEvent(event, settings))
-    ]);
+    const generatedRaw = await Promise.all(
+      calendarEvents.map((event) => proposalsFromCalendarEvent(event, settings))
+    );
 
     const generated = dedupeGeneratedProposals(generatedRaw.flat());
     dismissStalePendingProposals({
-      scannedSources: [
-        ...gmailMessages.map((message) => sourceKey('gmail', message.id)),
-        ...calendarEvents.map((event) => sourceKey('calendar', event.id))
-      ],
+      scannedSources: calendarEvents.map((event) => sourceKey('calendar', event.id)),
       generated
     });
 
@@ -51,7 +40,7 @@ function createGoogleSyncService(options = {}) {
     syncStore.addAudit({
       type: 'sync-scan',
       status: 'success',
-      message: `Scanned ${gmailMessages.length} Gmail messages and ${calendarEvents.length} Google Calendar events.`,
+      message: `Scanned ${calendarEvents.length} Google Calendar events.`,
       result: { generated: saved.length }
     });
     return saved;

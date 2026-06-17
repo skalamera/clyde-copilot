@@ -360,6 +360,12 @@ function loadSettings() {
         captureProtectionEnabled: store.get('captureProtectionEnabled', true),
         uiOpacity: store.get('uiOpacity', 100),
         nudgeHotkey: store.get('nudgeHotkey', 'Ctrl+Shift+N'),
+        toggleCaptureProtectionHotkey: store.get('toggleCaptureProtectionHotkey', 'Ctrl+Shift+P'),
+        toggleStealthTaskbarHotkey: store.get('toggleStealthTaskbarHotkey', 'Ctrl+Shift+H'),
+        toggleMinMaxHotkey: store.get('toggleMinMaxHotkey', 'Ctrl+Shift+M'),
+        screenshotAskHotkey: store.get('screenshotAskHotkey', 'Ctrl+Shift+D'),
+        suggestedQuestionsHotkey: store.get('suggestedQuestionsHotkey', 'Ctrl+Shift+Q'),
+        endCallHotkey: store.get('endCallHotkey', 'Ctrl+Shift+E'),
         activeCaptureBounds: store.get('activeCaptureBounds', null),
         debugTraceEnabled: store.get('debugTraceEnabled', process.env.CLYDE_DISABLE_SESSION_TRACE !== '1'),
         theme: store.get('theme', 'default')
@@ -2432,18 +2438,7 @@ function createWindow () {
           enterActiveCaptureWindow();
           updateHealth('capture', { state: 'ready', detail: message });
 
-          if (settings.nudgeHotkey) {
-              try {
-                  globalShortcut.register(settings.nudgeHotkey, () => {
-                      log.info(`Global hotkey triggered: ${settings.nudgeHotkey}`);
-                      if (mainWindow && !mainWindow.isDestroyed()) {
-                          mainWindow.webContents.send('trigger-nudge');
-                      }
-                  });
-              } catch (error) {
-                  log.error(`Failed to register global hotkey: ${error.message}`);
-              }
-          }
+          registerAllGlobalShortcuts(settings);
       }
   });
 
@@ -2549,6 +2544,9 @@ function createWindow () {
       refreshSystemKnowledgeFromState('settings-saved');
       if (mainWindow && typeof mainWindow.setSkipTaskbar === 'function') {
           mainWindow.setSkipTaskbar(Boolean(settings.hideTaskbarEnabled));
+      }
+      if (audioCaptureRunning) {
+          registerAllGlobalShortcuts(settings);
       }
       return true;
   });
@@ -4795,3 +4793,80 @@ ipcMain.handle('move-active-capture-window', async (event, bounds = {}) => {
 
     return true;
 });
+
+function registerAllGlobalShortcuts(settings) {
+    try {
+        globalShortcut.unregisterAll();
+    } catch (err) {
+        log.warn(`globalShortcut.unregisterAll failed: ${err.message}`);
+    }
+
+    const shortcuts = [
+        { key: 'nudgeHotkey', channel: 'trigger-nudge' },
+        { key: 'toggleCaptureProtectionHotkey', action: () => {
+            const currentSettings = loadSettings();
+            const enabled = !currentSettings.captureProtectionEnabled;
+            currentSettings.captureProtectionEnabled = enabled;
+            saveSettings(currentSettings);
+            applyCaptureProtection(currentSettings);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('settings-updated', currentSettings);
+            }
+        }},
+        { key: 'toggleStealthTaskbarHotkey', action: () => {
+            const currentSettings = loadSettings();
+            const enabled = !currentSettings.hideTaskbarEnabled;
+            currentSettings.hideTaskbarEnabled = enabled;
+            saveSettings(currentSettings);
+            if (mainWindow && typeof mainWindow.setSkipTaskbar === 'function') {
+                mainWindow.setSkipTaskbar(enabled);
+            }
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('settings-updated', currentSettings);
+            }
+        }},
+        { key: 'toggleMinMaxHotkey', action: () => {
+            toggleMinMaxWindow();
+        }},
+        { key: 'screenshotAskHotkey', channel: 'trigger-screenshot-ask' },
+        { key: 'suggestedQuestionsHotkey', channel: 'trigger-suggested-questions' },
+        { key: 'endCallHotkey', channel: 'trigger-end-call' }
+    ];
+
+    for (const item of shortcuts) {
+        const val = settings[item.key];
+        if (val) {
+            try {
+                globalShortcut.register(val, () => {
+                    log.info(`Global hotkey triggered: ${item.key} (${val})`);
+                    if (item.action) {
+                        item.action();
+                    } else if (item.channel && mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send(item.channel);
+                    }
+                });
+            } catch (error) {
+                log.error(`Failed to register global hotkey for ${item.key} (${val}): ${error.message}`);
+            }
+        }
+    }
+}
+
+function toggleMinMaxWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    
+    if (appWindowMinimized || mainWindow.isMinimized()) {
+        restoreAppWindowBounds();
+        appWindowMinimized = false;
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('app-window-minimized-state-change', false);
+    } else {
+        minimizeAppWindow();
+        mainWindow.webContents.send('app-window-minimized-state-change', true);
+    }
+}
+

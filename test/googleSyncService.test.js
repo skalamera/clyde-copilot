@@ -108,7 +108,7 @@ test('google sync creates interview meeting request from recruiter scheduling em
   assert.match(meeting.action.payload.date, /^2026-05-27T15:00/);
 });
 
-test('google sync deduplicates repeated Apollo advanced emails but keeps calendar action', async () => {
+test('google sync generates calendar action from Google Calendar events', async () => {
   const saved = [];
   const service = createGoogleSyncService({
     syncStore: {
@@ -122,11 +122,6 @@ test('google sync deduplicates repeated Apollo advanced emails but keeps calenda
       getSessionEntities: () => [{ id: 'apollo', name: 'Apollo' }]
     },
     googleClient: {
-      listGmailMessages: async () => [
-        { id: 'm1', subject: 'Apollo | Next steps', snippet: 'We would like to move forward to the next interview.' },
-        { id: 'm2', subject: 'Interview confirmation', snippet: 'WED 27 Virtual Onsite 1 - Kenny with Apollo is confirmed.' },
-        { id: 'm3', subject: 'Re: Apollo | Next steps', snippet: 'Great, thanks. I just sent an invite for Wednesday at 3:00pm EDT.' }
-      ],
       listCalendarEvents: async () => [{
         id: 'cal-apollo',
         title: 'Virtual Onsite 1 - Kenny with Apollo',
@@ -138,37 +133,28 @@ test('google sync deduplicates repeated Apollo advanced emails but keeps calenda
 
   await service.scan({ accessToken: 'token', settings: {} });
 
-  assert.equal(saved.length, 2);
-  assert.equal(saved.filter((proposal) => proposal.action.actionType === 'updateOpportunity').length, 1);
+  assert.equal(saved.length, 1);
   assert.equal(saved.filter((proposal) => proposal.action.actionType === 'saveCalendarEvent').length, 1);
   assert.equal(saved[0].action.payload.entityName, 'Apollo');
 });
 
 test('google sync skips outcome proposals that match the current opportunity status', async () => {
-  const saved = [];
   const service = createGoogleSyncService({
-    syncStore: {
-      upsertProposal: (proposal) => {
-        saved.push(proposal);
-        return proposal;
-      },
-      addAudit: () => {}
-    },
+    syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
     sessionManager: {
       getSessionEntities: () => [{ id: 'apollo', name: 'Apollo', outcome: 'advanced' }]
     },
-    googleClient: {
-      listGmailMessages: async () => [
-        { id: 'm1', subject: 'Re: Apollo | Next steps', snippet: 'We would like to move forward to the next interview.' }
-      ],
-      listCalendarEvents: async () => []
-    },
+    googleClient: {},
     now: () => new Date('2026-05-25T12:00:00-04:00')
   });
 
-  await service.scan({ accessToken: 'token', settings: {} });
+  const proposals = await service.proposalsFromGmailMessage({
+    id: 'm1',
+    subject: 'Re: Apollo | Next steps',
+    snippet: 'We would like to move forward to the next interview.'
+  }, {});
 
-  assert.equal(saved.some((proposal) => proposal.action.actionType === 'updateOpportunity'), false);
+  assert.equal(proposals.some((proposal) => proposal.action.actionType === 'updateOpportunity'), false);
 });
 
 test('google sync ignores newsletters job alerts and unrelated bulk mail', async () => {
@@ -224,12 +210,6 @@ test('google sync dismisses stale pending proposals for rescanned sources', asyn
       dismissPendingProposals: (predicate, result) => {
         const stale = [
           {
-            id: 'old-update',
-            status: 'pending',
-            dedupeKey: 'gmail:opportunity:apollo:advanced',
-            source: { type: 'gmail', id: 'm1' }
-          },
-          {
             id: 'old-calendar',
             status: 'pending',
             dedupeKey: 'calendar:anniv:saveCalendarEvent',
@@ -243,14 +223,6 @@ test('google sync dismisses stale pending proposals for rescanned sources', asyn
     },
     sessionManager: createSessionManager(),
     googleClient: {
-      listGmailMessages: async () => [
-        {
-          id: 'm1',
-          subject: 'Apollo | Next steps',
-          snippet: 'We would like to move forward to the next interview.',
-          from: 'James Thomas <james@apollo.io>'
-        }
-      ],
       listCalendarEvents: async () => [
         { id: 'anniv', title: "Nick and Lauren's Anniv", start: '2033-07-22' }
       ]
@@ -260,9 +232,8 @@ test('google sync dismisses stale pending proposals for rescanned sources', asyn
 
   await service.scan({ accessToken: 'token', settings: {} });
 
-  assert.equal(saved.length, 1);
-  assert.equal(saved[0].action.actionType, 'createOpportunity');
-  assert.deepEqual(dismissed.map((proposal) => proposal.id).sort(), ['old-calendar', 'old-update']);
+  assert.equal(saved.length, 0);
+  assert.deepEqual(dismissed.map((proposal) => proposal.id).sort(), ['old-calendar']);
   assert.equal(dismissed[0].result.reason, 'stale-after-rescan');
 });
 
@@ -313,19 +284,12 @@ test('google sync creates rejected opportunity when an application update refere
   assert.equal(proposals[0].action.payload.outcome, 'rejected');
 });
 
-test('google sync scans the latest 15 Gmail messages and 25 calendar events by default', async () => {
-  let gmailQuery = '';
-  let gmailMaxResults = 0;
+test('google sync scans the latest 25 calendar events by default', async () => {
   let calendarMaxResults = 0;
   const service = createGoogleSyncService({
     syncStore: { upsertProposal: (proposal) => proposal, addAudit: () => {} },
     sessionManager: createSessionManager(),
     googleClient: {
-      listGmailMessages: async ({ query, maxResults }) => {
-        gmailQuery = query;
-        gmailMaxResults = maxResults;
-        return [];
-      },
       listCalendarEvents: async ({ maxResults }) => {
         calendarMaxResults = maxResults;
         return [];
@@ -336,9 +300,6 @@ test('google sync scans the latest 15 Gmail messages and 25 calendar events by d
 
   await service.scan({ accessToken: 'token', settings: {} });
 
-  assert.equal(gmailQuery, DEFAULT_GMAIL_QUERY);
-  assert.equal(gmailQuery, '');
-  assert.equal(gmailMaxResults, 15);
   assert.equal(calendarMaxResults, 25);
 });
 

@@ -9753,6 +9753,9 @@ input:checked + .toggle-slider:before {
   border-left: 1px solid #cbd5e1 !important;
   box-shadow: -15px 0 45px rgba(0, 0, 0, 0.08) !important;
 }
+.theme-snow .settings-drawer .drawer-head h2 {
+  color: #0f172a !important;
+}
 .theme-snow .settings-drawer .tabs button {
   background: #f1f5f9 !important;
   color: #475569 !important;
@@ -10037,6 +10040,9 @@ input:checked + .toggle-slider:before {
   background: #fffbfb !important;
   border-left: 1px solid #fecdd3 !important;
   box-shadow: -15px 0 45px rgba(219, 39, 119, 0.06) !important;
+}
+.theme-blossom .settings-drawer .drawer-head h2 {
+  color: #4c0519 !important;
 }
 .theme-blossom .settings-drawer .tabs button {
   background: #fef1f2 !important;
@@ -10997,5 +11003,39 @@ input:checked + .toggle-slider:before {
   color: #ffffff !important;
 }
 
+/* Preflight modal and End Call confirmation prompt readability fixes under light themes (nordic snow and sakura blossom) */
+.theme-snow .preflight-modal,
+.theme-blossom .preflight-modal,
+.theme-snow .active-confirm-modal,
+.theme-blossom .active-confirm-modal {
+  color-scheme: dark !important;
+  --bg: #030609 !important;
+  --bg-soft: #071018 !important;
+  --panel: rgba(9, 18, 28, 0.22) !important;
+  --panel-strong: rgba(12, 24, 36, 0.3) !important;
+  --body-base-rgba: rgba(3, 6, 9, 0.24) !important;
+  --shell-base-rgba: rgba(2, 8, 14, 0.1) !important;
+  --titlebar-base-rgba: rgba(3, 6, 9, 0.28) !important;
+  --line: rgba(154, 202, 255, 0.16) !important;
+  --line-strong: rgba(116, 217, 255, 0.34) !important;
+  --text: #f5fbff !important;
+  --muted: #8aa2b3 !important;
+  --muted-2: #597184 !important;
+  --cyan: #4fe7ff !important;
+  --lime: #a6ff6a !important;
+  --amber: #ffd166 !important;
+  --red: #ff5c7a !important;
+  --violet: #9b8cff !important;
+  --success: #a6ff6a !important;
+  --warning: #ffd166 !important;
+  --danger: #ff5c7a !important;
+}
 
-
+.theme-snow .preflight-modal input,
+.theme-blossom .preflight-modal input,
+.theme-snow .active-confirm-modal input,
+.theme-blossom .active-confirm-modal input {
+  background: initial !important;
+  border: initial !important;
+  color-scheme: dark !important;
+}

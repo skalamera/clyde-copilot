@@ -134,5 +134,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onTriggerNudge: (callback) => {
         ipcRenderer.on('trigger-nudge', callback);
         return () => ipcRenderer.off('trigger-nudge', callback);
+    },
+    onTriggerScreenshotAsk: (callback) => {
+        ipcRenderer.on('trigger-screenshot-ask', callback);
+        return () => ipcRenderer.off('trigger-screenshot-ask', callback);
+    },
+    onTriggerSuggestedQuestions: (callback) => {
+        ipcRenderer.on('trigger-suggested-questions', callback);
+        return () => ipcRenderer.off('trigger-suggested-questions', callback);
+    },
+    onTriggerEndCall: (callback) => {
+        ipcRenderer.on('trigger-end-call', callback);
+        return () => ipcRenderer.off('trigger-end-call', callback);
+    },
+    onSettingsUpdated: (callback) => {
+        ipcRenderer.on('settings-updated', callback);
+        return () => ipcRenderer.off('settings-updated', callback);
+    },
+    onAppWindowMinimizedStateChange: (callback) => {
+        ipcRenderer.on('app-window-minimized-state-change', callback);
+        return () => ipcRenderer.off('app-window-minimized-state-change', callback);
     }
 });
