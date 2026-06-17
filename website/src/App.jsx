@@ -783,6 +783,7 @@ function PricingPage({ showUpgradeNotice, navigate }) {
                 <form className="pro-checkout-form" onSubmit={startProCheckout}>
                   <input
                     type="email"
+                    autoComplete="email"
                     placeholder="you@email.com"
                     value={proCheckout.email}
                     disabled={proCheckout.busy}
@@ -807,6 +808,7 @@ function PricingPage({ showUpgradeNotice, navigate }) {
                 <form className="pro-checkout-form" onSubmit={startCreditsCheckout}>
                   <input
                     type="email"
+                    autoComplete="email"
                     placeholder="you@email.com"
                     value={creditsCheckout.email}
                     disabled={creditsCheckout.busy}
@@ -892,10 +894,10 @@ function PricingPage({ showUpgradeNotice, navigate }) {
               ×
             </button>
             <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '8px', color: '#f8fafc' }}>
-              Welcome to <span style={{ background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Clyde</span>
+              Create Account
             </h2>
             <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '24px' }}>
-              Sign in or create a free account to unlock your career cockpit.
+              Choose a secure password for your new Clyde account.
             </p>
 
             <form onSubmit={handleWebSignupSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
@@ -904,17 +906,18 @@ function PricingPage({ showUpgradeNotice, navigate }) {
                 <input
                   type="email"
                   required
-                  disabled
+                  autoComplete="username"
                   value={signupModal.email}
+                  onChange={(e) => setSignupModal((s) => ({ ...s, email: e.target.value }))}
                   style={{
                     background: '#0f172a',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
                     borderRadius: '8px',
                     padding: '10px 12px',
-                    color: '#94a3b8',
+                    color: '#f8fafc',
                     fontSize: '0.9rem',
                     outline: 'none',
-                    cursor: 'not-allowed'
+                    cursor: 'text'
                   }}
                 />
               </label>
@@ -925,6 +928,7 @@ function PricingPage({ showUpgradeNotice, navigate }) {
                   type="password"
                   required
                   autoFocus
+                  autoComplete="new-password"
                   disabled={signupModal.busy}
                   value={signupModal.password}
                   onChange={(e) => setSignupModal({ ...signupModal, password: e.target.value })}
@@ -945,6 +949,7 @@ function PricingPage({ showUpgradeNotice, navigate }) {
                 <input
                   type="password"
                   required
+                  autoComplete="new-password"
                   disabled={signupModal.busy}
                   value={signupModal.confirmPassword}
                   onChange={(e) => setSignupModal({ ...signupModal, confirmPassword: e.target.value })}
@@ -1413,6 +1418,7 @@ function ForgotPasswordPage({ navigate }) {
               <input
                 type="email"
                 required
+                autoComplete="email"
                 disabled={busy}
                 autoFocus
                 value={email}
@@ -1521,8 +1527,8 @@ function AuthConfirmedPage() {
           <p>{token ? 'Create the password you will use to sign in to Clyde desktop.' : 'Your Clyde account email has been successfully verified! You can safely close this browser window and return to the Clyde Desktop app to sign in.'}</p>
           {token ? (
             <form className="auth-password-form" onSubmit={completeInvite}>
-              <label>Password<input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label>
-              <label>Confirm password<input type="password" value={form.confirmPassword} onChange={(event) => setForm((current) => ({ ...current, confirmPassword: event.target.value }))} /></label>
+              <label>Password<input type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label>
+              <label>Confirm password<input type="password" autoComplete="new-password" value={form.confirmPassword} onChange={(event) => setForm((current) => ({ ...current, confirmPassword: event.target.value }))} /></label>
               <button className="primary-link" type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save password'}</button>
               {status ? <p className="auth-status">{status}</p> : null}
             </form>
@@ -2844,6 +2850,7 @@ function DeleteAccountPage({ navigate }) {
               <input
                 type="email"
                 required
+                autoComplete="email"
                 disabled={busy}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
