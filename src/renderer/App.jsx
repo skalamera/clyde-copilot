@@ -3911,7 +3911,6 @@ function App() {
 
     const unsubscribeAppWindowMinimizedStateChange = api?.onAppWindowMinimizedStateChange?.((_event, isMinimized) => {
       const minimized = Boolean(isMinimized);
-      setAppWindowMinimized(minimized);
       if (activeCaptureRef.current) {
         if (minimized) {
           setOverlayHidden(true);
@@ -3919,6 +3918,8 @@ function App() {
           setOverlayHidden(false);
           api?.resizeActiveCaptureWindow?.({ width: 460, height: 320, restore: true });
         }
+      } else {
+        setAppWindowMinimized(minimized);
       }
     });
 
