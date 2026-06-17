@@ -180,6 +180,7 @@ const EMPTY_SETTINGS = {
   onboardingGuideDismissed: false,
   demoMode: false,
   captureProtectionEnabled: true,
+  hideTaskbarEnabled: false,
   uiOpacity: 100,
   nudgeHotkey: 'Ctrl+Shift+N',
   toggleCaptureProtectionHotkey: 'Ctrl+Shift+P',

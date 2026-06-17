@@ -358,6 +358,7 @@ function loadSettings() {
         meetingAttendees: store.get('meetingAttendees', []),
         meetingMemory: store.get('meetingMemory', ''),
         captureProtectionEnabled: store.get('captureProtectionEnabled', true),
+        hideTaskbarEnabled: store.get('hideTaskbarEnabled', false),
         uiOpacity: store.get('uiOpacity', 100),
         nudgeHotkey: store.get('nudgeHotkey', 'Ctrl+Shift+N'),
         toggleCaptureProtectionHotkey: store.get('toggleCaptureProtectionHotkey', 'Ctrl+Shift+P'),
