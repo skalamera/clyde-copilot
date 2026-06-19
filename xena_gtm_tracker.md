@@ -83,19 +83,19 @@
 ## 🎯 Xena's Sourced Leads & Organic Conversational Replies
 *Social listening runs executed on June 16, 2026. These represent highly active community threads where candidates are venting about specific friction points Clyde is designed to solve.*
 
-### 📍 Lead 1: Workday Application Pain (r/recruitinghell)
-* **Thread Title:** *"I got an offer but wtf is workday?!"*
-* **URL:** [Reddit Link](https://www.reddit.com/r/recruitinghell/comments/1g2wgre/i_got_an_offer_but_wtf_is_workday/)
-* **Pain Point:** Extreme fatigue and anger from creating separate accounts and manually re-entering resume bullets on Workday over 50 times.
+### 📍 Lead 1: Workday Account & Account Re-entry Fatigue (r/recruitinghell - Highly Active)
+* **Thread Title:** *"Anyone else hate Workday?"*
+* **URL:** [Reddit Link](https://www.reddit.com/r/recruitinghell/comments/131c8t9/anyone_else_hate_workday)
+* **Pain Point:** The author is applying to 300+ jobs a month and is completely exhausted by Workday forcing a brand-new login account for every employer, to the point of refusing to apply if they see a Workday link.
 * **Xena's Organic Drafted Reply:**
-  > *"Honestly, the fact that we have to create a separate login for every single company that uses Workday is a crime. Last month I got so fed up that I started using a browser extension called Clyde Go. You clip the job description, and it uses your professional profile to autonomously fill out the entire Workday form (including those tedious, open-ended essay questions) in about 20 seconds. It also syncs the jobs back to a local desktop dashboard so you have all your prepped materials ready. Saved my sanity: https://clydeai.live"*
+  > *"I felt this exact same pain. Applying to 100+ different Workday portals and having to create 100+ separate accounts just for the chance of an interview is so tedious. I started using a browser extension called Clyde Go. You clip the job, and it uses your professional profile to autonomously fill out the entire Workday form, including custom essay questions, directly into the page in about 20 seconds. It also syncs everything back to a local desktop app so you can manage your prep. Definitely worth checking out: https://clydeai.live"*
 
 ### 📍 Lead 2: Workday's Broken Resume Parser (r/recruitinghell)
 * **Thread Title:** *"Is WorkDay the worst thing in the world or what?"*
 * **URL:** [Reddit Link](https://www.reddit.com/r/recruitinghell/comments/1d3lg15/is_workday_the_worst_thing_in_the_world_or_what/)
 * **Pain Point:** Workday's parsing engine corrupts resume formatting, forcing tedious character-by-character editing and re-formatting of bullet points.
 * **Xena's Organic Drafted Reply:**
-  > *"It's easily the worst. It completely butchers bullet points and scrambles employment dates, meaning you spend 15 minutes manually re-formatting everything you just uploaded. I ended up installing Clyde Go because it has a standard form filler that bypasses Workday's broken auto-parsers entirely. It populates 100% of the DOM fields directly in one shot without scrambling any formatting. Definitely worth checking out if you want to skip the manual re-entry: https://clydeai.live"*
+  > *"It completely butchers bullet points and scrambles employment dates, meaning you spend 15 minutes manually re-formatting everything you just uploaded. I ended up installing Clyde Go because it has a standard form filler that bypasses Workday's broken auto-parsers entirely. It populates 100% of the DOM fields directly in one shot without scrambling any formatting. Definitely worth checking out if you want to skip the manual re-entry: https://clydeai.live"*
 
 ### 📍 Lead 3: Manual Interview Prep Overhead (r/cscareerquestions)
 * **Thread Title:** *"Job searching and things I've learned in 2024 (3yrs exp)"*

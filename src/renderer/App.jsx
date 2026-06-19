@@ -7678,6 +7678,27 @@ function WorkspaceNav({
           )}
         </div>
 
+        {/* Token/Credit balance summary */}
+        <div className={`workspace-sync-summary ${collapsed ? 'collapsed' : ''}`} style={{ borderTop: 'none', paddingTop: 0, marginTop: '-4px' }}>
+          {collapsed ? (
+            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: isProTier ? 'var(--cyan)' : '#ffb86c', margin: '0 auto', textAlign: 'center' }} title={isProTier ? 'Clyde Pro: Unlimited' : `Credits: ${typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0}`}>
+              {isProTier ? 'PRO' : (typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0)}
+            </span>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--text)' }}>
+              <span style={{
+                borderRadius: '50%',
+                backgroundColor: isProTier ? 'var(--cyan)' : '#ffb86c',
+                boxShadow: isProTier ? '0 0 8px var(--cyan)' : '0 0 8px #ffb86c',
+                display: 'inline-block',
+                width: '8px',
+                height: '8px'
+              }} />
+              <span>Clyde: {isProTier ? 'Unlimited' : `${typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0} Credits`}</span>
+            </div>
+          )}
+        </div>
+
         <div className={`workspace-nav-footer ${collapsed ? 'collapsed' : 'expanded'}`}>
           <button
             className={`icon-button capture-protection-toggle ${captureProtectionEnabled ? 'enabled' : 'disabled'}`}
