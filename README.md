@@ -48,6 +48,7 @@ Clyde can sit beside a video call as a compact overlay, listen to microphone and
 * Save live sessions back to existing or new opportunities.
 * Edit interview transcripts, metadata, examples, summaries, and notes.
 * Automatically grade saved interview sessions with transcript-based evaluation.
+* Differentiate failed evaluations from pending ones in the UI with a distinct red warning pill and actionable tooltip to re-authenticate or retry.
 * Normalize transcript ratings and show star ratings on the timeline.
 * Track opportunity outcomes such as active, advanced, rejected, and offer.
 * Use outcome calibration from past advanced/offer/rejected opportunities to improve advice.

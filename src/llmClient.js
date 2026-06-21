@@ -435,22 +435,53 @@ async function getFreshAccessToken() {
 
     try {
         const { refreshSession } = require('./authClient');
-        const refreshed = await refreshSession({ refreshToken });
-        if (refreshed && refreshed.accessToken) {
-            store.set({
-                userId: refreshed.userId || '',
-                authEmail: refreshed.email || '',
-                authAccessToken: refreshed.accessToken || '',
-                authRefreshToken: refreshed.refreshToken || '',
-                authExpiresAt: refreshed.expiresAt || null
-            });
-            return refreshed.accessToken;
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const refreshed = await refreshSession({ refreshToken });
+                if (refreshed && refreshed.accessToken) {
+                    store.set({
+                        userId: refreshed.userId || '',
+                        authEmail: refreshed.email || '',
+                        authAccessToken: refreshed.accessToken || '',
+                        authRefreshToken: refreshed.refreshToken || '',
+                        authExpiresAt: refreshed.expiresAt || null
+                    });
+                    return refreshed.accessToken;
+                }
+            } catch (e) {
+                lastError = e;
+                console.error(`[auth] Failed to refresh Supabase session token (attempt ${attempt}/3):`, e.message);
+                
+                // If it is a permanent auth rejection (400 Bad Request, usually invalid/revoked refresh token)
+                // do not retry, as it will continue to fail. Throw an explicit session expired error instead.
+                if (e.response && e.response.status === 400) {
+                    const errorMsg = String(e.response.data?.error_description || e.response.data?.error || e.message);
+                    if (/invalid/i.test(errorMsg) || /expired/i.test(errorMsg) || /revoked/i.test(errorMsg)) {
+                        store.delete('authAccessToken');
+                        store.delete('authRefreshToken');
+                        throw new Error('Clyde session expired. Please sign out and sign back in from Settings.');
+                    }
+                }
+
+                // Wait a brief delay before retrying (1s, 2s)
+                if (attempt < 3) {
+                    await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+                }
+            }
         }
-    } catch (e) {
-        console.error('Failed to refresh Supabase session token:', e);
+
+        // If the token is already expired, we cannot fallback to it because it will fail anyway.
+        if (expiresAt && Date.now() >= expiresAt) {
+            store.delete('authAccessToken');
+            store.delete('authRefreshToken');
+            throw new Error('Clyde session expired. Please sign out and sign back in from Settings.');
+        }
+    } catch (err) {
+        throw err;
     }
 
-    return accessToken; // fallback to existing token
+    return accessToken; // fallback to existing token only if not actually expired yet (e.g. in the 2-minute buffer)
 }
 
 async function generateClydeCloud({ model, messages, jsonSchema, temperature, maxTokens, axiosClient, images }) {

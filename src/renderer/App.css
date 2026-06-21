@@ -5074,6 +5074,14 @@ h1 {
   text-transform: capitalize;
 }
 
+.grade-pill.error {
+  border-color: rgba(255, 77, 109, 0.42);
+  color: #ff4d6d;
+  font-size: 0.78rem;
+  text-transform: capitalize;
+  cursor: help;
+}
+
 .session-rating {
   align-items: flex-end;
   display: grid;

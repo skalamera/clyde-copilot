@@ -2048,10 +2048,15 @@ function classifyProGatePrompt(text) {
   }
 
   const startsWithQuestionWord = /^(?:and\s+then\s+)?(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|have|has|had|will|should)\b/i.test(prompt);
-  const hasCommandRequest = /\b(tell me|walk me|talk me|describe|explain|share|give me|show me)\b/i.test(prompt);
+  const hasCommandRequest = /\b(tell me|walk me|talk me|describe|explain|share|give me|show me|love to hear|love to know|was wondering|wondering)\b/i.test(prompt);
   const hasFollowUpRequest = /\b(another example|go(?:ing)? deeper|more detail|what happened|what was the outcome|what came next)\b/i.test(prompt);
 
-  if ((startsWithQuestionWord || hasCommandRequest || hasFollowUpRequest) && wordCount >= 6) {
+  const hasQuestionWordAnywhere = /\b(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|have|has|had|will|should)\b/i.test(prompt);
+  if (hasQuestionWordAnywhere && wordCount >= 10) {
+    return { complete: true, hasStrongTerminal, reason: 'descriptive-embedded-question' };
+  }
+
+  if ((startsWithQuestionWord || hasCommandRequest || hasFollowUpRequest) && wordCount >= 4) {
     return { complete: true, hasStrongTerminal, reason: 'stable-question-shape' };
   }
 

@@ -2186,9 +2186,9 @@ function TrendOverviewDashboard({ entities = [], sessions = [], onSelectEntity }
       </div>
 
       <div className="trends-overview-rankings">
-        <TrendRankingCard title="Strongest latest" row={strongest} metric={strongest?.latestRating !== null ? `${strongest.latestRating}/5` : 'No rating'} onSelectEntity={onSelectEntity} />
+        <TrendRankingCard title="Strongest latest" row={strongest} metric={strongest ? `${strongest.latestRating}/5` : 'No rating'} onSelectEntity={onSelectEntity} />
         <TrendRankingCard title="Biggest improvement" row={improving} metric={improving ? `${formatSigned(improving.ratingDelta)} pts` : 'No change'} onSelectEntity={onSelectEntity} />
-        <TrendRankingCard title="Needs attention" row={needsAttention} metric={needsAttention?.latestRating !== null ? `${needsAttention.latestRating}/5` : 'No rating'} onSelectEntity={onSelectEntity} />
+        <TrendRankingCard title="Needs attention" row={needsAttention} metric={needsAttention ? `${needsAttention.latestRating}/5` : 'No rating'} onSelectEntity={onSelectEntity} />
         <TrendRankingCard title="Most history" row={mostHistory} metric={mostHistory ? `${mostHistory.sessionCount} sessions` : 'No sessions'} onSelectEntity={onSelectEntity} />
       </div>
 
@@ -9420,10 +9420,17 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
     return res;
   }, [cards]);
 
+  const cardStackRef = useRef(null);
   const latestGroupKey = groups[0]?.key;
   useEffect(() => {
     setSlideIndex(0);
   }, [latestGroupKey]);
+
+  useEffect(() => {
+    if (cardStackRef.current) {
+      cardStackRef.current.scrollTop = cardStackRef.current.scrollHeight;
+    }
+  }, [displayCards.length, latestGroupKey]);
 
   const currentGroup = groups[slideIndex];
   const displayCards = currentGroup?.cards || [];
@@ -9464,7 +9471,7 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
         </div>
       )}
 
-      <div className="scroll-area card-stack" data-active-size-content={active ? 'assistant-cards' : undefined}>
+      <div ref={cardStackRef} className="scroll-area card-stack" data-active-size-content={active ? 'assistant-cards' : undefined}>
         {identifiedQuestion ? (
           <div className="card-identified-question">
             <strong>Question:</strong> {identifiedQuestion}
@@ -10596,6 +10603,8 @@ function SessionBlock({ session, onDelete, onEdit }) {
                 <span>Transcript rating</span>
                 <StarRating rating={transcriptRating} />
               </div>
+            ) : session.mode === 'interview' && session.grading?.status === 'failed' ? (
+              <span className="grade-pill error" title="Grading failed. Click '✎' to edit/save to retry, or sign out and sign back in to refresh credentials.">Transcript rating failed ⚠️</span>
             ) : (
               <span className="grade-pill muted">{session.mode === 'interview' ? 'Transcript rating pending' : session.mode}</span>
             )}
