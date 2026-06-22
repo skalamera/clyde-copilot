@@ -801,6 +801,9 @@ function enterActiveCaptureWindow() {
     }
 
     const nextBounds = clampBoundsToDisplay(boundsOnDisplay || defaultActiveCaptureBounds(currentBounds), display);
+    // Force complete on-screen safety on launch:
+    nextBounds.x = Math.max(display.workArea.x, Math.min(nextBounds.x, display.workArea.x + display.workArea.width - nextBounds.width));
+    nextBounds.y = Math.max(display.workArea.y, Math.min(nextBounds.y, display.workArea.y + display.workArea.height - nextBounds.height));
 
     activeCaptureWindow = true;
     activeCaptureMinimized = false;

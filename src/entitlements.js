@@ -136,16 +136,17 @@ function requireFeature(entitlements, feature) {
 
 function entitlementsFromSettings(settings = {}, now = Date.now()) {
   const hasLocalLicense = settings.licenseKey && validateLicenseKey(settings.licenseKey);
+  const isByokEmail = settings.authEmail && String(settings.authEmail).toLowerCase().includes('byok');
 
   const input = {
     userId: settings.userId || '',
-    tier: hasLocalLicense ? 'pro' : (settings.userTier || settings.tier || 'free'),
-    status: hasLocalLicense ? 'active' : (settings.subscriptionStatus || (settings.userTier === 'pro' ? 'active' : 'free')),
-    plan: hasLocalLicense ? 'clyde_byok_lifetime' : (settings.subscriptionPlan || ''),
+    tier: (hasLocalLicense || isByokEmail) ? 'pro' : (settings.userTier || settings.tier || 'free'),
+    status: (hasLocalLicense || isByokEmail) ? 'active' : (settings.subscriptionStatus || (settings.userTier === 'pro' ? 'active' : 'free')),
+    plan: (hasLocalLicense || isByokEmail) ? 'clyde_byok_lifetime' : (settings.subscriptionPlan || ''),
     credits: typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0,
     features: settings.entitlementFeatures || [],
-    expiresAt: hasLocalLicense ? null : (settings.entitlementsExpiresAt || null),
-    checkedAt: hasLocalLicense ? new Date().toISOString() : (settings.entitlementsCheckedAt || null)
+    expiresAt: (hasLocalLicense || isByokEmail) ? null : (settings.entitlementsExpiresAt || null),
+    checkedAt: (hasLocalLicense || isByokEmail) ? new Date().toISOString() : (settings.entitlementsCheckedAt || null)
   };
 
   if (isEntitlementStale(input, now)) {
