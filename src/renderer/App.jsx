@@ -10941,6 +10941,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
         const checkoutPayload = {
           email: signUpForm.email.trim(),
           password: signUpForm.password,
+          byok: selectedPlanId === 'byok',
           credits: selectedPlanId === 'credits_pack',
           creditsAmount: selectedPlanId === 'credits_pack' ? selectedCreditsSize : undefined,
           forceCheckout: true
@@ -11587,6 +11588,18 @@ function PlanStep({ busy, checkoutStarted, selectedPlanId, setSelectedPlanId, se
         'Save over $60 annually',
         'Direct priority support access',
         'Never worry about monthly renew cycles'
+      ]
+    },
+    {
+      id: 'byok',
+      name: 'BYOK Lifetime',
+      price: '$99.00',
+      description: 'Lifetime access to all Pro features using your own local models or custom API keys.',
+      bullets: [
+        'Lifetime license (no monthly fees)',
+        'Local RAG & long term memory search',
+        'Offline Whisper & local LM Studio support',
+        'Gmail & Calendar scanning (Local key)'
       ]
     },
     {
