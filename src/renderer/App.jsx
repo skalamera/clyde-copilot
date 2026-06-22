@@ -12037,6 +12037,10 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate,
       </p>
       <label>LLM provider<select value={draft.llmProvider || ''} onChange={(event) => {
         const val = event.target.value;
+        if (val === 'clyde-cloud' && draft.subscriptionPlan === 'clyde_byok_lifetime') {
+          window.alert('Clyde Managed Cloud is not available on the BYOK Lifetime plan. Please select a local or custom API provider.');
+          return;
+        }
         if (val === 'clyde-cloud' && !proEntitled) {
           window.alert('Clyde Managed Cloud is a Pro-only feature! Please select a local or custom API provider, or upgrade to Clyde Pro from settings.');
           return;
@@ -12056,6 +12060,10 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate,
       {draft.llmProvider === 'gemini' ? <label className="wide-field">Gemini API key<input type="password" value={draft.llmApiKey || ''} onChange={(event) => update('llmApiKey', event.target.value)} /></label> : null}
       <label>Transcription provider<select value={draft.transcriptionProvider || ''} onChange={(event) => {
         const val = event.target.value;
+        if (val === 'clyde-cloud-whisper' && draft.subscriptionPlan === 'clyde_byok_lifetime') {
+          window.alert('Clyde Managed Whisper is not available on the BYOK Lifetime plan. Please select local or custom API providers.');
+          return;
+        }
         if (val === 'clyde-cloud-whisper' && !proEntitled) {
           window.alert('Clyde Managed Whisper is a Pro-only feature! Please select local or custom API providers.');
           return;
@@ -13257,7 +13265,13 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               <option value="openai">OpenAI ChatGPT (Custom Key)</option>
             </select>
           </label>
-          {draft.llmProvider === 'clyde-cloud' && !proEntitled && (
+          {draft.llmProvider === 'clyde-cloud' && settings.subscriptionPlan === 'clyde_byok_lifetime' && (
+            <div className="wide-field upgrade-pro-callout">
+              <strong>Clyde Managed Cloud is not available on the BYOK Lifetime plan</strong>
+              <span>Please configure a local model or insert your own Google Gemini / OpenAI API key to use Clyde.</span>
+            </div>
+          )}
+          {draft.llmProvider === 'clyde-cloud' && settings.subscriptionPlan !== 'clyde_byok_lifetime' && !proEntitled && (
             <div className="wide-field upgrade-pro-callout">
               <strong>Clyde Managed Cloud requires Clyde Pro</strong>
               <span>Open the website to upgrade, then refresh your subscription in Clyde.</span>
@@ -13405,7 +13419,13 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               <option value="openai-realtime-whisper">OpenAI Realtime Whisper (Custom Key)</option>
             </select>
           </label>
-          {draft.transcriptionProvider === 'clyde-cloud-whisper' && !proEntitled && (
+          {draft.transcriptionProvider === 'clyde-cloud-whisper' && settings.subscriptionPlan === 'clyde_byok_lifetime' && (
+            <div className="wide-field upgrade-pro-callout">
+              <strong>Clyde Managed Whisper is not available on the BYOK Lifetime plan</strong>
+              <span>Please select Local Whisper or configure a custom OpenAI API key.</span>
+            </div>
+          )}
+          {draft.transcriptionProvider === 'clyde-cloud-whisper' && settings.subscriptionPlan !== 'clyde_byok_lifetime' && !proEntitled && (
             <div className="wide-field upgrade-pro-callout">
               <strong>Clyde Managed Whisper requires Clyde Pro</strong>
               <span>Open the website to upgrade, then refresh your subscription in Clyde.</span>

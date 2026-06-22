@@ -15,6 +15,9 @@ const SIGNED_LICENSE_RE = /^clyde_lic_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const SIGNED_LICENSE_V2_RE = /^clyde_lic_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(\d+)\.([A-Za-z0-9_-]{16,})$/i;
 
 function isActiveSubscription(subscription) {
+  if (subscription?.plan === 'clyde_byok_lifetime') {
+    return false;
+  }
   const isPro = ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
   const hasCredits = subscription && typeof subscription.credits === 'number' && subscription.credits > 0;
   return isPro || hasCredits;
@@ -266,7 +269,11 @@ export default async function handler(request, response) {
     // 2. Validate Pro Subscription status
     const subscription = await findSubscriptionByUserId(user.id);
     if (!isActiveSubscription(subscription)) {
-      sendJson(response, 403, { error: 'Clyde Pro subscription is required to use Clyde-managed cloud API endpoints.' });
+      if (subscription?.plan === 'clyde_byok_lifetime') {
+        sendJson(response, 403, { error: 'Clyde Managed Cloud is not available on the BYOK Lifetime plan. Please configure a custom Gemini/OpenAI key or run a local model.' });
+      } else {
+        sendJson(response, 403, { error: 'Clyde Pro subscription is required to use Clyde-managed cloud API endpoints.' });
+      }
       return;
     }
 
