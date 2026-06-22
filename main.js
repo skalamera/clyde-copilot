@@ -370,7 +370,8 @@ function loadSettings() {
         endCallHotkey: store.get('endCallHotkey', 'Ctrl+Shift+E'),
         activeCaptureBounds: store.get('activeCaptureBounds', null),
         debugTraceEnabled: store.get('debugTraceEnabled', process.env.CLYDE_DISABLE_SESSION_TRACE !== '1'),
-        theme: store.get('theme', 'default')
+        theme: store.get('theme', 'default'),
+        licenseKey: store.get('licenseKey', '')
     };
 
     settings.extensionPairingToken = extensionPairingToken;

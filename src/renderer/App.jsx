@@ -140,6 +140,7 @@ const DEFAULT_HEALTH = {
 
 const EMPTY_SETTINGS = {
   appMode: 'interview',
+  licenseKey: '',
   llmProvider: '',
   llmModel: '',
   openAiApiKey: '',
@@ -3796,6 +3797,9 @@ function App() {
           ...EMPTY_SETTINGS,
           ...(currentSettings || {}),
           ...(tierStatus || {}),
+          userTier: tierStatus?.tier || currentSettings?.userTier || 'free',
+          subscriptionStatus: tierStatus?.status || currentSettings?.subscriptionStatus || 'free',
+          subscriptionPlan: tierStatus?.plan || currentSettings?.subscriptionPlan || 'clyde_assistant',
           entitlementFeatures: tierStatus?.features || currentSettings?.entitlementFeatures || []
         });
         setSettings(nextSettings);
