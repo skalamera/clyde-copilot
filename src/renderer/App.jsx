@@ -13249,6 +13249,14 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             Provider
             <select value={draft.llmProvider || ''} onChange={(event) => {
               const val = event.target.value;
+              if (val === 'clyde-cloud' && draft.subscriptionPlan === 'clyde_byok_lifetime') {
+                window.alert('Clyde Managed Cloud is not available on the BYOK Lifetime plan. Please select a local or custom API provider.');
+                return;
+              }
+              if (val === 'clyde-cloud' && !proEntitled) {
+                window.alert('Clyde Managed Cloud is a Pro-only feature! Please select a local or custom API provider, or upgrade to Clyde Pro from settings.');
+                return;
+              }
               update('llmProvider', val);
               if (val === 'clyde-cloud' || val === 'gemini') {
                 update('llmModel', 'gemini-3.5-flash');
@@ -13411,7 +13419,18 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           )}
           <label>
             Transcription provider
-            <select value={draft.transcriptionProvider || ''} disabled={Boolean(draft.proAgentEnabled)} onChange={(event) => update('transcriptionProvider', event.target.value)}>
+            <select value={draft.transcriptionProvider || ''} disabled={Boolean(draft.proAgentEnabled)} onChange={(event) => {
+              const val = event.target.value;
+              if (val === 'clyde-cloud-whisper' && draft.subscriptionPlan === 'clyde_byok_lifetime') {
+                window.alert('Clyde Managed Whisper is not available on the BYOK Lifetime plan. Please select local or custom API providers.');
+                return;
+              }
+              if (val === 'clyde-cloud-whisper' && !proEntitled) {
+                window.alert('Clyde Managed Whisper is a Pro-only feature! Please select local or custom API providers.');
+                return;
+              }
+              update('transcriptionProvider', val);
+            }}>
               <option value="">Select a transcription provider</option>
               <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
               <option value="local">Local Whisper (Offline)</option>

@@ -197,7 +197,7 @@ export function proEntitlements(userId, subscription = {}) {
     userId,
     tier: 'pro',
     userTier: 'pro',
-    plan: 'clyde_pro_agent',
+    plan: subscription.plan || 'clyde_pro_agent',
     status: subscription.status || 'active',
     pro: subscription.status ? ['active', 'trialing'].includes(subscription.status) : true,
     features: PRO_FEATURES,
