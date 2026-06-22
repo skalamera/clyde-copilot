@@ -36,6 +36,7 @@ export function getStripe() {
   if (!secret) {
     throw new Error('STRIPE_SECRET_KEY is not configured.');
   }
+  console.log('[stripe] Loaded secret key starting with:', secret.slice(0, 8));
   return new Stripe(secret, { apiVersion: '2025-11-17.clover' });
 }
 
