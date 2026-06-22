@@ -79,7 +79,7 @@ async function createBillingPortalSession({ accessToken, endpoint, axiosClient =
   return response.data || {};
 }
 
-async function createProSignupCheckout({ email, forceCheckout, creditsAmount, endpoint, axiosClient = axios } = {}) {
+async function createProSignupCheckout({ email, forceCheckout, creditsAmount, billingPeriod, endpoint, axiosClient = axios } = {}) {
   const cleanEndpoint = String(endpoint || '').trim();
   if (!cleanEndpoint) {
     throw new Error('Pro signup endpoint is not configured.');
@@ -92,6 +92,9 @@ async function createProSignupCheckout({ email, forceCheckout, creditsAmount, en
     }
     if (creditsAmount !== undefined) {
       body.creditsAmount = Number(creditsAmount);
+    }
+    if (billingPeriod !== undefined) {
+      body.billingPeriod = String(billingPeriod);
     }
     response = await axiosClient.post(cleanEndpoint, body, {
       headers: { 'Content-Type': 'application/json' },

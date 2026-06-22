@@ -10934,6 +10934,7 @@ function OnboardingWizard({ api, mode, onCalendarChanged, onClose, onModeChange,
           byok: selectedPlanId === 'byok',
           credits: selectedPlanId === 'credits_pack',
           creditsAmount: selectedPlanId === 'credits_pack' ? selectedCreditsSize : undefined,
+          billingPeriod: selectedPlanId === 'pro_annual' ? 'annual' : 'monthly',
           forceCheckout: true
         };
         const checkout = await api?.startProSignupCheckout?.(checkoutPayload);

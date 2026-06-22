@@ -2666,6 +2666,7 @@ function createWindow () {
           password: payload.password,
           forceCheckout: payload.forceCheckout,
           creditsAmount: payload.creditsAmount,
+          billingPeriod: payload.billingPeriod,
           endpoint: payload.byok ? CLYDE_BYOK_CHECKOUT_URL : (payload.credits ? CLYDE_CREDITS_CHECKOUT_URL : CLYDE_PRO_SIGNUP_CHECKOUT_URL)
       });
       if (!checkout.url) {
