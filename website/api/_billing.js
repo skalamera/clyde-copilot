@@ -608,6 +608,7 @@ export function generateByokLicenseKey(email) {
     }
     privateKey = privateKey.replace(/\\n/g, '\n').trim();
     console.log('DEBUG_KEY: normalized start =', JSON.stringify(privateKey.slice(0, 40)), 'normalized end =', JSON.stringify(privateKey.slice(-40)));
+    console.log('CHAR_CODES:', Array.from(privateKey.slice(0, 60)).map(c => c.charCodeAt(0)).join(','));
   }
 
   const sign = crypto.createSign('SHA256');
