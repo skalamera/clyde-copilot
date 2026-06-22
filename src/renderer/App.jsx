@@ -15,6 +15,7 @@ const logoSlateUrl = new URL('../../clyde-header-logo-nordic-slate.svg', import.
 const logoSnowUrl = new URL('../../clyde-header-logo-nordic-snow-light.svg', import.meta.url).href;
 const logoAmberUrl = new URL('../../clyde-header-logo-retro-amber.svg', import.meta.url).href;
 const logoBlossomUrl = new URL('../../clyde-header-logo-sakura-blossom-light.svg', import.meta.url).href;
+const thinkUrl = new URL('../../clyde_think_answercard.svg', import.meta.url).href;
 
 function getThemeLogoUrl(theme) {
   switch (theme) {
@@ -69,6 +70,7 @@ const clydeStartRecordingUrl = new URL('../../clyde_start_recording.svg', import
 const clydeEndCallUrl = new URL('../../clyde_end_call.svg', import.meta.url).href;
 const clydeNudgePromptUrl = new URL('../../clyde_nudge_prompt.svg', import.meta.url).href;
 const clydeQuestionUrl = new URL('../../clyde_question.svg', import.meta.url).href;
+const clydeManualStarTriggerUrl = new URL('../../clyde_manual_star_trigger.svg', import.meta.url).href;
 
 const iconHomeUrl = new URL('../../navbar-icons/Home.svg', import.meta.url).href;
 const iconHomeColorUrl = new URL('../../navbar-icons/Home_color.svg', import.meta.url).href;
@@ -8593,6 +8595,16 @@ function ActiveCaptureView({
     });
   }
 
+  function handleManualStarTrigger() {
+    onAsk({
+      prompt: 'Review the recent conversation transcript. Find the most recent question asked by the interviewer that demands a STAR-structured response (such as behavioral, situational, or leadership questions). Then, generate a high-quality, comprehensive, and highly personalized STAR response using my resume/background and current context. Structure the response strictly with "Situation (S):", "Task (T):", "Action (A):", and "Result (R):" paragraph blocks, followed by an optional "Reflection:" block under a page break.',
+      intent: 'assist',
+      includeScreenshot: false,
+      sources: { resume: true, memory: true, rag: true, web: false },
+      mode
+    });
+  }
+
   function handleNudgeTurn(turnText, itemIndex) {
     // Gather up to 3 turns of context before this turn
     const contextTurns = [];
@@ -9186,6 +9198,17 @@ function ActiveCaptureView({
               >
                 <img src={clydeNudgePromptUrl} alt="Nudge" style={{ width: '30px', height: '30px' }} />
               </button>
+
+              {/* Manual STAR Trigger Button */}
+              <button 
+                type="button" 
+                className="bottom-bar-action-btn star-trigger-btn" 
+                onClick={handleManualStarTrigger}
+                title="Force STAR structured response from recent transcript"
+                style={{ background: 'transparent', border: 0, padding: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+              >
+                <img src={clydeManualStarTriggerUrl} alt="Manual STAR" style={{ width: '30px', height: '30px' }} />
+              </button>
             </div>
 
           </div>
@@ -9395,6 +9418,10 @@ function Transcript({ transcript }) {
   );
 }
 
+function isStarCard(bullets = []) {
+  return Array.isArray(bullets) && bullets.some(b => /^\s*(Situation|Task|Action|Result)\b/i.test(b));
+}
+
 function AssistantCards({ cards, variant = 'default', status = '', onDismissCard }) {
   const active = variant === 'active';
   const [slideIndex, setSlideIndex] = useState(0);
@@ -9482,8 +9509,16 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
           const cardTitle = String(card.title || '').trim();
           const showCardTitle = cardTitle && cardTitle.toLowerCase() !== cardLabel.toLowerCase();
 
-            return (
-              <article className={`assistant-card ${card.type || 'note'} ${card.agentic ? 'assistant-card-agentic' : ''} ${card.draft ? 'assistant-card-draft' : ''}`} key={card.id || `${card.title}-${index}`}>
+          return (
+            <div key={card.id || `${card.title}-${index}`} style={{ display: 'contents' }}>
+              {index > 0 && (
+                <div className="card-divider-container">
+                  <div className="card-divider-line" />
+                  <img src={thinkUrl} alt="" className="card-divider-icon" />
+                  <div className="card-divider-line" />
+                </div>
+              )}
+              <article className={`assistant-card ${card.type || 'note'} ${card.agentic ? 'assistant-card-agentic' : ''} ${card.draft ? 'assistant-card-draft' : ''}`}>
                 <div className="card-top-actions">
                   {card.agentic ? <img src={proBadgeUrl} alt="Pro" className="agentic-badge-img" /> : null}
                   {onDismissCard && (
@@ -9504,12 +9539,39 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
                 {showCardTitle ? <h4>{cardTitle}</h4> : null}
               {card.body ? <p>{card.body}</p> : null}
               {card.bullets?.length ? (
-                <ul>
-                  {card.bullets.map((bullet, bulletIndex) => <li key={`${bullet}-${bulletIndex}`}>{bullet}</li>)}
-                </ul>
+                <div className="card-bullets-area">
+                  {isStarCard(card.bullets) ? (
+                    card.bullets.map((bullet, bulletIndex) => {
+                      const starMatch = /^\s*(Situation\s*\(S\)|Task\s*\(T\)|Action\s*\(A\)|Result\s*\(R\)|Reflection\s*\(R\)|Situation|Task|Action|Result|Reflection)(:)\s*(.*)/is.exec(bullet);
+                      if (starMatch) {
+                        return (
+                          <p key={bulletIndex} className="star-bullet-row">
+                            <strong className="star-bullet-label">{starMatch[1]}{starMatch[2]}</strong> {starMatch[3]}
+                          </p>
+                        );
+                      }
+                      return <p key={bulletIndex} className="star-bullet-row">{bullet}</p>;
+                    })
+                  ) : (
+                    <ul className={card.type === 'memory' ? 'memory-bullets' : 'standard-bullets'}>
+                      {card.bullets.map((bullet, bulletIndex) => {
+                        const reflectionMatch = /^\s*(Reflection)(:)\s*(.*)/is.exec(bullet);
+                        if (reflectionMatch) {
+                          return (
+                            <li key={bulletIndex} className="reflection-bullet-row">
+                              <strong className="star-bullet-label">{reflectionMatch[1]}{reflectionMatch[2]}</strong> {reflectionMatch[3]}
+                            </li>
+                          );
+                        }
+                        return <li key={bulletIndex}>{bullet}</li>;
+                      })}
+                    </ul>
+                  )}
+                </div>
               ) : null}
               {card.detail ? <small>{card.detail}</small> : null}
             </article>
+          </div>
           );
         }) : active ? (
           <EmptyState

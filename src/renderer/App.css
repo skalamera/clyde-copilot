@@ -3911,6 +3911,60 @@ h1 {
   padding-bottom: 24px;
 }
 
+.card-divider-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  width: 100%;
+  margin: 10px 0;
+  -webkit-app-region: no-drag;
+}
+
+.card-divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0) 0%, rgba(245, 158, 11, 0.42) 50%, rgba(245, 158, 11, 0) 100%);
+}
+
+.card-divider-icon {
+  width: 22px;
+  height: 22px;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
+}
+
+.card-bullets-area {
+  margin-top: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.star-bullet-row {
+  margin: 0 0 14px 0;
+  line-height: 1.52;
+  font-size: 1.02rem;
+  color: #f2f7fb;
+}
+
+.star-bullet-label {
+  color: #f59e0b;
+  font-weight: 800;
+  text-shadow: 0 0 4px rgba(245, 158, 11, 0.15);
+}
+
+.reflection-bullet-row {
+  color: #ffd166 !important;
+  font-size: 1.01rem;
+}
+
+.reflection-bullet-row .star-bullet-label {
+  color: #ffd166;
+}
+
+.memory-bullets li.reflection-bullet-row::marker {
+  color: #ffd166 !important;
+}
+
 .assistant-card {
   position: relative;
   background: rgba(10, 21, 32, 0.22);
