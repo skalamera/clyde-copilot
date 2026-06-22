@@ -364,7 +364,20 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
               ref={videoRef}
               autoPlay
               playsInline
-              style={{ display: (status === 'connected' && !audioOnly) ? 'block' : 'none' }}
+              style={audioOnly ? {
+                position: 'absolute',
+                top: '-9999px',
+                left: '-9999px',
+                width: '1px',
+                height: '1px',
+                opacity: 0,
+                pointerEvents: 'none'
+              } : {
+                display: status === 'connected' ? 'block' : 'none',
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover'
+              }}
             />
             {audioOnly && status === 'connected' && (
               <div className="mock-audio-visualizer" style={{
