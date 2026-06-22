@@ -29,6 +29,10 @@
       "destination": "/api/billing?action=create-credits-checkout"
     },
     {
+      "source": "/api/create-byok-checkout",
+      "destination": "/api/billing?action=create-byok-checkout"
+    },
+    {
       "source": "/api/activate-pro-checkout",
       "destination": "/api/billing?action=activate-pro-checkout"
     },

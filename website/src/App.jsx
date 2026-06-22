@@ -504,6 +504,7 @@ function PricingPage({ showUpgradeNotice, navigate }) {
   const [annual, setAnnual] = useState(true);
   const [proCheckout, setProCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
   const [creditsCheckout, setCreditsCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
+  const [byokCheckout, setByokCheckout] = useState({ open: false, email: '', busy: false, error: '', notice: '' });
   const [selectedCreditsSize, setSelectedCreditsSize] = useState(50); // 20, 50, 120
   
   // Custom states for the Web Create Account modal
@@ -583,6 +584,17 @@ function PricingPage({ showUpgradeNotice, navigate }) {
           throw new Error(checkoutPayload.error || 'Credits checkout redirect failed.');
         }
         window.location.href = checkoutPayload.url;
+      } else if (signupModal.checkoutType === 'byok') {
+        const checkoutResponse = await fetch('/api/create-byok-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: signupModal.email, forceCheckout: true })
+        });
+        const checkoutPayload = await checkoutResponse.json().catch(() => ({}));
+        if (!checkoutResponse.ok || !checkoutPayload.url) {
+          throw new Error(checkoutPayload.error || 'BYOK checkout redirect failed.');
+        }
+        window.location.href = checkoutPayload.url;
       } else {
         const checkoutResponse = await fetch('/api/create-pro-signup-checkout', {
           method: 'POST',
@@ -639,6 +651,42 @@ function PricingPage({ showUpgradeNotice, navigate }) {
     }
   }
 
+  async function startByokCheckout(event) {
+    event.preventDefault();
+    const email = byokCheckout.email.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setByokCheckout((s) => ({ ...s, error: 'Enter a valid email address.', notice: '' }));
+      return;
+    }
+    setByokCheckout((s) => ({ ...s, busy: true, error: '', notice: '' }));
+    try {
+      const existRes = await fetch('/api/check-email-existence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const existPayload = await existRes.json().catch(() => ({}));
+
+      if (existPayload.exists) {
+        const response = await fetch('/api/create-byok-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, forceCheckout: true })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.url) {
+          throw new Error(payload.error || 'BYOK checkout could not be started. Please try again.');
+        }
+        window.location.href = payload.url;
+      } else {
+        setByokCheckout((s) => ({ ...s, busy: false }));
+        setSignupModal({ open: true, email, password: '', confirmPassword: '', busy: false, error: '', checkoutType: 'byok' });
+      }
+    } catch (error) {
+      setByokCheckout((s) => ({ ...s, busy: false, error: error.message || 'Checkout could not be started.' }));
+    }
+  }
+
   const tiers = [
     {
       name: 'Free',
@@ -683,6 +731,7 @@ function PricingPage({ showUpgradeNotice, navigate }) {
     },
     {
       name: 'Credit Pack',
+      key: 'credits',
       priceMonthly: selectedCreditsSize === 20 ? 4.99 : selectedCreditsSize === 120 ? 19.99 : 9.99,
       priceAnnual: selectedCreditsSize === 20 ? 4.99 : selectedCreditsSize === 120 ? 19.99 : 9.99,
       description: 'Buy on-demand background credits for the Clyde Go extension & mock interviews.',
@@ -690,10 +739,31 @@ function PricingPage({ showUpgradeNotice, navigate }) {
       ctaClass: 'primary',
       credits: true,
       features: [
-        { label: `${selectedCreditsSize} background credits included`, free: false, pro: false, credits: true },
-        { label: 'Active-context filler', free: false, pro: false, credits: true },
-        { label: 'Extension & Mock Interview usage', free: false, pro: false, credits: true },
-        { label: 'Never expires', free: false, pro: false, credits: true }
+        { label: `${selectedCreditsSize} background credits included`, free: false, pro: false, credits: true, byok: false },
+        { label: 'Active-context filler', free: false, pro: false, credits: true, byok: false },
+        { label: 'Extension & Mock Interview usage', free: false, pro: false, credits: true, byok: false },
+        { label: 'Never expires', free: false, pro: false, credits: true, byok: false }
+      ]
+    },
+    {
+      name: 'BYOK Lifetime',
+      key: 'byok',
+      priceMonthly: 99.00,
+      priceAnnual: 99.00,
+      description: 'One-time payment for offline local-only Pro features. Bring your own Gemini/OpenAI API keys.',
+      cta: 'Get BYOK Lifetime',
+      ctaClass: 'primary',
+      byok: true,
+      features: [
+        { label: 'Undetectable floating HUD', free: true, pro: true, credits: true, byok: true },
+        { label: 'Active-context help', free: true, pro: true, credits: true, byok: true },
+        { label: 'Private & local operation', free: true, pro: true, credits: true, byok: true },
+        { label: 'Meeting notes & action items', free: true, pro: true, credits: true, byok: true },
+        { label: 'RAG across old sessions (Local)', free: false, pro: true, credits: false, byok: true },
+        { label: 'Broad conversation memory (Local)', free: false, pro: true, credits: false, byok: true },
+        { label: 'Gmail & Calendar scanning (Local)', free: false, pro: true, credits: false, byok: true },
+        { label: '0-100 rating scorecards (Local)', free: false, pro: true, credits: false, byok: true },
+        { label: 'Phase trend analysis (Local)', free: false, pro: true, credits: false, byok: true }
       ]
     }
   ];
@@ -767,16 +837,20 @@ function PricingPage({ showUpgradeNotice, navigate }) {
               <div className="description">{tier.description}</div>
 
               <ul className="feature-list">
-                {tier.features.map((feat, i) => (
-                  <li key={i}>
-                    {feat[tier.name.toLowerCase()] ? (
-                      <span className={`check ${tier.name.toLowerCase()}`}>✓</span>
-                    ) : (
-                      <span className="check free" style={{ background: 'transparent', color: 'var(--muted-2)' }}>–</span>
-                    )}
-                    {feat.label}
-                  </li>
-                ))}
+                {tier.features.map((feat, i) => {
+                  const checkKey = tier.key || tier.name.toLowerCase();
+                  const hasFeature = feat[checkKey];
+                  return (
+                    <li key={i}>
+                      {hasFeature ? (
+                        <span className={`check ${checkKey}`}>✓</span>
+                      ) : (
+                        <span className="check free" style={{ background: 'transparent', color: 'var(--muted-2)' }}>–</span>
+                      )}
+                      {feat.label}
+                    </li>
+                  );
+                })}
               </ul>
 
               {tier.name === 'Pro' && proCheckout.open ? (
@@ -828,6 +902,30 @@ function PricingPage({ showUpgradeNotice, navigate }) {
                     </p>
                   ) : null}
                 </form>
+              ) : tier.name === 'BYOK Lifetime' && byokCheckout.open ? (
+                <form className="pro-checkout-form" onSubmit={startByokCheckout}>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@email.com"
+                    value={byokCheckout.email}
+                    disabled={byokCheckout.busy}
+                    autoFocus
+                    onChange={(event) => setByokCheckout((s) => ({ ...s, email: event.target.value }))}
+                  />
+                  <button className={`cta-btn ${tier.ctaClass}`} type="submit" disabled={byokCheckout.busy}>
+                    {byokCheckout.busy ? <span className="btn-spinner" aria-hidden="true" /> : null}
+                    {byokCheckout.busy ? 'Opening checkout...' : 'Continue to Checkout'}
+                  </button>
+                  {byokCheckout.error ? (
+                    <p className="checkout-status checkout-error">
+                      {byokCheckout.error}{' '}
+                      {(byokCheckout.error.toLowerCase().includes('registered') || byokCheckout.error.toLowerCase().includes('exists')) && (
+                        <a href="/forgot-password" onClick={(e) => { e.preventDefault(); navigate('/forgot-password'); }} style={{ color: '#6366f1', textDecoration: 'underline', marginLeft: '4px' }}>Reset password</a>
+                      )}
+                    </p>
+                  ) : null}
+                </form>
               ) : (
                 <button
                   className={`cta-btn ${tier.ctaClass}`}
@@ -836,6 +934,8 @@ function PricingPage({ showUpgradeNotice, navigate }) {
                       setProCheckout((s) => ({ ...s, open: true, error: '', notice: '' }));
                     } else if (tier.name === 'Credit Pack') {
                       setCreditsCheckout((s) => ({ ...s, open: true, error: '', notice: '' }));
+                    } else if (tier.name === 'BYOK Lifetime') {
+                      setByokCheckout((s) => ({ ...s, open: true, error: '', notice: '' }));
                     } else {
                       window.location.href = downloadHref;
                     }

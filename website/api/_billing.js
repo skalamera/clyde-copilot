@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import crypto from 'crypto';
 
 const PRO_FEATURES = [
   'live_capture',
