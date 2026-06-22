@@ -421,7 +421,8 @@ function saveSettings(newSettings, options = {}) {
         : normalizedLlmProvider === 'openai'
             ? 'gpt-4o'
             : (normalizedLlmProvider === 'local' ? (newSettings?.llmModel || '') : '');
-    const preserveEntitlements = options.preserveEntitlements !== false;
+    const licenseKeyChanged = newSettings?.licenseKey !== store.get('licenseKey');
+    const preserveEntitlements = options.preserveEntitlements !== false && !licenseKeyChanged;
     const currentEntitlements = preserveEntitlements
         ? entitlementsFromSettings(loadSettings())
         : entitlementsFromSettings(newSettings || {});
