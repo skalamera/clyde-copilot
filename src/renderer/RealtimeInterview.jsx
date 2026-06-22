@@ -14,6 +14,7 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
   const [startedAt, setStartedAt] = useState(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryTab, setLibraryTab] = useState('scorecard');
+  const [audioOnly, setAudioOnly] = useState(false);
 
   const serviceRef = useRef(null);
   const scrollRef = useRef(null);
@@ -308,10 +309,48 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
                 </h2>
               <p>{currentOpportunity.role || 'General interview practice'}</p>
             </div>
-            <div className="mock-header-actions">
-            <button type="button" className="ghost" onClick={() => setLibraryOpen(true)}>
-              Saved interviews ({savedInterviews.length})
-            </button>
+            <div className="mock-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div className="mock-mode-toggle" style={{ display: 'flex', gap: '4px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '20px', padding: '4px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <button
+                  type="button"
+                  disabled={isLive}
+                  onClick={() => setAudioOnly(false)}
+                  style={{
+                    background: !audioOnly ? 'linear-gradient(to right, #6366f1, #a855f7)' : 'transparent',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '16px',
+                    padding: '6px 14px',
+                    fontSize: '0.78rem',
+                    fontWeight: '600',
+                    cursor: isLive ? 'not-allowed' : 'pointer',
+                    opacity: isLive && audioOnly ? 0.5 : 1
+                  }}
+                >
+                  🎥 Video
+                </button>
+                <button
+                  type="button"
+                  disabled={isLive}
+                  onClick={() => setAudioOnly(true)}
+                  style={{
+                    background: audioOnly ? 'linear-gradient(to right, #38bdf8, #6366f1)' : 'transparent',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '16px',
+                    padding: '6px 14px',
+                    fontSize: '0.78rem',
+                    fontWeight: '600',
+                    cursor: isLive ? 'not-allowed' : 'pointer',
+                    opacity: isLive && !audioOnly ? 0.5 : 1
+                  }}
+                >
+                  🎙️ Audio Only
+                </button>
+              </div>
+              <button type="button" className="ghost" onClick={() => setLibraryOpen(true)}>
+                Saved interviews ({savedInterviews.length})
+              </button>
             <div className={`mock-status status-${status}`}>
               <span />
               {status}
@@ -320,13 +359,53 @@ export function RealtimeInterview({ api, targetEntity, settings = {} }) {
         </div>
 
         <div className="mock-stage-shell">
-          <div className={`mock-avatar-container status-${status}`}>
+          <div className={`mock-avatar-container status-${status}`} style={{ position: 'relative', overflow: 'hidden' }}>
             <video
               ref={videoRef}
               autoPlay
               playsInline
-              style={{ display: status === 'connected' ? 'block' : 'none' }}
+              style={{ display: (status === 'connected' && !audioOnly) ? 'block' : 'none' }}
             />
+            {audioOnly && status === 'connected' && (
+              <div className="mock-audio-visualizer" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                width: '100%',
+                gap: '24px',
+                background: '#0b0f19',
+                position: 'absolute',
+                top: 0,
+                left: 0
+              }}>
+                <div style={{
+                  width: '100px',
+                  height: '100px',
+                  borderRadius: '50%',
+                  background: 'rgba(56, 189, 248, 0.08)',
+                  border: '2px solid #38bdf8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 0 40px rgba(56, 189, 248, 0.25)',
+                  animation: speaking === 'speaking' ? 'mockPulse 1.5s infinite' : 'none'
+                }}>
+                  <span style={{ fontSize: '2.2rem' }}>🎙️</span>
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: '0.88rem', fontWeight: '500', letterSpacing: '0.5px' }}>
+                  {speaking === 'speaking' ? 'INTERVIEWER IS SPEAKING...' : 'LISTENING TO YOU...'}
+                </div>
+                <style>{`
+                  @keyframes mockPulse {
+                    0% { transform: scale(1); box-shadow: 0 0 40px rgba(56, 189, 248, 0.25); }
+                    50% { transform: scale(1.08); box-shadow: 0 0 60px rgba(56, 189, 248, 0.45); }
+                    100% { transform: scale(1); box-shadow: 0 0 40px rgba(56, 189, 248, 0.25); }
+                  }
+                `}</style>
+              </div>
+            )}
             {status !== 'connected' && (
               <div className="mock-avatar-ready">
                 <span>{status === 'connecting' ? 'Connecting' : 'Ready'}</span>
