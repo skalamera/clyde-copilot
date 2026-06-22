@@ -419,10 +419,7 @@ export async function activatePaidCheckoutSession(sessionId) {
     };
   }
 
-  // Mark as processed in Stripe metadata first to prevent race/double runs
-  await stripe.checkout.sessions.update(cleanSessionId, {
-    metadata: { processed: 'true' }
-  });
+  // We mark the session as processed in Stripe metadata after completing the updates successfully to prevent partial-processing failures on retry.
 
   // Handle one-time purchases (credits or BYOK lifetime)
   if (session.mode === 'payment') {
@@ -463,6 +460,9 @@ export async function activatePaidCheckoutSession(sessionId) {
         credits: newCredits,
         current_period_end: record?.current_period_end || null,
         updated_at: new Date().toISOString()
+      });
+      await stripe.checkout.sessions.update(cleanSessionId, {
+        metadata: { processed: 'true' }
       });
       return {
         success: true,
@@ -516,6 +516,9 @@ export async function activatePaidCheckoutSession(sessionId) {
 
       await sendByokLicenseEmail(email, licenseKey);
 
+      await stripe.checkout.sessions.update(cleanSessionId, {
+        metadata: { processed: 'true' }
+      });
       return {
         success: true,
         type: 'byok_purchase',
@@ -577,6 +580,9 @@ export async function activatePaidCheckoutSession(sessionId) {
     metadata: { userId: user.id, plan: 'clyde_pro_agent' }
   });
 
+  await stripe.checkout.sessions.update(cleanSessionId, {
+    metadata: { processed: 'true' }
+  });
   return {
     email,
     invited,
@@ -591,10 +597,6 @@ export function generateByokLicenseKey(email) {
   const emailEncoded = Buffer.from(normalized).toString('base64url');
 
   let privateKey = process.env.BYOK_PRIVATE_KEY;
-  console.log('DEBUG_KEY: raw key exists =', !!privateKey, 'length =', privateKey?.length);
-  if (privateKey) {
-    console.log('DEBUG_KEY: raw start =', JSON.stringify(privateKey.slice(0, 40)), 'raw end =', JSON.stringify(privateKey.slice(-40)));
-  }
   if (!privateKey) {
     console.warn('[_billing] WARNING: BYOK_PRIVATE_KEY is not set. Using temporary generated fallback key.');
     const { privateKey: tempPriv } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -607,16 +609,6 @@ export function generateByokLicenseKey(email) {
       privateKey = privateKey.slice(1, -1);
     }
     privateKey = privateKey.replace(/\\n/g, '\n').trim();
-    console.log('DEBUG_KEY: normalized start =', JSON.stringify(privateKey.slice(0, 40)), 'normalized end =', JSON.stringify(privateKey.slice(-40)));
-    console.log('CHAR_CODES:', Array.from(privateKey.slice(0, 60)).map(c => c.charCodeAt(0)).join(','));
-    console.log('DEBUG_KEY: SHA-256 =', crypto.createHash('sha256').update(privateKey).digest('hex'));
-    console.log('DEBUG_KEY: NODE =', process.version, 'OPENSSL =', process.versions.openssl);
-    try {
-      crypto.createPrivateKey(privateKey);
-      console.log('DEBUG_KEY: createPrivateKey SUCCESS');
-    } catch (e) {
-      console.log('DEBUG_KEY: createPrivateKey FAIL:', e.message);
-    }
   }
 
   const sign = crypto.createSign('SHA256');
