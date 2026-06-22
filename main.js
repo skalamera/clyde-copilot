@@ -961,16 +961,23 @@ function resizeActiveCaptureWindowToContent(size = {}) {
     const nextHeight = minimized
         ? ACTIVE_CAPTURE_MINIMIZED_SIZE
         : Math.min(height, workArea.height - ACTIVE_CAPTURE_MARGIN);
-    const nextX = minimized
+    let nextX = minimized
         ? workArea.x + ACTIVE_CAPTURE_MINIMIZED_MARGIN
         : restore
             ? workArea.x + Math.round((workArea.width - nextWidth) / 2)
             : currentBounds.x;
-    const nextY = minimized
+    if (!minimized && !restore) {
+        // Guarantee that the expanded window does not spill off-screen on the right or left
+        nextX = Math.max(workArea.x, Math.min(nextX, workArea.x + workArea.width - nextWidth));
+    }
+    let nextY = minimized
         ? workArea.y + workArea.height - nextHeight - ACTIVE_CAPTURE_MINIMIZED_MARGIN
         : restore
             ? workArea.y + ACTIVE_CAPTURE_MARGIN
             : currentBounds.y;
+    if (!minimized && !restore) {
+        nextY = Math.max(workArea.y, Math.min(nextY, workArea.y + workArea.height - nextHeight));
+    }
 
     activeCaptureMinimized = minimized ? true : false;
     if (typeof mainWindow.setMinimumSize === 'function') {

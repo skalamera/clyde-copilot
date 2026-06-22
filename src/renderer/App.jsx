@@ -12053,7 +12053,7 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate,
         } else {
           update('llmModel', '');
         }
-      }}><option value="">Select provider</option><option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option><option value="local">Local LM Studio (Offline)</option><option value="gemini">Google Gemini (Custom Key)</option><option value="openai">OpenAI ChatGPT (Custom Key)</option></select></label>
+      }}><option value="">Select provider</option>{draft.subscriptionPlan !== 'clyde_byok_lifetime' && <option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option>}<option value="local">Local LM Studio (Offline)</option><option value="gemini">Google Gemini (Custom Key)</option><option value="openai">OpenAI ChatGPT (Custom Key)</option></select></label>
       {draft.llmProvider === 'local' ? <label className="wide-field">Local LLM URL<input value={draft.localLlmUrl || ''} onChange={(event) => update('localLlmUrl', event.target.value)} placeholder="http://localhost:1234/v1/chat/completions" /></label> : null}
       {draft.llmProvider === 'local' ? <label className="wide-field">Model name<input value={draft.llmModel || ''} onChange={(event) => update('llmModel', event.target.value)} placeholder="Name of the model loaded in LM Studio" /></label> : null}
       {draft.llmProvider === 'openai' ? <label className="wide-field">OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
@@ -12069,7 +12069,7 @@ function ProviderStep({ audioDevices, draft, update, onRefreshAudio, onValidate,
           return;
         }
         update('transcriptionProvider', val);
-      }}><option value="">Select provider</option><option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option><option value="local">Local Whisper (Offline)</option><option value="openai">OpenAI Whisper (Custom Key)</option></select></label>
+      }}><option value="">Select provider</option>{draft.subscriptionPlan !== 'clyde_byok_lifetime' && <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>}<option value="local">Local Whisper (Offline)</option><option value="openai">OpenAI Whisper (Custom Key)</option></select></label>
       {draft.transcriptionProvider === 'local' ? <label>Local transcription URL<input value={draft.localTranscriptionUrl || ''} onChange={(event) => update('localTranscriptionUrl', event.target.value)} placeholder="http://localhost:8000/v1/audio/transcriptions" /></label> : null}
       {draft.transcriptionProvider === 'openai' ? <label>OpenAI API key<input type="password" value={draft.openAiApiKey || ''} onChange={(event) => update('openAiApiKey', event.target.value)} /></label> : null}
       <label>Audio engine<select value={draft.audioEngine || 'rust'} onChange={(event) => update('audioEngine', event.target.value)}><option value="rust">Rust native audio</option><option value="legacy">Legacy recorder</option></select></label>
@@ -12374,7 +12374,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
         preserveStatusOnSettingsUpdateRef.current = true;
         onSettingsUpdated?.(nextSettings);
       }
-      const tier = entitlements?.tier === 'pro' || entitlements?.userTier === 'pro' ? 'Clyde Pro Agent' : 'Clyde Assistant';
+      const tier = entitlements?.plan === 'clyde_byok_lifetime' ? 'Clyde BYOK Lifetime' : (entitlements?.tier === 'pro' || entitlements?.userTier === 'pro' ? 'Clyde Pro Agent' : 'Clyde Assistant');
       const status = entitlements?.status || (tier === 'Clyde Pro Agent' ? 'active' : 'free');
       setSaveStatus(`Subscription refreshed: ${tier} (${status}).`);
     } catch (error) {
@@ -12813,7 +12813,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </div>
               <div>
                 <span>Tier</span>
-                <strong>{settings.userTier === 'pro' ? 'Clyde Pro Agent' : 'Clyde Assistant'}</strong>
+                <strong>{settings.subscriptionPlan === 'clyde_byok_lifetime' ? 'Clyde BYOK Lifetime' : (settings.userTier === 'pro' ? 'Clyde Pro Agent' : 'Clyde Assistant')}</strong>
               </div>
               <div>
                 <span>Status</span>
@@ -13267,7 +13267,9 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               }
             }}>
               <option value="">Select an LLM provider</option>
-              <option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option>
+              {draft.subscriptionPlan !== 'clyde_byok_lifetime' && (
+                <option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option>
+              )}
               <option value="local">Local LM Studio (Offline)</option>
               <option value="gemini">Google Gemini (Custom Key)</option>
               <option value="openai">OpenAI ChatGPT (Custom Key)</option>
@@ -13432,7 +13434,9 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               update('transcriptionProvider', val);
             }}>
               <option value="">Select a transcription provider</option>
-              <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
+              {draft.subscriptionPlan !== 'clyde_byok_lifetime' && (
+                <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
+              )}
               <option value="local">Local Whisper (Offline)</option>
               <option value="openai">OpenAI Whisper (Custom Key)</option>
               <option value="openai-realtime-whisper">OpenAI Realtime Whisper (Custom Key)</option>
