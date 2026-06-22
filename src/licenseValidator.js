@@ -3,13 +3,13 @@ const crypto = require('crypto');
 // Hardcoded public key for verifying license signatures
 // In production, rotate this and keep the corresponding private key secure in your Vercel backend/Stripe webhooks environment.
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyzSKVVjHXx6tlAIa5pbB
-i/UxZgM7kiecMD0Njxq+wkkGCbKd3tqPHfHCNZKbiWlviQz7AtYVBRcHufGQkaqC
-vMsnT24pXeDv4p64j83o3uz9bVEcp6jMIlzg5XNaQyO3o25WjnkGBQWXwL2EdrEO
-PCi5p2m9qjFzniVAUqvrNZfv+GhCYuCscOG6eLDzkCm1Wm7zjDPfBaTDfcVAwsQD
-+016OOW9sxwIgQ8svxXH4vd/CjgC+EsbDyQXTinQXUWduZSxMAbPZEjEMNATDUAj
-ZWV6c01XZl90sBmLfMrImuqcntQVHk21L0gTFDsxbcyCH2lPBu5dWhk44VNU5JFQ
-3QIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA25D1KTtgHaLzFYL1ZH21
+O8ExAMh1dn0oySS26Fs8SnHAutTKfoSjNGScHj7chdKwBgxREJ0J9K+cR9Ihibir
+Ltieh2cRaDVuBCeOIOnBmiIR6A6AdpsrBRBJ9nRECD28ttx8egQcCmSFHlzHuath
+TQ30b/4vzUS9IS6qhW7P6KtOdfFvpRvbAx0RxkoK1vK0Fho1cmY8wMEPMCkcNtPB
+3DTn0HQHaVyKYI9Azg005uIabHNlhHDP8bVmP8JU4KnztTiVV+O576SjcC5CJPCp
+VVQiO002UeqTLI7zBHQOJEuRjqUKIkt83Cai8zw/tYSutF/btjtiPjDJL9C8qkTw
+OwIDAQAB
 -----END PUBLIC KEY-----`;
 
 /**
