@@ -421,8 +421,10 @@ function saveSettings(newSettings, options = {}) {
         : normalizedLlmProvider === 'openai'
             ? 'gpt-4o'
             : (normalizedLlmProvider === 'local' ? (newSettings?.llmModel || '') : '');
+    const { validateLicenseKey } = require('./src/licenseValidator');
     const licenseKeyChanged = newSettings?.licenseKey !== store.get('licenseKey');
-    const preserveEntitlements = options.preserveEntitlements !== false && !licenseKeyChanged;
+    const hasValidKeyInSettings = newSettings?.licenseKey && validateLicenseKey(newSettings.licenseKey);
+    const preserveEntitlements = options.preserveEntitlements !== false && !licenseKeyChanged && !hasValidKeyInSettings;
     const currentEntitlements = preserveEntitlements
         ? entitlementsFromSettings(loadSettings())
         : entitlementsFromSettings(newSettings || {});
