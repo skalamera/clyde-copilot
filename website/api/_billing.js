@@ -591,6 +591,10 @@ export function generateByokLicenseKey(email) {
   const emailEncoded = Buffer.from(normalized).toString('base64url');
 
   let privateKey = process.env.BYOK_PRIVATE_KEY;
+  console.log('DEBUG_KEY: raw key exists =', !!privateKey, 'length =', privateKey?.length);
+  if (privateKey) {
+    console.log('DEBUG_KEY: raw start =', JSON.stringify(privateKey.slice(0, 40)), 'raw end =', JSON.stringify(privateKey.slice(-40)));
+  }
   if (!privateKey) {
     console.warn('[_billing] WARNING: BYOK_PRIVATE_KEY is not set. Using temporary generated fallback key.');
     const { privateKey: tempPriv } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -603,6 +607,7 @@ export function generateByokLicenseKey(email) {
       privateKey = privateKey.slice(1, -1);
     }
     privateKey = privateKey.replace(/\\n/g, '\n').trim();
+    console.log('DEBUG_KEY: normalized start =', JSON.stringify(privateKey.slice(0, 40)), 'normalized end =', JSON.stringify(privateKey.slice(-40)));
   }
 
   const sign = crypto.createSign('SHA256');
