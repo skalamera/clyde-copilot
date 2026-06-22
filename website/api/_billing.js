@@ -595,6 +595,8 @@ export function generateByokLicenseKey(email) {
     console.warn('[_billing] WARNING: BYOK_PRIVATE_KEY is not set. Using temporary generated fallback key.');
     const { privateKey: tempPriv } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
     privateKey = tempPriv.export({ type: 'pkcs8', format: 'pem' });
+  } else {
+    privateKey = privateKey.replace(/\\n/g, '\n');
   }
 
   const sign = crypto.createSign('SHA256');
