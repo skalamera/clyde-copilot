@@ -596,7 +596,13 @@ export function generateByokLicenseKey(email) {
     const { privateKey: tempPriv } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
     privateKey = tempPriv.export({ type: 'pkcs8', format: 'pem' });
   } else {
-    privateKey = privateKey.replace(/\\n/g, '\n');
+    privateKey = privateKey.trim();
+    if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+      privateKey = privateKey.slice(1, -1);
+    } else if (privateKey.startsWith("'") && privateKey.endsWith("'")) {
+      privateKey = privateKey.slice(1, -1);
+    }
+    privateKey = privateKey.replace(/\\n/g, '\n').trim();
   }
 
   const sign = crypto.createSign('SHA256');
