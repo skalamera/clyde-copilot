@@ -609,6 +609,14 @@ export function generateByokLicenseKey(email) {
     privateKey = privateKey.replace(/\\n/g, '\n').trim();
     console.log('DEBUG_KEY: normalized start =', JSON.stringify(privateKey.slice(0, 40)), 'normalized end =', JSON.stringify(privateKey.slice(-40)));
     console.log('CHAR_CODES:', Array.from(privateKey.slice(0, 60)).map(c => c.charCodeAt(0)).join(','));
+    console.log('DEBUG_KEY: SHA-256 =', crypto.createHash('sha256').update(privateKey).digest('hex'));
+    console.log('DEBUG_KEY: NODE =', process.version, 'OPENSSL =', process.versions.openssl);
+    try {
+      crypto.createPrivateKey(privateKey);
+      console.log('DEBUG_KEY: createPrivateKey SUCCESS');
+    } catch (e) {
+      console.log('DEBUG_KEY: createPrivateKey FAIL:', e.message);
+    }
   }
 
   const sign = crypto.createSign('SHA256');
