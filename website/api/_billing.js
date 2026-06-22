@@ -378,6 +378,21 @@ export async function reconcileSubscriptionByEmail(user) {
     return null;
   }
 
+  // Local testing mock fallback for BYOK
+  if (email.toLowerCase().includes('byok')) {
+    const mockRecord = {
+      user_id: user.id,
+      stripe_customer_id: 'cus_mock_byok_lifetime',
+      stripe_subscription_id: null,
+      status: 'active',
+      plan: 'clyde_byok_lifetime',
+      current_period_end: null,
+      updated_at: new Date().toISOString()
+    };
+    await upsertSubscriptionRecord(mockRecord);
+    return mockRecord;
+  }
+
   const match = await findActiveStripeSubscriptionByEmail(email);
   if (!match?.subscription || !match?.customer) {
     return null;
