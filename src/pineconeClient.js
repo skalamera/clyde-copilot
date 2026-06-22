@@ -92,7 +92,7 @@ async function getEmbedding(text, options = {}) {
       if (fallbackEmbedding) {
         return fallbackEmbedding;
       }
-      throw err;
+      return [];
     }
   }
 
@@ -111,8 +111,8 @@ async function getEmbedding(text, options = {}) {
     if (fallbackEmbedding) {
       return fallbackEmbedding;
     }
-    throw err;
-  }
+    return [];
+    }
 }
 
 function resolveEmbeddingConfig(settings = {}) {
@@ -153,6 +153,10 @@ async function searchResumeVectors(queryText, topK = 3) {
   // We'll use the native fetch directly against the host to ensure it hits your specific cluster.
 
   const vector = await getEmbedding(queryText);
+  if (!vector || vector.length === 0) {
+    console.warn("[RAG] Empty embedding vector returned (possibly offline). Skipping Pinecone query.");
+    return [];
+  }
 
   const response = await axios.post(`${pineconeHost}/query`, {
     vector,
