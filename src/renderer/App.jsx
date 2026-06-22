@@ -4676,23 +4676,7 @@ function App() {
   }
 
   // Moved early returns to the bottom of the body (after all hooks/functions are initialized) to prevent block hoisting errors during render swap
-  if (!signedIn) {
-    if (onboardingOpen) {
-      // If we are opening signup onboarding, bypass sign-in view and let them go straight through OnboardingWizard
-      return (
-        <OnboardingWizard
-          api={api}
-          mode={mode}
-          settings={settings}
-          onClose={() => setOnboardingOpen(false)}
-          onModeChange={chooseMode}
-          onReload={reloadSessions}
-          onCalendarChanged={loadCalendarEvents}
-          onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
-          onValidate={validateServices}
-        />
-      );
-    }
+  if (!signedIn && !onboardingOpen) {
     return (
       <AuthOverlay
         api={api}
@@ -4704,7 +4688,7 @@ function App() {
 
   return (
     <div className={`app-shell ${activeCapture ? 'app-shell-active' : ''}`}>
-      {activeCapture ? null : (
+      {activeCapture || !signedIn ? null : (
       <TitleBar
         isStreaming={isStreaming}
         onStartCapture={() => requestStartCapture()}
