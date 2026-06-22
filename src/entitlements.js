@@ -1,3 +1,5 @@
+const { validateLicenseKey } = require('./licenseValidator');
+
 const FREE_FEATURES = [
   'live_capture',
   'local_transcription',
@@ -45,6 +47,9 @@ const EXPIRY_GRACE_MS = 3 * 24 * 60 * 60 * 1000; // 3 days past period end
 
 function isEntitlementStale(input = {}, now = Date.now()) {
   if (normalizeTier(input.tier || input.userTier) !== 'pro') {
+    return false;
+  }
+  if (input.plan === 'clyde_byok_lifetime') {
     return false;
   }
 
@@ -130,15 +135,17 @@ function requireFeature(entitlements, feature) {
 }
 
 function entitlementsFromSettings(settings = {}, now = Date.now()) {
+  const hasLocalLicense = settings.licenseKey && validateLicenseKey(settings.licenseKey);
+
   const input = {
     userId: settings.userId || '',
-    tier: settings.userTier || settings.tier || 'free',
-    status: settings.subscriptionStatus || (settings.userTier === 'pro' ? 'active' : 'free'),
-    plan: settings.subscriptionPlan || '',
+    tier: hasLocalLicense ? 'pro' : (settings.userTier || settings.tier || 'free'),
+    status: hasLocalLicense ? 'active' : (settings.subscriptionStatus || (settings.userTier === 'pro' ? 'active' : 'free')),
+    plan: hasLocalLicense ? 'clyde_byok_lifetime' : (settings.subscriptionPlan || ''),
     credits: typeof settings.subscriptionCredits === 'number' ? settings.subscriptionCredits : 0,
     features: settings.entitlementFeatures || [],
-    expiresAt: settings.entitlementsExpiresAt || null,
-    checkedAt: settings.entitlementsCheckedAt || null
+    expiresAt: hasLocalLicense ? null : (settings.entitlementsExpiresAt || null),
+    checkedAt: hasLocalLicense ? new Date().toISOString() : (settings.entitlementsCheckedAt || null)
   };
 
   if (isEntitlementStale(input, now)) {
@@ -158,6 +165,8 @@ function entitlementsFromSettings(settings = {}, now = Date.now()) {
 
 function applyEntitlementsToSettings(settings = {}, entitlements = entitlementsFromSettings(settings)) {
   const normalized = buildEntitlements(entitlements);
+  const isByokAndCloudLlm = normalized.plan === 'clyde_byok_lifetime' && settings.llmProvider === 'clyde-cloud';
+
   return {
     ...settings,
     userTier: normalized.tier,
@@ -167,8 +176,8 @@ function applyEntitlementsToSettings(settings = {}, entitlements = entitlementsF
     entitlementFeatures: normalized.features,
     entitlementsExpiresAt: normalized.expiresAt,
     entitlementsCheckedAt: normalized.checkedAt,
-    proAgentEnabled: normalized.pro ? Boolean(settings.proAgentEnabled) : false,
-    ragEnabled: normalized.pro ? Boolean(settings.ragEnabled) : false,
+    proAgentEnabled: normalized.pro && !isByokAndCloudLlm ? Boolean(settings.proAgentEnabled) : false,
+    ragEnabled: normalized.pro && !isByokAndCloudLlm ? Boolean(settings.ragEnabled) : false,
     googleSyncEnabled: normalized.pro ? Boolean(settings.googleSyncEnabled) : false,
     googleSyncAutoApprove: normalized.pro ? Boolean(settings.googleSyncAutoApprove) : false
   };

@@ -151,3 +151,47 @@ test('buildEntitlements includes mock interviews for free tier with credits', ()
   assert.equal(canUseFeature(entitlements, 'mock_interviews'), true);
   assert.equal(canUseFeature(entitlements, 'liveavatar_mock_interviews'), true);
 });
+
+test('applyEntitlementsToSettings gates cloud-managed LLMs for clyde_byok_lifetime plan', () => {
+  const byokEntitlements = buildEntitlements({
+    tier: 'pro',
+    status: 'active',
+    plan: 'clyde_byok_lifetime'
+  });
+
+  // Under BYOK, RAG and Pro Agent should be allowed for local LLM provider
+  const localSettings = applyEntitlementsToSettings({
+    llmProvider: 'local',
+    proAgentEnabled: true,
+    ragEnabled: true
+  }, byokEntitlements);
+
+  assert.equal(localSettings.proAgentEnabled, true);
+  assert.equal(localSettings.ragEnabled, true);
+
+  // Under BYOK, RAG and Pro Agent should be disabled if using cloud-managed clyde-cloud provider
+  const cloudSettings = applyEntitlementsToSettings({
+    llmProvider: 'clyde-cloud',
+    proAgentEnabled: true,
+    ragEnabled: true
+  }, byokEntitlements);
+
+  assert.equal(cloudSettings.proAgentEnabled, false);
+  assert.equal(cloudSettings.ragEnabled, false);
+
+  // Standard non-BYOK Pro subscription should allow both
+  const subEntitlements = buildEntitlements({
+    tier: 'pro',
+    status: 'active',
+    plan: 'clyde_pro_agent'
+  });
+  
+  const subSettings = applyEntitlementsToSettings({
+    llmProvider: 'clyde-cloud',
+    proAgentEnabled: true,
+    ragEnabled: true
+  }, subEntitlements);
+
+  assert.equal(subSettings.proAgentEnabled, true);
+  assert.equal(subSettings.ragEnabled, true);
+});

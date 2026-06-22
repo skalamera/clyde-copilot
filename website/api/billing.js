@@ -13,7 +13,8 @@ import {
   listSupabaseUsersByEmail,
   reconcileSubscriptionByEmail,
   activatePaidCheckoutSession,
-  upsertSubscriptionRecord
+  upsertSubscriptionRecord,
+  inviteSupabaseUserByEmail
 } from './_billing.js';
 
 export default async function handler(req, res) {
@@ -41,6 +42,8 @@ export default async function handler(req, res) {
         return await handleActivateProCheckout(req, res);
       case 'consume-credit':
         return await handleConsumeCredit(req, res);
+      case 'create-byok-checkout':
+        return await handleCreateByokCheckout(req, res);
       case 'create-credits-checkout':
         return await handleCreateCreditsCheckout(req, res);
       case 'delete-account':
@@ -409,4 +412,88 @@ async function handleDeleteAccount(req, res) {
   }
 
   sendJson(res, 200, { ok: true, message: 'Account deletion request processed successfully.' });
+}
+
+async function handleCreateByokCheckout(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
+
+  const body = await readJson(req);
+  let userId = '';
+  let email = '';
+  let customerId = '';
+
+  // Try to authenticate user if auth header is present
+  const authHeader = String(req.headers.authorization || '');
+  const hasAuth = authHeader.toLowerCase().startsWith('bearer ');
+
+  if (hasAuth) {
+    try {
+      const user = await requireSupabaseUser(req);
+      userId = user.id;
+      const record = await findSubscriptionByUserId(userId);
+      customerId = record?.stripe_customer_id || '';
+      email = user.email || '';
+    } catch (authError) {
+      sendJson(res, 401, { error: 'Invalid authentication token.' });
+      return;
+    }
+  } else {
+    // Guest flow
+    email = normalizeEmail(body.email);
+    if (!email) {
+      sendJson(res, 400, { error: 'Email is required for BYOK guest checkout.' });
+      return;
+    }
+    
+    // Check if user already exists
+    if (!body.forceCheckout) {
+      const existing = await listSupabaseUsersByEmail(email);
+      if (existing.length > 0) {
+        sendJson(res, 400, { error: 'This email is already registered. Please sign in to upgrade.' });
+        return;
+      }
+    }
+  }
+
+  const stripe = getStripe();
+  if (!customerId && email) {
+    try {
+      const customers = await stripe.customers.list({ email, limit: 1 });
+      customerId = customers.data?.[0]?.id || '';
+    } catch (_) {}
+  }
+
+  const price = process.env.STRIPE_CLYDE_BYOK_LIFETIME_PRICE_ID || 'price_clyde_byok_lifetime_mock';
+  const appUrl = getAppUrl(req);
+
+  const sessionPayload = {
+    mode: 'payment',
+    line_items: [{ price, quantity: 1 }],
+    success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: hasAuth ? `${appUrl}/account` : `${appUrl}/pricing`,
+    customer: customerId || undefined,
+    customer_email: customerId ? undefined : email || undefined,
+    client_reference_id: userId || email,
+    metadata: {
+      type: 'byok_purchase'
+    }
+  };
+
+  if (userId) {
+    sessionPayload.metadata.userId = userId;
+  } else {
+    sessionPayload.metadata.pendingEmail = email;
+  }
+
+  const session = await stripe.checkout.sessions.create(sessionPayload);
+
+  sendJson(res, 200, {
+    url: session.url,
+    id: session.id,
+    email,
+    message: userId ? undefined : 'Checkout opened. After payment, Clyde will generate and email your unique Local BYOK License Key.'
+  });
 }

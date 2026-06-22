@@ -423,7 +423,7 @@ export async function activatePaidCheckoutSession(sessionId) {
     metadata: { processed: 'true' }
   });
 
-  // Handle one-time credits purchase
+  // Handle one-time purchases (credits or BYOK lifetime)
   if (session.mode === 'payment') {
     const type = session.metadata?.type || '';
     if (type === 'credits_purchase') {
@@ -471,6 +471,57 @@ export async function activatePaidCheckoutSession(sessionId) {
         credits: newCredits,
         invited,
         email
+      };
+    }
+
+    if (type === 'byok_purchase') {
+      const userId = session.metadata?.userId || '';
+      const pendingEmail = session.metadata?.pendingEmail || '';
+      
+      let resolvedUserId = userId;
+      let invited = false;
+      let email = '';
+
+      if (!resolvedUserId && pendingEmail) {
+        email = normalizeEmail(pendingEmail);
+        const existingUsers = await listSupabaseUsersByEmail(email);
+        let user = existingUsers[0] || null;
+        if (!user) {
+          user = await inviteSupabaseUserByEmail(email);
+          invited = true;
+        }
+        resolvedUserId = user.id;
+      } else if (resolvedUserId) {
+        email = normalizeEmail(session.customer_details?.email || session.customer_email || '');
+      }
+
+      if (!email) {
+        throw new Error('BYOK purchase session is missing email context.');
+      }
+
+      const licenseKey = generateByokLicenseKey(email);
+      const record = await findSubscriptionByUserId(resolvedUserId);
+      
+      await upsertSubscriptionRecord({
+        user_id: resolvedUserId,
+        stripe_customer_id: (typeof session.customer === 'object' ? session.customer?.id : session.customer) || record?.stripe_customer_id || '',
+        stripe_subscription_id: null,
+        status: 'active',
+        plan: 'clyde_byok_lifetime',
+        credits: record && typeof record.credits === 'number' ? record.credits : 0,
+        current_period_end: null,
+        updated_at: new Date().toISOString()
+      });
+
+      await sendByokLicenseEmail(email, licenseKey);
+
+      return {
+        success: true,
+        type: 'byok_purchase',
+        userId: resolvedUserId,
+        email,
+        invited,
+        licenseKey
       };
     }
   }
@@ -532,4 +583,72 @@ export async function activatePaidCheckoutSession(sessionId) {
     subscriptionId: subscription.id,
     status: subscription.status
   };
+}
+
+export function generateByokLicenseKey(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  const emailEncoded = Buffer.from(normalized).toString('base64url');
+
+  let privateKey = process.env.BYOK_PRIVATE_KEY;
+  if (!privateKey) {
+    console.warn('[_billing] WARNING: BYOK_PRIVATE_KEY is not set. Using temporary generated fallback key.');
+    const { privateKey: tempPriv } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    privateKey = tempPriv.export({ type: 'pkcs8', format: 'pem' });
+  }
+
+  const sign = crypto.createSign('SHA256');
+  sign.update(normalized);
+  sign.end();
+
+  const signatureBase64 = sign.sign(privateKey).toString('base64url');
+  return `clyde_lic_byok_${emailEncoded}.${signatureBase64}`;
+}
+
+export async function sendByokLicenseEmail(email, licenseKey) {
+  const resendKey = process.env.RESEND_API_KEY || 're_SyCNFkdE_J3JwCGiw7pSkQ4PHjqiRLH9T';
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${resendKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: 'Clyde Team <welcome@clydeai.live>',
+      to: [email],
+      subject: 'Your Clyde Local BYOK License Key 🔑',
+      html: `
+        <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; background-color: #0b0f19; color: #f8fafc; box-shadow: 0 10px 30px rgba(0,0,0,0.5); box-sizing: border-box;">
+          <div style="text-align: center; margin-bottom: 28px;">
+            <span style="font-size: 2.2rem; font-weight: 800; color: #38bdf8; letter-spacing: 2px;">CLYDE BYOK</span>
+          </div>
+          <h1 style="color: #ffffff; margin-bottom: 16px; font-size: 1.5rem; font-weight: 800; text-align: center;">Thank You for Your Lifetime BYOK Purchase!</h1>
+          <p style="font-size: 0.95rem; line-height: 1.6; color: #94a3b8; text-align: center; margin-bottom: 28px;">
+            Your Local BYOK License Key has been generated successfully. Enter this key in the desktop app's <strong>Settings > Account</strong> tab to unlock offline Pro features permanently.
+          </p>
+          <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 28px; box-sizing: border-box;">
+            <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.05em; display: block; margin-bottom: 8px;">Your Unique License Key</span>
+            <div style="font-family: monospace; font-size: 0.88rem; color: #38bdf8; word-break: break-all; background: #000; padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); user-select: all;">
+              ${licenseKey}
+            </div>
+          </div>
+          <h3 style="color: #ffffff; font-size: 1.05rem; font-weight: 700; margin-bottom: 12px;">💡 How to activate:</h3>
+          <ol style="padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6; margin-bottom: 24px;">
+            <li style="margin-bottom: 8px;">Open Clyde Desktop App</li>
+            <li style="margin-bottom: 8px;">Navigate to <strong>Settings (Gear icon) > Account</strong></li>
+            <li style="margin-bottom: 8px;">Paste the license key in the <strong>Local BYOK License Key</strong> field</li>
+            <li style="margin-bottom: 8px;">Clyde will validate the signature offline and grant lifetime local-pro status immediately!</li>
+          </ol>
+          <hr style="border: none; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 24px 0;" />
+          <p style="font-size: 0.75rem; color: #475569; text-align: center; margin: 0;">
+            Clyde — The Undetectable Agentic Partner.
+          </p>
+        </div>
+      `
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || 'Failed to send license email via Resend.');
+  }
 }

@@ -12851,6 +12851,22 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
               </div>
             </div>
           )}
+
+          <div style={{ marginTop: '24px', borderTop: '1px solid var(--line)', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', display: 'block' }}>Local BYOK License Key</span>
+              <input
+                type="password"
+                value={draft.licenseKey || ''}
+                onChange={(e) => update('licenseKey', e.target.value)}
+                placeholder="clyde_lic_byok_..."
+                style={{ fontFamily: 'monospace', padding: '8px', background: '#0a1016', color: '#fff', border: '1px solid var(--line)', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }}
+              />
+              <small style={{ color: 'var(--muted)', fontSize: '0.75rem', marginTop: '2px', display: 'block' }}>
+                Enter your lifetime BYOK license key to unlock all local Pro features offline.
+              </small>
+            </label>
+          </div>
         </div>
       )}
 

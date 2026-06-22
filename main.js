@@ -787,7 +787,24 @@ function enterActiveCaptureWindow() {
 
     const display = screen.getDisplayMatching(currentBounds);
     const savedBounds = getSavedActiveCaptureBounds();
-    const nextBounds = clampBoundsToDisplay(savedBounds || defaultActiveCaptureBounds(currentBounds), display);
+    
+    let boundsOnDisplay = null;
+    if (savedBounds) {
+        const displays = screen.getAllDisplays();
+        const hasOverlap = displays.some(d => {
+            const wa = d.workArea;
+            const xOverlap = Math.max(0, Math.min(savedBounds.x + savedBounds.width, wa.x + wa.width) - Math.max(savedBounds.x, wa.x));
+            const yOverlap = Math.max(0, Math.min(savedBounds.y + savedBounds.height, wa.y + wa.height) - Math.max(savedBounds.y, wa.y));
+            return (xOverlap * yOverlap) > 10000; // at least 10,000 pixels of overlap
+        });
+        if (hasOverlap) {
+            boundsOnDisplay = savedBounds;
+        } else {
+            log.info('[window] Saved activeCaptureBounds are off-screen or disconnected. Resetting to default display bounds.');
+        }
+    }
+
+    const nextBounds = clampBoundsToDisplay(boundsOnDisplay || defaultActiveCaptureBounds(currentBounds), display);
 
     activeCaptureWindow = true;
     activeCaptureMinimized = false;

@@ -1,6 +1,6 @@
 {
   "name": "clyde",
-  "version": "1.0.0-beta.15",
+  "version": "1.0.0-beta.16",
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
@@ -84,7 +84,10 @@
       "!output.html"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        "nsis",
+        "appx"
+      ],
       "icon": "build/icon.ico",
       "azureSignOptions": {
         "publisherName": "Stephen Skalamera",
@@ -97,6 +100,17 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
+    },
+    "appx": {
+      "publisher": "CN=Stephen Skalamera",
+      "publisherDisplayName": "Stephen Skalamera",
+      "identityName": "Clyde",
+      "applicationId": "Clyde",
+      "displayName": "Clyde",
+      "languages": [
+        "en-US"
+      ],
+      "showNameOnTiles": true
     },
     "extraResources": [
       {
