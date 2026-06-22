@@ -632,7 +632,7 @@ function clearAuthSession() {
     const Store = require('electron-store').default || require('electron-store');
     const store = new Store();
     const currentSettings = loadSettings();
-    for (const key of ['userId', 'authEmail', 'authAccessToken', 'authRefreshToken', 'authExpiresAt']) {
+    for (const key of ['userId', 'authEmail', 'authAccessToken', 'authRefreshToken', 'authExpiresAt', 'licenseKey']) {
         store.delete(key);
     }
     // Signing out should clear the authenticated entitlement state, not destroy
