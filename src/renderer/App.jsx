@@ -4680,6 +4680,7 @@ function App() {
     return (
       <AuthOverlay
         api={api}
+        settings={settings}
         onSettingsUpdated={(nextSettings) => setSettings(normalizeEntitledSettings(nextSettings || EMPTY_SETTINGS))}
         onOpenSignUpWizard={() => setOnboardingOpen(true)}
       />
@@ -13883,10 +13884,12 @@ function parseAttendees(value) {
     .filter((attendee) => attendee.name);
 }
 
-function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard }) {
+function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard, settings }) {
   const [form, setForm] = useState({ email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [licenseInput, setLicenseInput] = useState('');
 
   async function handleAuth() {
     setBusy(true);
@@ -13905,6 +13908,39 @@ function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard }) {
       setMessage('Signed in successfully.');
     } catch (error) {
       setMessage(`Error: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOfflineActivation(e) {
+    e.preventDefault();
+    const cleanKey = licenseInput.trim();
+    if (!cleanKey) {
+      setMessage('Error: Please enter a license key.');
+      return;
+    }
+    setBusy(true);
+    setMessage('');
+    try {
+      const testSettings = {
+        ...settings,
+        licenseKey: cleanKey
+      };
+      
+      await api?.saveSettings?.(testSettings);
+      const freshSettings = await api?.loadSettings?.();
+      
+      if (freshSettings && (freshSettings.userTier === 'pro' || freshSettings.subscriptionPlan === 'clyde_byok_lifetime')) {
+        setMessage('Offline license verified! Welcoming you to Clyde...');
+        setTimeout(() => {
+          onSettingsUpdated?.(freshSettings);
+        }, 1200);
+      } else {
+        setMessage('Error: Invalid license key signature or expired key.');
+      }
+    } catch (err) {
+      setMessage(`Error: ${err.message || 'Verification failed.'}`);
     } finally {
       setBusy(false);
     }
@@ -13959,122 +13995,230 @@ function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard }) {
         <h2 style={{ fontSize: '1.75rem', fontWeight: 'bold', marginBottom: '8px', color: '#f8fafc' }}>
           Welcome to <span style={{ background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Clyde</span>
         </h2>
-        <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '24px' }}>
-          Sign in or create an account to unlock your career cockpit.
-        </p>
+        
+        {!offlineMode ? (
+          <>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '24px' }}>
+              Sign in or create an account to unlock your career cockpit.
+            </p>
 
-        <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
-            Email Address
-            <input
-              type="email"
-              required
-              disabled={busy}
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              style={{
-                background: '#0f172a',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '8px',
-                padding: '10px 12px',
-                color: '#f8fafc',
-                fontSize: '0.9rem',
-                outline: 'none'
-              }}
-            />
-          </label>
+            <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                Email Address
+                <input
+                  type="email"
+                  required
+                  disabled={busy}
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  style={{
+                    background: '#0f172a',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#f8fafc',
+                    fontSize: '0.9rem',
+                    outline: 'none'
+                  }}
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                Password
+                <input
+                  type="password"
+                  required
+                  disabled={busy}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  style={{
+                    background: '#0f172a',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#f8fafc',
+                    fontSize: '0.9rem',
+                    outline: 'none'
+                  }}
+                />
+              </label>
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
-            Password
-            <input
-              type="password"
-              required
-              disabled={busy}
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              style={{
-                background: '#0f172a',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '8px',
-                padding: '10px 12px',
-                color: '#f8fafc',
-                fontSize: '0.9rem',
-                outline: 'none'
-              }}
-            />
-          </label>
+              {message ? (
+                <p style={{
+                  fontSize: '0.8rem',
+                  color: message.startsWith('Error') ? '#ef4444' : '#6366f1',
+                  margin: '4px 0',
+                  textAlign: 'center',
+                  lineHeight: '1.4'
+                }}>{message}</p>
+              ) : null}
 
-          {message ? (
-            <p style={{
-              fontSize: '0.8rem',
-              color: message.startsWith('Error') ? '#ef4444' : '#6366f1',
-              margin: '4px 0',
-              textAlign: 'center',
-              lineHeight: '1.4'
-            }}>{message}</p>
-          ) : null}
+              <button
+                type="submit"
+                disabled={busy}
+                style={{
+                  background: 'linear-gradient(to right, #6366f1, #a855f7)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#ffffff',
+                  fontSize: '0.95rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  marginTop: '8px',
+                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
+                  transition: 'opacity 0.2s'
+                }}
+              >
+                {busy ? 'Signing in...' : 'Sign In'}
+              </button>
+            </form>
 
-          <button
-            type="submit"
-            disabled={busy}
-            style={{
-              background: 'linear-gradient(to right, #6366f1, #a855f7)',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '12px',
-              color: '#ffffff',
-              fontSize: '0.95rem',
-              fontWeight: '600',
-              cursor: 'pointer',
-              marginTop: '8px',
-              boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
-              transition: 'opacity 0.2s'
-            }}
-          >
-            {busy ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
+            <div style={{ textAlign: 'center', marginTop: '12px' }}>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => api?.openExternalUrl?.('https://clydeai.live/forgot-password')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#6366f1',
+                  fontSize: '0.8rem',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontFamily: 'inherit'
+                }}
+              >
+                Forgot Password?
+              </button>
+            </div>
 
-        <div style={{ textAlign: 'center', marginTop: '12px' }}>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => api?.openExternalUrl?.('https://clydeai.live/forgot-password')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#6366f1',
-              fontSize: '0.8rem',
-              textDecoration: 'underline',
-              cursor: 'pointer',
-              padding: 0,
-              fontFamily: 'inherit'
-            }}
-          >
-            Forgot Password?
-          </button>
-        </div>
+            <p style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '20px' }}>
+              Don't have an account yet?{' '}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onOpenSignUpWizard}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#38bdf8',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontFamily: 'inherit',
+                  textDecoration: 'underline'
+                }}
+              >
+                Create Account
+              </button>
+            </p>
 
-        <p style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '20px' }}>
-          Don't have an account yet?{' '}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onOpenSignUpWizard}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#38bdf8',
-              fontWeight: '600',
-              cursor: 'pointer',
-              padding: 0,
-              fontFamily: 'inherit',
-              textDecoration: 'underline'
-            }}
-          >
-            Create Account
-          </button>
-        </p>
+            <div style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => { setOfflineMode(true); setMessage(''); }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  borderRadius: '6px',
+                  color: '#38bdf8',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  padding: '8px 16px',
+                  fontFamily: 'inherit',
+                  width: '100%',
+                  outline: 'none'
+                }}
+              >
+                🔑 Activate Offline License (BYOK)
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '24px' }}>
+              Enter your cryptographically signed license key to unlock your cockpit offline.
+            </p>
+
+            <form onSubmit={handleOfflineActivation} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                Local BYOK License Key
+                <textarea
+                  required
+                  rows={4}
+                  disabled={busy}
+                  value={licenseInput}
+                  onChange={(e) => setLicenseInput(e.target.value)}
+                  placeholder="Paste your clyde_lic_byok_... key"
+                  style={{
+                    background: '#0f172a',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#f8fafc',
+                    fontSize: '0.82rem',
+                    fontFamily: 'monospace',
+                    outline: 'none',
+                    resize: 'none',
+                    width: '100%',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </label>
+
+              {message ? (
+                <p style={{
+                  fontSize: '0.8rem',
+                  color: message.startsWith('Error') ? '#ef4444' : '#34d399',
+                  margin: '4px 0',
+                  textAlign: 'center',
+                  lineHeight: '1.4'
+                }}>{message}</p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={busy}
+                style={{
+                  background: 'linear-gradient(to right, #38bdf8, #6366f1)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#ffffff',
+                  fontSize: '0.95rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  marginTop: '8px',
+                  boxShadow: '0 4px 12px rgba(56, 189, 248, 0.25)',
+                  transition: 'opacity 0.2s'
+                }}
+              >
+                {busy ? 'Verifying...' : 'Activate Offline'}
+              </button>
+            </form>
+
+            <div style={{ marginTop: '20px' }}>
+              <button
+                type="button"
+                onClick={() => { setOfflineMode(false); setMessage(''); }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontFamily: 'inherit',
+                  textDecoration: 'underline'
+                }}
+              >
+                ← Back to Online Sign In
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
