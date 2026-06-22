@@ -4669,7 +4669,8 @@ function App() {
     );
   }
 
-  const signedIn = Boolean(settings.userId && settings.authEmail);
+  const hasLocalLicense = Boolean(settings.licenseKey && (settings.userTier === 'pro' || settings.subscriptionPlan === 'clyde_byok_lifetime'));
+  const signedIn = Boolean((settings.userId && settings.authEmail) || hasLocalLicense);
 
   if (!initialized && !signedIn) {
     return null; // Don't flash login screen while loading settings
@@ -12356,7 +12357,8 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
   const mountedRef = useRef(true);
   const preserveStatusOnSettingsUpdateRef = useRef(false);
   const proEntitled = canUseFeature(settings, 'pro_realtime_agent');
-  const signedIn = Boolean(settings.userId && settings.authEmail);
+  const hasLocalLicense = Boolean(settings.licenseKey && (settings.userTier === 'pro' || settings.subscriptionPlan === 'clyde_byok_lifetime'));
+  const signedIn = Boolean((settings.userId && settings.authEmail) || hasLocalLicense);
 
   async function refreshEntitlements() {
     setSaveStatus('Refreshing subscription...');
