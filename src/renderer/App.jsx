@@ -9453,15 +9453,15 @@ function AssistantCards({ cards, variant = 'default', status = '', onDismissCard
     setSlideIndex(0);
   }, [latestGroupKey]);
 
+  const currentGroup = groups[slideIndex];
+  const displayCards = currentGroup?.cards || [];
+  const identifiedQuestion = currentGroup?.question;
+
   useEffect(() => {
     if (cardStackRef.current) {
       cardStackRef.current.scrollTop = cardStackRef.current.scrollHeight;
     }
   }, [displayCards.length, latestGroupKey]);
-
-  const currentGroup = groups[slideIndex];
-  const displayCards = currentGroup?.cards || [];
-  const identifiedQuestion = currentGroup?.question;
 
   return (
     <div className={active ? 'assistant-pane assistant-pane-active' : 'assistant-pane'}>
