@@ -2052,11 +2052,11 @@ function classifyProGatePrompt(text) {
   const hasFollowUpRequest = /\b(another example|go(?:ing)? deeper|more detail|what happened|what was the outcome|what came next)\b/i.test(prompt);
 
   const hasQuestionWordAnywhere = /\b(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|have|has|had|will|should)\b/i.test(prompt);
-  if (hasQuestionWordAnywhere && wordCount >= 10) {
+  if (hasQuestionWordAnywhere && wordCount >= 16) {
     return { complete: true, hasStrongTerminal, reason: 'descriptive-embedded-question' };
   }
 
-  if ((startsWithQuestionWord || hasCommandRequest || hasFollowUpRequest) && wordCount >= 4) {
+  if ((startsWithQuestionWord || hasCommandRequest || hasFollowUpRequest) && wordCount >= 8) {
     return { complete: true, hasStrongTerminal, reason: 'stable-question-shape' };
   }
 
