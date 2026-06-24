@@ -65,13 +65,15 @@ function hasEnoughTranscriptContent(originalTranscript = [], cleanedTranscript =
     return cleanedLength > 0;
   }
 
-  if (cleanedLength >= Math.max(60, Math.floor(originalLength * 0.45))) {
+  // Lowered threshold from 0.45 to 0.30 to allow highly successful deep cleanups of noisy/repetitive transcripts.
+  if (cleanedLength >= Math.max(60, Math.floor(originalLength * 0.30))) {
     return true;
   }
 
   const originalTurns = substantiveTurnCount(originalTranscript);
   const cleanedTurns = substantiveTurnCount(cleanedTranscript);
-  if (originalTurns >= 8 && cleanedTurns >= Math.max(6, Math.floor(originalTurns * 0.35))) {
+  // Lowered threshold from 0.35 to 0.25 to prevent false rejection of long cleaned-up transcripts.
+  if (originalTurns >= 8 && cleanedTurns >= Math.max(6, Math.floor(originalTurns * 0.25))) {
     return true;
   }
 
