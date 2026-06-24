@@ -12,7 +12,9 @@ function startAutoUpdater({ enabled = true, isPackaged, logger, requireAutoUpdat
   const { dialog } = require('electron');
 
   // Secure auto-updates by verifying the cryptographic code signature on Windows/macOS updates.
-  autoUpdater.verifyUpdateCodeSignature = true;
+  // We do NOT set verifyUpdateCodeSignature = true here because in electron-updater v6,
+  // verifyUpdateCodeSignature is a property getter/setter that overrides the verification function.
+  // Instead, signature verification is automatically enabled by specifying publisherName in package.json/app-update.yml.
   autoUpdater.logger = logger;
   if (autoUpdater.logger && autoUpdater.logger.transports && autoUpdater.logger.transports.file) {
     autoUpdater.logger.transports.file.level = 'info';
