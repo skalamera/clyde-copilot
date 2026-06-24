@@ -51,7 +51,16 @@ function buildAssistantPrompt(options = {}) {
     'The "System Audio" and any other speakers are the interviewers.',
     'Base your answers, hints/tips, and suggested next lines on what the interviewer is asking and the flow of the conversation.',
     `Current command: ${command}.`,
-    targetQuestion ? `The interviewer just asked this question: "${targetQuestion}". Answer this exact question first.` : '',
+    targetQuestion ? (
+      isStarQuestion(targetQuestion)
+        ? `The interviewer just asked this behavioral question: "${targetQuestion}". Because this is a behavioral/situational question, you MUST structure your response strictly using the STAR method. Format your 3-4 bullets exactly as:
+* **[S]** (Situation context...)
+* **[T]** (Task or goal...)
+* **[A]** (Actions you took...)
+* **[R]** (Quantifiable metrics/result...)
+Do not use standard bullets. Bold key metrics and outcomes.`
+        : `The interviewer just asked this question: "${targetQuestion}". Answer this exact question first.`
+    ) : '',
     context.company ? `Company: ${context.company}.` : '',
     context.role ? `Role: ${context.role}.` : '',
     context.soul ? `Clyde's Soul & Personality Profile:\n${context.soul}` : '',
@@ -281,6 +290,17 @@ function meetingCommandGuidance(command) {
   }
 
   return '';
+}
+
+function isStarQuestion(question) {
+  const normalized = String(question || '').trim().toLowerCase();
+  return [
+    /\b(tell me|talk me|walk me|describe|explain|share|give)\b.*\b(time|example|situation|scenario|conflict|conflicted|navigated|navigating|handled|handling|action)\b/i,
+    /\b(describe a|describe an|give (an )?example|share (an )?example|have you (ever )?had|have you encountered)\b/i,
+    /\b(how did you|how did you handle|how did you resolve|how did you navigate|how did you manage)\b/i,
+    /\b(time you had to|time when you|example of a time|example of how you)\b/i,
+    /\b(tell me about a time|tell me about your most)\b/i
+  ].some(pattern => pattern.test(normalized));
 }
 
 function formatAttendees(attendees) {

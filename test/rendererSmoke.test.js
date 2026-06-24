@@ -351,7 +351,7 @@ test('active capture view replaces the full live workspace while streaming', () 
 
   assert.match(appSource, /const \[captureSessionActive, setCaptureSessionActive\] = useState\(false\)/);
   assert.match(appSource, /const activeCapture = workspaceView === 'live' && captureSessionActive/);
-  assert.match(appSource, /activeCapture \? null : \(\s*<TitleBar/);
+  assert.match(appSource, /activeCapture\s*(?:\|\|\s*!signedIn)?\s*\?\s*null\s*:\s*\(\s*<TitleBar/);
   assert.match(appSource, /activeCapture \? \(/);
   assert.match(activeSource, /Ask about the screen/);
   assert.match(appSource, /Waiting for assistant cards/);

@@ -467,6 +467,29 @@ function createMeetingAssistant(options = {}) {
 
       let pendingDraftCardId = '';
       let pendingDraftGroupId = '';
+
+      if (automaticInterviewRequest && targetQuestion) {
+        const duplicateDisplayedRun = getDuplicateDisplayedProRun({
+          groupId: requestOptions.groupId || '',
+          targetQuestion: targetQuestion
+        });
+
+        if (duplicateDisplayedRun) {
+          const similarity = textSimilarity(duplicateDisplayedRun.text, targetQuestion);
+          if (similarity >= 0.88) {
+            logger.log(`[Intent] Skipping redundant assistant run. Extremely similar question already displayed: "${duplicateDisplayedRun.text.slice(0, 100)}" (Similarity: ${similarity.toFixed(2)})`);
+            inFlight = false;
+            return { ok: true, skipped: 'duplicate-displayed' };
+          } else {
+            logger.log(`[Intent] Reusing existing card in-place for near-duplicate question: "${duplicateDisplayedRun.text.slice(0, 100)}"`);
+            pendingDraftGroupId = duplicateDisplayedRun.groupId;
+            pendingDraftCardId = `${duplicateDisplayedRun.groupId}-draft`;
+            requestOptions.groupId = duplicateDisplayedRun.groupId;
+            requestOptions.draftCardId = `${duplicateDisplayedRun.groupId}-draft`;
+          }
+        }
+      }
+
       let memorySearchStarted = false;
       const memorySearchPromise = proCandidate && allowMemorySearch && typeof proAgent.searchMemoryCards === 'function'
         ? startProMemorySearch({
