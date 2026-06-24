@@ -1703,7 +1703,7 @@ function EditSessionModal({ session, onClose, onSave }) {
   );
 }
 
-function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }) {
+function TrendsView({ entities, salaryRanges = {}, mode, onSelectEntity, selectedEntity, sessions }) {
   const api = window.electronAPI;
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1864,6 +1864,22 @@ function TrendsView({ entities, mode, onSelectEntity, selectedEntity, sessions }
       >
         <div className="opportunity-row-main">
           <strong>{entity.name}</strong>
+          {mode === 'interview' && salaryRanges[entity.id] && (
+            <span className="salary-pill" style={{
+              display: 'inline-block',
+              background: '#38bdf8',
+              color: '#0b0f19',
+              padding: '2px 8px',
+              fontSize: '0.68rem',
+              fontWeight: 'bold',
+              borderRadius: '12px',
+              marginLeft: '8px',
+              verticalAlign: 'middle',
+              lineHeight: '1.2'
+            }}>
+              {salaryRanges[entity.id]}
+            </span>
+          )}
           <span className="entity-list-badges">
             {mode === 'interview' && <OutcomeBadge outcome={entity.outcome} />}
             {mode === 'interview' && entity.confidence > 0 && (
@@ -3418,6 +3434,7 @@ function App() {
     overlayHiddenRef.current = overlayHidden;
   }, [overlayHidden]);
   const [entities, setEntities] = useState([]);
+  const [salaryRanges, setSalaryRanges] = useState({});
   const [sessions, setSessions] = useState([]);
   const [selectedEntity, setSelectedEntity] = useState('');
   const [justSyncedEntityId, setJustSyncedEntityId] = useState('');
@@ -3466,6 +3483,32 @@ function App() {
     }
     document.documentElement.className = classes.join(' ').trim();
   }, [settings.theme]);
+
+  useEffect(() => {
+    if (!api?.getCompanyJobDescription || !entities.length) {
+      return;
+    }
+
+    const loadAllSalaries = async () => {
+      const nextSalaries = {};
+      for (const entity of entities) {
+        try {
+          const jd = await api.getCompanyJobDescription(entity.id);
+          if (jd) {
+            const range = extractSalaryRange(jd);
+            if (range) {
+              nextSalaries[entity.id] = range;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load salary range for', entity.id, e);
+        }
+      }
+      setSalaryRanges((current) => ({ ...current, ...nextSalaries }));
+    };
+
+    loadAllSalaries();
+  }, [entities]);
 
   useEffect(() => {
     if (!api?.onZoomDetected) {
@@ -4826,6 +4869,7 @@ function App() {
         ) : workspaceView === 'timeline' ? (
           <TimelineView
               entities={entities}
+              salaryRanges={salaryRanges}
               mode={mode}
               onStartCapture={startCapture}
               onRefresh={() => reloadSessions(mode, selectedEntity)}
@@ -4860,6 +4904,7 @@ function App() {
         ) : workspaceView === 'trends' && canUseFeature(settings, 'trend_analysis') ? (
           <TrendsView
             entities={entities}
+            salaryRanges={salaryRanges}
             mode={mode}
             onSelectEntity={async (entityId) => {
               setSelectedEntity(entityId);
@@ -10278,6 +10323,22 @@ function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOppor
         >
           <div className="opportunity-row-main">
             <strong>{entity.name}</strong>
+            {mode === 'interview' && salaryRanges[entity.id] && (
+              <span className="salary-pill" style={{
+                display: 'inline-block',
+                background: '#38bdf8',
+                color: '#0b0f19',
+                padding: '2px 8px',
+                fontSize: '0.68rem',
+                fontWeight: 'bold',
+                borderRadius: '12px',
+                marginLeft: '8px',
+                verticalAlign: 'middle',
+                lineHeight: '1.2'
+              }}>
+                {salaryRanges[entity.id]}
+              </span>
+            )}
             <span className="entity-list-badges" style={{ position: 'relative' }}>
               {mode === 'interview' && (
                 <span className="rail-status-editor" style={{ display: 'inline-block' }}>
@@ -14229,6 +14290,52 @@ function AuthOverlay({ api, onSettingsUpdated, onOpenSignUpWizard, settings }) {
       </div>
     </div>
   );
+}
+
+function extractSalaryRange(text) {
+  if (!text || typeof text !== 'string') {
+    return null;
+  }
+
+  const regexes = [
+    /\$(\d{2,3})[kK]\s*(?:-|to)\s*\$(\d{2,3})[kK]\b/,
+    /\$(\d{1,3}(?:,\d{3})+)\s*(?:-|to)\s*\$(\d{1,3}(?:,\d{3})+)\b/,
+    /\b(\d{2,3})[kK]\s*(?:-|to)\s*(\d{2,3})[kK]\b/,
+    /\$(\d{2,3})\s*(?:-|to)\s*\$(\d{2,3})[kK]\b/i,
+    /\$(\d{2,3})[kK]\s*(?:-|to)\s*\$(\d{2,3})\b/i,
+    /salary\s*(?:range)?\s*(?:of|is)?\s*\$?(\d{2,3})[kK]?\s*(?:-|to)\s*\$?(\d{2,3})[kK]?/i
+  ];
+
+  for (const regex of regexes) {
+    const match = regex.exec(text);
+    if (match) {
+      let low = match[1].replace(/,/g, '');
+      let high = match[2].replace(/,/g, '');
+      
+      if (low.length >= 5) {
+        low = `${Math.round(parseInt(low, 10) / 1000)}K`;
+      } else if (!low.toLowerCase().endsWith('k')) {
+        low = `${low}K`;
+      } else {
+        low = low.toUpperCase();
+      }
+      
+      if (high.length >= 5) {
+        high = `${Math.round(parseInt(high, 10) / 1000)}K`;
+      } else if (!high.toLowerCase().endsWith('k')) {
+        high = `${high}K`;
+      } else {
+        high = high.toUpperCase();
+      }
+
+      if (!low.startsWith('$')) low = `$${low}`;
+      if (!high.startsWith('$')) high = `$${high}`;
+
+      return `${low} - ${high}`;
+    }
+  }
+
+  return null;
 }
 
 export default App;
