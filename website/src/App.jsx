@@ -3300,7 +3300,7 @@ function KnowledgeBasePage({ navigate }) {
 
   const categories = [
     { id: 'all', label: 'All Articles' },
-    { id: 'desktop', label: 'Clyde Desktop' },
+    { id: 'desktop', label: 'Clyde Desktop App' },
     { id: 'go', label: 'Clyde Go (Extension)' },
     { id: 'pro', label: 'Pro & Licensing' },
     { id: 'audio', label: 'Audio & Transcription' }
@@ -3419,7 +3419,7 @@ function KnowledgeBasePage({ navigate }) {
       id: 'audio-one-question-lag',
       category: 'audio',
       categoryLabel: 'Audio & Transcription',
-      title: 'Eliminating One-Question-Behind Lag on Local Calls',
+      title: 'Eliminating One-Question-Behind Lag on Local Call Transcripts',
       summary: 'Adjusting voice activity detection and sentence completion thresholds to prevent display latency.',
       content: `
         <h3>The Issue</h3>
@@ -3464,134 +3464,120 @@ function KnowledgeBasePage({ navigate }) {
   });
 
   return (
-    <div className="min-h-screen bg-cyber-bg text-slate-200 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-6xl mx-auto">
-        
-        {/* KB Breadcrumb & Header */}
-        <div className="mb-10" data-reveal>
-          <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mb-4">
-            <button onClick={() => navigate('/')} className="hover:text-cyber-cyan transition-colors">Home</button>
-            <span>/</span>
-            <span className="text-cyber-violet">Knowledge Base</span>
-          </div>
-          <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-cyber-cyan to-cyber-violet bg-clip-text text-transparent inline-block">
-            Clyde Knowledge Center
-          </h1>
-          <p className="text-slate-400 text-sm mt-2 max-w-xl">
+    <main className="kb-page support-page">
+      <section className="subpage-hero policy-hero" style={{ paddingBottom: '20px' }}>
+        <div className="subpage-copy">
+          <span className="eyebrow" style={{ color: 'var(--cyan)' }}>Self-Service Runbooks</span>
+          <h1 style={{ fontSize: '3rem', lineHeight: '1.15', marginBottom: '20px' }}>Knowledge Center</h1>
+          <p style={{ fontSize: '1.15rem', color: '#9ca3af', lineHeight: '1.6', maxWidth: '750px' }}>
             Detailed configurations, technical guides, troubleshooting runbooks, and manual workarounds built for Clyde Desktop and Clyde Go.
           </p>
         </div>
+      </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <section className="section-band policy-body" style={{ display: 'flex', justifyContent: 'center', paddingTop: '0px', paddingBottom: '80px' }}>
+        <div style={{ maxWidth: '1100px', width: '100%', display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
           
-          {/* Left Sidebar Filter & Search */}
-          <div className="lg:col-span-4 space-y-6">
+          {/* Left Sidebar Filters */}
+          <div style={{ flex: '1 1 280px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
             {/* Search Box */}
-            <div className="relative rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl">
-              <label className="text-xs font-bold text-slate-300 block mb-2 font-mono">Search Runbooks</label>
-              <div className="relative">
-                <input 
-                  type="text" 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="e.g., Realtek, Workday, BYOK..." 
-                  className="w-full bg-cyber-bg/80 border border-cyber-line/30 rounded-lg p-2.5 pl-9 text-sm text-slate-200 focus:outline-none focus:border-cyber-cyan/50 font-sans transition-all"
-                />
-                <div className="absolute left-3 top-3 text-slate-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                  </svg>
-                </div>
-              </div>
+            <div style={{ background: 'rgba(9, 18, 28, 0.65)', border: '1px solid var(--line)', padding: '20px', borderRadius: '12px' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f1f5f9', display: 'block', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Search Articles</label>
+              <input 
+                type="text" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="e.g. Realtek, Workday, BYOK..." 
+                style={{ width: '100%', background: '#030609', border: '1px solid var(--line)', borderRadius: '6px', padding: '10px', color: '#f1f5f9', fontSize: '0.85rem' }}
+              />
             </div>
 
             {/* Categories */}
-            <div className="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl space-y-2">
-              <span className="text-xs font-bold text-slate-300 block mb-3 font-mono">Filter by Category</span>
+            <div style={{ background: 'rgba(9, 18, 28, 0.65)', border: '1px solid var(--line)', padding: '20px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f1f5f9', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Filter by Category</label>
               {categories.map(cat => (
                 <button
                   key={cat.id}
                   onClick={() => { setActiveCategory(cat.id); setSelectedArticle(null); }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold font-mono transition-all flex items-center justify-between ${
-                    activeCategory === cat.id 
-                      ? 'bg-cyber-cyan/15 border border-cyber-cyan/30 text-cyber-cyan shadow-sm shadow-cyber-cyan/10' 
-                      : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                  }`}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '10px 14px',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    background: activeCategory === cat.id ? 'rgba(79, 231, 255, 0.15)' : 'transparent',
+                    border: activeCategory === cat.id ? '1px solid var(--cyan)' : '1px solid transparent',
+                    color: activeCategory === cat.id ? 'var(--cyan)' : '#9ca3af'
+                  }}
                 >
-                  <span>{cat.label}</span>
-                  <span className="text-[9px] opacity-60">
-                    {cat.id === 'all' 
-                      ? articles.length 
-                      : articles.filter(a => a.category === cat.id).length
-                    }
-                  </span>
+                  {cat.label}
                 </button>
               ))}
             </div>
 
-            {/* Direct Ticket Help Card */}
-            <div className="rounded-xl border border-cyber-line/30 bg-gradient-to-br from-cyber-violetMuted/10 to-cyber-cyanMuted/5 p-5 relative overflow-hidden shadow-xl">
-              <h3 className="text-xs font-bold font-mono text-cyber-cyan mb-2">Still need support?</h3>
-              <p className="text-[11px] text-slate-400 leading-relaxed mb-4">
-                Can't find a solution to your device or extension conflict? Submit a technical ticket directly to our engineers.
+            {/* Contact Card */}
+            <div style={{ background: 'rgba(9, 18, 28, 0.45)', border: '1px solid var(--line)', padding: '24px', borderRadius: '12px' }}>
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '8px', fontWeight: 600, color: 'var(--cyan)' }}>Need direct help?</h3>
+              <p style={{ fontSize: '0.85rem', color: '#9ca3af', marginBottom: '16px', lineHeight: '1.5' }}>
+                Can't find a solution to your device or extension conflict? Open a technical support ticket directly.
               </p>
               <button 
                 onClick={() => navigate('/support')}
-                className="w-full text-center py-2.5 rounded-lg text-xs font-bold text-cyber-bg bg-gradient-to-r from-cyber-cyan to-cyber-violet hover:opacity-90 transition-all font-mono"
+                className="primary-link"
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: 'none', background: 'var(--cyan)', color: '#030609', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}
               >
-                Open Support Ticket
+                Submit a Ticket
               </button>
             </div>
 
           </div>
 
-          {/* Right Main Article Section */}
-          <div className="lg:col-span-8">
+          {/* Right Main Column */}
+          <div style={{ flex: '2 1 600px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
-            {/* If an article is open */}
             {selectedArticle ? (
-              <div className="rounded-2xl border border-cyber-line/30 bg-cyber-bgSoft/50 backdrop-blur-md p-8 shadow-2xl space-y-6" data-reveal>
-                <div className="flex items-center justify-between pb-4 border-b border-cyber-line/20">
-                  <span className="px-2.5 py-1 rounded-full text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/15 border border-cyber-cyan/30">
-                    {selectedArticle.categoryLabel || 'Support'}
+              /* Single Article View */
+              <div style={{ background: 'rgba(9, 18, 28, 0.65)', backdropFilter: 'blur(16px)', border: '1px solid var(--line)', borderRadius: '12px', padding: '40px', boxShadow: '0 8px 32px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {selectedArticle.categoryLabel}
                   </span>
                   <button 
                     onClick={() => setSelectedArticle(null)}
-                    className="text-xs font-mono text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
+                    style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"></path>
-                    </svg>
-                    <span>Back to Article List</span>
+                    ← Back to Articles
                   </button>
                 </div>
 
-                <div className="space-y-4">
-                  <h2 className="text-2xl font-extrabold text-white leading-tight font-sans">
-                    {selectedArticle.title}
-                  </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <h2 style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{selectedArticle.title}</h2>
                   <div 
-                    className="kb-article-body text-slate-300 text-sm leading-relaxed space-y-4 font-sans"
-                    dangerouslySetInnerHTML={{ __html: selectedArticle.content || selectedArticle.draftContent }}
+                    className="kb-body-text"
+                    style={{ fontSize: '0.95rem', color: '#cbd5e1', lineHeight: '1.7' }}
+                    dangerouslySetInnerHTML={{ __html: selectedArticle.content }}
                   />
                 </div>
               </div>
             ) : (
-              /* Article Grid/List */
-              <div className="space-y-4">
-                <span className="text-xs font-bold text-slate-400 font-mono block mb-2">
-                  Showing {filteredArticles.length} matching runbooks
-                </span>
-                
+              /* Article List View */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
+                <div style={{ fontSize: '0.85rem', color: '#8aa2b3', marginBottom: '4px' }}>
+                  Showing {filteredArticles.length} matching articles
+                </div>
+
                 {filteredArticles.length === 0 ? (
-                  <div className="rounded-xl border border-cyber-line/20 bg-cyber-bgSoft/30 p-12 text-center text-slate-400 space-y-4">
-                    <p className="text-sm font-semibold">No Knowledge Base articles found matching "{searchQuery}"</p>
+                  <div style={{ background: 'rgba(9, 18, 28, 0.45)', border: '1px solid var(--line)', borderRadius: '12px', padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
+                    <p style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '8px' }}>No articles matched your search.</p>
                     <button 
                       onClick={() => { setSearchQuery(''); setActiveCategory('all'); }}
-                      className="text-xs text-cyber-cyan hover:underline font-mono"
+                      style={{ background: 'none', border: 'none', color: 'var(--cyan)', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.85rem' }}
                     >
-                      Clear filters and try again
+                      Clear search filters
                     </button>
                   </div>
                 ) : (
@@ -3599,24 +3585,28 @@ function KnowledgeBasePage({ navigate }) {
                     <div 
                       key={art.id}
                       onClick={() => setSelectedArticle(art)}
-                      className="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 hover:bg-cyber-bgSoft/65 hover:border-cyber-violet/30 cursor-pointer p-5 transition-all space-y-3 group shadow-lg"
+                      style={{
+                        background: 'rgba(9, 18, 28, 0.45)',
+                        border: '1px solid var(--line)',
+                        borderRadius: '12px',
+                        padding: '24px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--cyan)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.transform = 'translateY(0)'; }}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/10 px-2 py-0.5 rounded border border-cyber-cyan/20">
-                          {art.categoryLabel || 'Support'}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          {art.categoryLabel}
                         </span>
-                        <span className="text-[9px] font-mono text-slate-500 group-hover:text-cyber-violet transition-colors">
-                          Read runbook →
-                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#597184' }}>Read runbook →</span>
                       </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">
-                          {art.title || art.draftTitle}
-                        </h3>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-normal font-sans">
-                          {art.summary || art.draftContent.substring(0, 120) + "..."}
-                        </p>
-                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0, color: '#f5fbff' }}>{art.title}</h3>
+                      <p style={{ fontSize: '0.9rem', color: '#9ca3af', margin: 0, lineHeight: '1.5' }}>{art.summary}</p>
                     </div>
                   ))
                 )}
@@ -3627,11 +3617,11 @@ function KnowledgeBasePage({ navigate }) {
           </div>
 
         </div>
-
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
+
 
 export { normalizePath };
 export default App;
