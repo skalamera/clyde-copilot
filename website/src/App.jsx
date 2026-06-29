@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveAvatarSession, SessionEvent } from '@heygen/liveavatar-web-sdk';
 
-const downloadHref = 'https://storage.googleapis.com/clydeai-live-downloads/clyde-windows-v1.0.0-beta.17.exe';
+const downloadHref = 'ms-windows-store://pdp/?productid=XPFP272Z1BX0P1';
 
 const tiers = [
   {
@@ -211,10 +211,14 @@ function App() {
     ? <HowItWorksPage onDownload={handleDownload} />
     : path === '/pricing'
       ? <PricingPage showUpgradeNotice={showUpgradeNotice} navigate={navigate} />
+    : path === '/about'
+      ? <AboutPage navigate={navigate} />
     : path === '/clyde-go'
       ? <ClydeGoPage />
     : path === '/support'
       ? <SupportPage />
+    : path === '/kb' || path === '/knowledge-base'
+      ? <KnowledgeBasePage navigate={navigate} />
     : path === '/privacy-policy'
       ? <PrivacyPolicyPage />
       : path === '/terms-of-service'
@@ -227,6 +231,8 @@ function App() {
             ? <ForgotPasswordPage navigate={navigate} />
           : path === '/delete-account'
             ? <DeleteAccountPage navigate={navigate} />
+          : path === '/practice' || path === '/interview-prep-tool'
+            ? <PracticePage onDownload={handleDownload} navigate={navigate} />
           : <LandingPage onDownload={handleDownload} navigate={navigate} />;
 
   return (
@@ -258,17 +264,19 @@ function Header({ navigate, onDownload, path, upgradeNotice, showUpgradeNotice }
       {/* Desktop Navigation */}
       <nav aria-label="Primary navigation" className="desktop-nav">
         <a href="/" onClick={(event) => { event.preventDefault(); handleNavigate('/'); }} className={path === '/' ? 'active' : ''}>Home</a>
-        <a href="/clyde-go" onClick={(event) => { event.preventDefault(); handleNavigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go</a>
+        <a href="/clyde-go" onClick={(event) => { event.preventDefault(); handleNavigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go<span className="nav-badge">Soon</span></a>
         <a href="/how-it-works" onClick={(event) => { event.preventDefault(); handleNavigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
+        <a href="/about" onClick={(event) => { event.preventDefault(); handleNavigate('/about'); }} className={path === '/about' ? 'active' : ''}>About</a>
         <a href="/pricing" onClick={(event) => { event.preventDefault(); handleNavigate('/pricing'); }} className={path === '/pricing' ? 'active' : ''}>Pricing</a>
         <a href="/support" onClick={(event) => { event.preventDefault(); handleNavigate('/support'); }} className={path === '/support' ? 'active' : ''}>Support</a>
+        <a href="/kb" onClick={(event) => { event.preventDefault(); handleNavigate('/kb'); }} className={path === '/kb' || path === '/knowledge-base' ? 'active' : ''}>KB</a>
         <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); handleNavigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
         <a href="#faq">FAQ</a>
       </nav>
 
       <div className="header-actions desktop-actions">
         <button className="header-cta header-pro-cta" type="button" onClick={() => handleNavigate('/pricing')}>Get Clyde Pro</button>
-        <a className="header-cta" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
+        <a className="header-cta" href={downloadHref} onClick={onDownload}>Download for Windows</a>
       </div>
 
       {/* Mobile Hamburger Button */}
@@ -302,14 +310,16 @@ function Header({ navigate, onDownload, path, upgradeNotice, showUpgradeNotice }
         />
         <div className="mobile-menu-actions" style={{ marginTop: '0', display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
           <button className="header-cta header-pro-cta" type="button" onClick={() => handleNavigate('/pricing')}>Get Clyde Pro</button>
-          <a className="header-cta" href={downloadHref} onClick={(e) => { setMenuOpen(false); onDownload(e); }} download>Download for Windows</a>
+          <a className="header-cta" href={downloadHref} onClick={(e) => { setMenuOpen(false); onDownload(e); }}>Download for Windows</a>
         </div>
         <nav aria-label="Mobile navigation">
           <a href="/" onClick={(event) => { event.preventDefault(); handleNavigate('/'); }} className={path === '/' ? 'active' : ''}>Home</a>
-          <a href="/clyde-go" onClick={(event) => { event.preventDefault(); handleNavigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go</a>
+          <a href="/clyde-go" onClick={(event) => { event.preventDefault(); handleNavigate('/clyde-go'); }} className={path === '/clyde-go' ? 'active' : ''}>Clyde Go<span className="nav-badge">Soon</span></a>
           <a href="/how-it-works" onClick={(event) => { event.preventDefault(); handleNavigate('/how-it-works'); }} className={path === '/how-it-works' ? 'active' : ''}>How it works</a>
+          <a href="/about" onClick={(event) => { event.preventDefault(); handleNavigate('/about'); }} className={path === '/about' ? 'active' : ''}>About</a>
           <a href="/pricing" onClick={(event) => { event.preventDefault(); handleNavigate('/pricing'); }} className={path === '/pricing' ? 'active' : ''}>Pricing</a>
           <a href="/support" onClick={(event) => { event.preventDefault(); handleNavigate('/support'); }} className={path === '/support' ? 'active' : ''}>Support</a>
+        <a href="/kb" onClick={(event) => { event.preventDefault(); handleNavigate('/kb'); }} className={path === '/kb' || path === '/knowledge-base' ? 'active' : ''}>KB</a>
           <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); handleNavigate('/privacy-policy'); }} className={path === '/privacy-policy' ? 'active' : ''}>Privacy</a>
           <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
         </nav>
@@ -396,13 +406,13 @@ function LandingPage({ navigate, onDownload }) {
         <HeroScene />
         <div className="hero-copy" data-reveal>
           <div className="hero-logo-lockup"><img src="/green_eyes_and_headphones.svg" alt="Clyde" /></div>
-          <h1>The Undetectable Agentic Partner.</h1>
+          <h1>The Undetectable Agentic Interview Copilot</h1>
           <p>
             Elevating professional execution with private, autonomous intelligence and real-time mastery.
           </p>
 
           <div className="hero-actions">
-            <a className="primary-link" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
+            <a className="primary-link" href={downloadHref} onClick={onDownload}>Download for Windows</a>
             <button className="secondary-link" type="button" onClick={() => navigate('/how-it-works')}>See how it works</button>
           </div>
         </div>
@@ -483,6 +493,8 @@ function LandingPage({ navigate, onDownload }) {
         </div>
         <ComparisonTable />
       </section>
+
+      <AboutClydeSection />
 
       <HomeScreenFeature />
 
@@ -1674,6 +1686,44 @@ function BillingSuccessPage() {
           message: `Pro is active for ${payload.email}.`,
           invited: Boolean(payload.invited)
         });
+
+        // Report conversion to Microsoft Ads (UET)
+        try {
+          window.uetq = window.uetq || [];
+          if (payload.email) {
+            window.uetq.push('set', {
+              'pid': {
+                'em': payload.email
+              }
+            });
+          }
+          window.uetq.push('event', '', {
+            'revenue_value': payload.amountTotal || 29.99,
+            'currency': 'USD'
+          });
+          console.log("[UET] Reported purchase conversion successfully:", payload.amountTotal);
+        } catch (e) {
+          console.error("[UET] Microsoft tracking failed:", e);
+        }
+
+        // Report conversion to Google Analytics / Ads (GA4)
+        try {
+          window.gtag = window.gtag || function() { (window.dataLayer = window.dataLayer || []).push(arguments); };
+          window.gtag('event', 'purchase', {
+            transaction_id: sessionId,
+            value: payload.amountTotal || 29.99,
+            currency: 'USD',
+            items: [{
+              item_id: 'clyde_pro_subscription',
+              item_name: 'Clyde Pro Subscription',
+              price: payload.amountTotal || 29.99,
+              quantity: 1
+            }]
+          });
+          console.log("[Google] Reported purchase conversion successfully:", payload.amountTotal);
+        } catch (e) {
+          console.error("[Google] tracking failed:", e);
+        }
       })
       .catch((error) => {
         if (cancelled) return;
@@ -2065,7 +2115,7 @@ function TierSection() {
                   Get Clyde Pro
                 </button>
               ) : (
-                <a className="secondary-link tier-action" href={downloadHref} download>
+                <a className="secondary-link tier-action" href={downloadHref}>
                   Download Free
                 </a>
               )}
@@ -2290,6 +2340,135 @@ function ComparisonTable() {
   );
 }
 
+function AboutClydeSection() {
+  return (
+    <section className="section-band about-band" id="about" data-reveal>
+      <div className="section-heading">
+        <span className="eyebrow" style={{ color: '#00f5ff', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 800, letterSpacing: '0.15em', display: 'block', marginBottom: '12px' }}>Empowering Professionals</span>
+        <h2>About Clyde</h2>
+        <p style={{ maxWidth: '680px', margin: '0 auto', fontSize: '1.1rem', color: '#94a3b8', lineHeight: 1.6 }}>
+          Standard AI meeting assistants are built for employers to monitor and audit. Clyde is built exclusively for you — the individual professional. It runs silently, locally, and invisibly as your personal career copilot.
+        </p>
+      </div>
+
+      <div className="about-grid">
+        <div className="about-card">
+          <h3>The Silent Partner</h3>
+          <p>
+            Traditional bots join calls with loud names and flashing record lights, creating friction. Clyde runs locally on your desktop, quietly capturing audio and screen feeds without ever invading the social contract of your meeting.
+          </p>
+        </div>
+
+        <div className="about-card">
+          <h3>Absolute Data Sovereignty</h3>
+          <p>
+            Your transcripts, notes, and career details are yours alone. With optional offline configurations utilizing Faster-Whisper and local LLM integrations, you can operate Clyde 100% privately on your machine. No data leaks, no corporate tracking.
+          </p>
+        </div>
+
+        <div className="about-card">
+          <h3>Context-Aware Intelligence</h3>
+          <p>
+            Clyde doesn't just transcribe; it comprehends. By analyzing live audio, active screenshots, your master resume, and RAG-based career history, it delivers tailored, STAR-method answer cards and talking points in real-time.
+          </p>
+        </div>
+
+        <div className="about-card">
+          <h3>The Complete Career Loop</h3>
+          <p>
+            From clipping job descriptions on the web to mock interview practices, real-time meeting support, automatic post-call action items, and data-driven trend analytics, Clyde acts as your personal agent across the full opportunity lifecycle.
+          </p>
+        </div>
+
+      </div>
+    </section>
+  );
+}
+
+function AboutPage({ navigate }) {
+  return (
+    <main className="about-page" style={{ paddingBottom: '100px' }}>
+      {/* Hero section */}
+      <section className="about-band" style={{ paddingTop: '140px', paddingBottom: '60px', textAlign: 'center' }}>
+        <div className="section-heading compact">
+          <span className="eyebrow" style={{ color: '#00f5ff', textTransform: 'uppercase', fontSize: '0.85rem', fontWeight: 800, letterSpacing: '0.15em', display: 'block', marginBottom: '16px' }}>The Human Story</span>
+          <h1 style={{ fontSize: 'clamp(2.5rem, 5vw, 4.5rem)', fontWeight: 900, lineHeight: 1.1, marginBottom: '20px', background: 'linear-gradient(135deg, #ffffff 0%, #94a3b8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            Why I Built Clyde
+          </h1>
+          <p style={{ fontSize: '1.2rem', color: '#94a3b8', lineHeight: 1.6, maxWidth: '640px', margin: '0 auto' }}>
+            Clyde wasn't conceived in a corporate board room. It was forged in the trenches of a grueling, modern job search, built to give power back to the individual candidate.
+          </p>
+        </div>
+      </section>
+
+      {/* Main Narrative Card Grid */}
+      <section className="section-band" style={{ padding: '0 24px' }}>
+        <div style={{ maxWidth: '960px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '48px' }}>
+          
+          {/* Story Block 1 */}
+          <div className="about-founder-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '40px' }}>
+            <span className="about-founder-title">Chapter 1: The Struggle</span>
+            <h2 style={{ fontSize: '1.8rem', fontWeight: 850, color: '#ffffff', margin: '8px 0 16px' }}>We've All Been in the Black Hole</h2>
+            <div style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p>
+                As a Support Operations leader with over 15 years of experience building and running global teams, I found myself in the same position as millions of others: <strong>subjected to the modern, fragmented job search.</strong>
+              </p>
+              <p>
+                I struggled alongside everyone else. I sent hundreds of custom resumes into the digital void, only to be met with dead silence from automated applicant tracking systems (ATS). I spent hours re-typing my employment history into repetitive form fields that butchered my formatting, and wrestled with buggy web-scrapers that scrambled my achievements. 
+              </p>
+              <p>
+                When I did secure interviews, the overhead was exhausting. Prepping for back-to-back rounds meant juggling dozens of documents, custom ChatGPT prompts, and sticky notes scattered across my desk, trying to remember the exact narrative I wanted to present.
+              </p>
+            </div>
+          </div>
+
+          {/* Story Block 2 */}
+          <div className="about-founder-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '40px', border: '1px solid rgba(0, 245, 255, 0.15)' }}>
+            <span className="about-founder-title">Chapter 2: The Breakthrough</span>
+            <h2 style={{ fontSize: '1.8rem', fontWeight: 850, color: '#ffffff', margin: '8px 0 16px' }}>Organizing the Storyteller</h2>
+            <div style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p>
+                During a particularly taxing week of interviews, I had a realization. I didn't just need a form filler — <strong>I needed an intelligent system to organize my entire opportunity pipeline, my target materials, and the professional story I wanted to tell.</strong>
+              </p>
+              <p>
+                I needed a silent, context-aware companion that could read the live room, listen to the interviewer's exact questions, align them with my real-world experience, and instantly present structured <strong>STAR-method (Situation, Task, Action, Result)</strong> talking points to keep my communication crisp and authoritative.
+              </p>
+              <p>
+                I sat down and started coding. That breakthrough led to the birth of <strong>Clyde Desktop</strong> (the undetectable, real-time overlay assistant) paired with <strong>Clyde Go</strong> (the browser extension for 1-click form-fills and job clipping). Together, they became the ultimate, cohesive end-to-end job search and interview agent.
+              </p>
+            </div>
+          </div>
+
+          {/* Story Block 3 */}
+          <div className="about-founder-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '40px' }}>
+            <span className="about-founder-title">Chapter 3: The Triumph & The Mission</span>
+            <h2 style={{ fontSize: '1.8rem', fontWeight: 850, color: '#ffffff', margin: '8px 0 16px' }}>From Code to My Dream Job</h2>
+            <div style={{ color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.7, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p>
+                Using Clyde as my secret partner, my entire application loop shifted from chaotic to precise. I was applying to highly-targeted, better-matched roles in under 20 seconds. More importantly, when I sat down for my interviews, my cognitive load was completely gone. Clyde handled the transcription, matched the context, and fed me the exact data-driven metrics from my past Sigma and Benchmark runs when I needed them.
+              </p>
+              <p>
+                <strong>The method worked. I successfully landed one of my absolute dream jobs.</strong>
+              </p>
+              <p>
+                But my journey didn't end with my own offer letter. Having experienced the anxiety, frustration, and exhaustion of the search firsthand, I made a commitment: <strong>I will not keep this method a secret.</strong> 
+              </p>
+              <p>
+                I released Clyde and Clyde Go to share this exact, verified workflow with everyone currently struggling to land a job. You are a talented professional, builder, or engineer — you shouldn't be locked out by broken resume parsers or interview fatigue. Clyde is here to put the power back in your hands.
+              </p>
+            </div>
+            <div style={{ marginTop: '24px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+              <a className="primary-link" href={downloadHref}>Get Clyde for Windows</a>
+              <button type="button" className="secondary-link" onClick={() => navigate('/pricing')}>See Pricing Tiers</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function PlaceholderWall() {
   const carouselRef = useRef(null);
   const placeholders = [
@@ -2384,7 +2563,7 @@ function FinalCta({ onDownload }) {
       <img src="/clydefree.svg" alt="" />
       <h2>Bring Clyde to your next interview or meeting.</h2>
       <p>Download the pre-release Windows beta if you want early access before the stable public launch.</p>
-      <a className="primary-link" href={downloadHref} onClick={onDownload} download>Download for Windows</a>
+      <a className="primary-link" href={downloadHref} onClick={onDownload}>Download for Windows</a>
     </section>
   );
 }
@@ -2407,10 +2586,10 @@ function DownloadModal({ onClose }) {
         <button className="modal-close" type="button" onClick={onClose} aria-label="Close download notice">×</button>
         <h2 id="download-title">Early-access Windows beta</h2>
         <p>
-          This is a pre-release build for early-access users. The Windows installer is available at <code>{downloadHref}</code>.
+          This is a pre-release build for early-access users. Clyde is available on the Microsoft Store at <code>{downloadHref}</code>.
         </p>
         <div className="modal-actions">
-          <a className="primary-link" href={downloadHref} download>Download installer</a>
+          <a className="primary-link" href={downloadHref}>Download from Store</a>
           <button className="secondary-link" type="button" onClick={onClose}>Keep browsing</button>
         </div>
       </div>
@@ -2552,13 +2731,15 @@ function Footer({ navigate, onDownload }) {
         <p>Private AI help for interviews and meetings.</p>
       </div>
       <div className="footer-links">
-        <a href="/clyde-go" onClick={(event) => { event.preventDefault(); navigate('/clyde-go'); }}>Clyde Go</a>
+        <a href="/clyde-go" onClick={(event) => { event.preventDefault(); navigate('/clyde-go'); }}>Clyde Go<span className="nav-badge">Soon</span></a>
         <a href="/how-it-works" onClick={(event) => { event.preventDefault(); navigate('/how-it-works'); }}>How it works</a>
+        <a href="/about" onClick={(event) => { event.preventDefault(); navigate('/about'); }}>About</a>
         <a href="/support" onClick={(event) => { event.preventDefault(); navigate('/support'); }}>Support</a>
+        <a href="/kb" onClick={(event) => { event.preventDefault(); navigate('/kb'); }}>Knowledge Base</a>
         <a href="/privacy-policy" onClick={(event) => { event.preventDefault(); navigate('/privacy-policy'); }}>Privacy</a>
         <a href="/terms-of-service" onClick={(event) => { event.preventDefault(); navigate('/terms-of-service'); }}>Terms</a>
         <a href="#faq">FAQ</a>
-        <a href={downloadHref} onClick={onDownload} download>Download Windows</a>
+        <a href={downloadHref} onClick={onDownload}>Download Windows</a>
       </div>
     </footer>
   );
@@ -3036,9 +3217,416 @@ function DeleteAccountPage({ navigate }) {
   );
 }
 
+function PracticePage({ onDownload, navigate }) {
+  return (
+    <main>
+      <section className="subpage-hero">
+        <div className="subpage-copy" data-reveal>
+          <span className="eyebrow">Interactive Interview Simulation</span>
+          <h1>Master Your Next Round with Realistic AI Mock Practice.</h1>
+          <p>
+            Build your confidence and refine your answers with Clyde's realistic mock interview simulator. 
+            Practice speaking against role-specific questions, receive instant behavioral feedback, and analyze your performance with detailed scorecards.
+          </p>
+          <div className="hero-actions">
+            <a className="primary-link" href={downloadHref} onClick={onDownload}>Download Clyde</a>
+            <a className="secondary-link" href="#live-demo">Try Live Practice Demo</a>
+          </div>
+        </div>
+        <figure className="large-product-figure" data-reveal>
+          <img src="/Clyde Screenshots/mock interview scorecard.svg" alt="Clyde Mock Interview Scorecard" />
+        </figure>
+      </section>
+
+      <section className="section-band mock-band" id="live-demo" data-reveal style={{ padding: '80px 0' }}>
+        <div className="mock-copy">
+          <span className="eyebrow">Realtime mock interviews</span>
+          <h2>Practice against realistic role-specific scenarios.</h2>
+          <p>
+            Test your skills right now with our interactive video practice avatar. Click start, grant microphone access, and experience a realistic, supportive interview environment in real-time.
+          </p>
+          <div className="mock-points">
+            <span>Adaptive questions</span>
+            <span>Microphone-driven answers</span>
+            <span>Instant sandbox practice</span>
+          </div>
+        </div>
+        <div className="liveavatar-demo">
+          <LiveAvatarPracticeDemo />
+        </div>
+      </section>
+
+      <section className="section-band image-showcase-band" data-reveal>
+        <div className="section-heading compact">
+          <h2>Detailed 0-100 Performance Scorecards</h2>
+          <p>
+            At the end of every mock session, Clyde turns your transcript into direct behavioral insights, assessing delivery pacing, content relevance, and structural strengths to give you a clear roadmap for improvement.
+          </p>
+        </div>
+        <figure className="large-product-figure">
+          <img src="/Clyde Screenshots/mock interview scorecard.svg" alt="Clyde mock interview scorecard with detailed assessment categories and feedback" loading="lazy" />
+        </figure>
+      </section>
+
+      <TrendShowcase />
+
+      <section className="section-band privacy-band" data-reveal style={{ marginBottom: '60px' }}>
+        <div className="privacy-copy">
+          <span className="eyebrow">Local-first privacy</span>
+          <h2>100% Private, Secure Preparation.</h2>
+          <p>
+            Clyde respects your confidentiality. You can choose to run all transcriptions, speech-to-text, and evaluation models completely locally on your own machine. Your preparation data stays private to you.
+          </p>
+          <button type="button" className="secondary-link" onClick={() => navigate('/how-it-works')}>See how privacy works</button>
+        </div>
+        <PrivacyVisual />
+      </section>
+    </main>
+  );
+}
+
 function normalizePath(value) {
   if (!value || value === '/index.html') return '/';
   return value.endsWith('/') && value.length > 1 ? value.slice(0, -1) : value;
 }
 
+// ==================================================
+// CUSTOMER FACING KNOWLEDGE BASE PAGE
+// ==================================================
+function KnowledgeBasePage({ navigate }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [selectedArticle, setSelectedArticle] = useState(null);
+
+  const categories = [
+    { id: 'all', label: 'All Articles' },
+    { id: 'desktop', label: 'Clyde Desktop' },
+    { id: 'go', label: 'Clyde Go (Extension)' },
+    { id: 'pro', label: 'Pro & Licensing' },
+    { id: 'audio', label: 'Audio & Transcription' }
+  ];
+
+  const articles = [
+    {
+      id: 'desktop-loopback-conflict',
+      category: 'desktop',
+      categoryLabel: 'Clyde Desktop App',
+      title: 'Resolving Realtek HSA & Nahimic Loopback Audio Conflicts',
+      summary: 'Standard troubleshooting steps for loopback capture engine crash alerts like ERR_LOOPBACK_CONFLICT_REALTEK.',
+      content: `
+        <h3>The Problem</h3>
+        <p>While using Clyde Desktop loopback capture on certain Windows machines (especially gaming laptops like HP OMEN, Dell Alienware, or Asus ROG), you might encounter audio engine crash logs or an explicit error console code: <code>ERR_LOOPBACK_CONFLICT_REALTEK</code>.</p>
+        
+        <h3>The Underlying Cause</h3>
+        <p>Proprietary audio optimization suites—specifically <strong>Nahimic Audio</strong>, <strong>Realtek HSA Service</strong>, or gaming center audio drivers—inject active handles into the windows default output device. They capture exclusive loopback hooks, which prevents Clyde's local recorder from binding to the stream.</p>
+        
+        <h3>How to Fix It Manually</h3>
+        <ul>
+          <li><strong>Step 1: Disable Exclusive Mode</strong>
+            <p>Open the Windows Sound Control Panel (type <code>mmsys.cpl</code> in Run), select your default playback device, click <strong>Properties</strong>, navigate to the <strong>Advanced</strong> tab, and uncheck "Allow applications to take exclusive control of this device". Click Apply.</p>
+          </li>
+          <li><strong>Step 2: Append CLI Bypasses</strong>
+            <p>Launch Clyde Desktop with the direct launch flag: <code>--disable-exclusive-audio-hooks</code>. This instructs Clyde's recording driver to hook into shared loopback streams instead of exclusive system audio registers.</p>
+          </li>
+          <li><strong>Step 3: Administrative Escalation</strong>
+            <p>Right-click the Clyde.exe shortcut and choose <strong>"Run as administrator"</strong>. This overrides driver registry exclusion hierarchies and forces audio handle alignment.</p>
+          </li>
+        </ul>
+      `
+    },
+    {
+      id: 'go-react-hydration',
+      category: 'go',
+      categoryLabel: 'Clyde Go (Extension)',
+      title: 'Addressing Workday Form Input React State Hydration Latency',
+      summary: 'Why form fields visually fill out but empty upon submission on Workday portals, and how to fix it.',
+      content: `
+        <h3>The Problem</h3>
+        <p>When using the Clyde Go Chrome extension (MV3) to auto-fill applicant portals (specifically Workday, Taleo, or Greenhouse), the input elements visually fill out. However, when you click Submit, fields like graduation date, graduation year, or GPA vanish or throw required validation errors.</p>
+        
+        <h3>The Underlying Cause</h3>
+        <p>Workday and enterprise HR gateways run heavily throttled React synthetic state frameworks. When an extension injects text directly into the raw DOM node's <code>value</code> attribute too rapidly, React's virtual DOM state handlers do not hydrate. The field updates visually, but the database state remains blank.</p>
+        
+        <h3>How to Fix It Manually</h3>
+        <ul>
+          <li><strong>Step 1: Check Extension Version</strong>
+            <p>Verify you are running Clyde Go <strong>v2.4.1 or higher</strong>. We implemented a native <strong>150ms post-hydration delay</strong> inside our MV3 injection pipeline specifically to accommodate Workday throttle rates.</p>
+          </li>
+          <li><strong>Step 2: Force Change Handlers</strong>
+            <p>If you are encountering a custom form, select the field and press any key (like Space then Backspace). This manual keystroke triggers the DOM's native <code>change</code> event and binds the visual data directly to React's synthetic states.</p>
+          </li>
+          <li><strong>Step 3: Clear Overlapping Auto-Fills</strong>
+            <p>Ensure that Chrome's default browser auto-fill is turned off. Overlapping auto-fills can cause race conditions inside React's state tree.</p>
+          </li>
+        </ul>
+      `
+    },
+    {
+      id: 'pro-byok-licensing',
+      category: 'pro',
+      categoryLabel: 'Pro & Licensing',
+      title: 'Bring Your Own Key (BYOK) Configuration & Signature Validation',
+      summary: 'How to wire up your own API keys (Anthropic, OpenAI, Pinecone) for infinite offline-ready AI drafts.',
+      content: `
+        <h3>The Advantage of BYOK</h3>
+        <p>Clyde Pro includes high-speed managed cloud credits, but also provides a complete **Bring Your Own Key (BYOK)** system. This allows you to configure your local client with personal OpenAI, Anthropic, or Pinecone credentials for unlimited, unconstrained AI draft generation.</p>
+        
+        <h3>How to Configure Custom Keys</h3>
+        <p>To enter your credentials securely:</p>
+        <ol>
+          <li>Open Clyde Desktop and navigate to <strong>Settings</strong> -> <strong>AI API Configuration</strong>.</li>
+          <li>Toggle on the **"Enable Personal API keys"** option.</li>
+          <li>Input your custom keys:
+            <ul>
+              <li><code>GEMINI_API_KEY</code> - For high-speed models.</li>
+              <li><code>OPENAI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code> - For complex reasoning drafts.</li>
+              <li><code>PINECONE_API_KEY</code> - For indexing custom sitemaps/KBs locally.</li>
+            </ul>
+          </li>
+          <li>Click Save. Your keys are fully encrypted using Windows Credential Locker APIs on disk.</li>
+        </ol>
+        
+        <h3>Offline Licensing Architecture</h3>
+        <p>Your Clyde Pro lifetime or monthly validation runs locally on-machine. Upon purchase, Clyde generates a locally-validated license block signed using secure **RSA-2048 cryptographically signed signatures** (via <code>validateLicenseKey</code>). This ensures Clyde remains functional and authentic even during offline network gaps.</p>
+      `
+    },
+    {
+      id: 'desktop-stealth-mode',
+      category: 'desktop',
+      categoryLabel: 'Clyde Desktop App',
+      title: 'Enabling Stealth Mode (Programmatic Taskbar & Alt+Tab Bypass)',
+      summary: 'How to completely hide Clyde from active screens, Windows taskbars, and Alt+Tab switchers.',
+      content: `
+        <h3>The Stealth Feature</h3>
+        <p>Stephen designed Clyde to maintain absolute "stealth and undetectable" characteristics during high-stakes customer sessions. Clyde Desktop includes options to completely bypass the standard Windows taskbar and Alt+Tab panels.</p>
+        
+        <h3>How to Activate Stealth Mode</h3>
+        <ol>
+          <li>Go to the **Settings** panel inside Clyde Desktop.</li>
+          <li>Scroll down to **Stealth & OS Integration**.</li>
+          <li>Turn on **"Stealth Taskbar Mode"**.</li>
+          <li>Once enabled, Clyde will call native win32 APIs to re-register its active window handle as a tool window:
+            <pre><code>SetWindowLong(hwnd, GWL_EXSTYLE, WS_EX_TOOLWINDOW)</code></pre>
+            This strips Clyde from the Windows Taskbar and Alt+Tab switcher instantly.
+          </li>
+        </ol>
+        
+        <h3>How to Recall the Window</h3>
+        <p>When running in Stealth mode, Clyde remains active and triaging in the background. To recall the visual window, press your global configured shortcut (default is <code>Ctrl + Alt + C</code>) or click the Clyde system tray icon.</p>
+      `
+    },
+    {
+      id: 'audio-one-question-lag',
+      category: 'audio',
+      categoryLabel: 'Audio & Transcription',
+      title: 'Eliminating One-Question-Behind Lag on Local Call Transcripts',
+      summary: 'Adjusting voice activity detection and sentence completion thresholds to prevent display latency.',
+      content: `
+        <h3>The Issue</h3>
+        <p>During active calls under local offline transcription modes, you might experience a "one-question-behind" latency. The answer card representing the current question does not appear until the interviewer begins speaking the *subsequent* question.</p>
+        
+        <h3>The Root Cause</h3>
+        <p>Local Speech-to-Text models lack complex contextual punctuation filters. Unpunctuated phrase fragments (like *"this particular"* or *"maintain high"*) are parsed as complete sentences. The local engine triggers the answer compiler early, and the subsequent 12-second rate-limiting gate blocks the actual completed question when it concludes.</p>
+        
+        <h3>The Fix</h3>
+        <ul>
+          <li><strong>Step 1: Enforce Strict Punctuation Gates</strong>
+            <p>In Sound Settings, toggle **"Enforce Strict Punctuation Gates"** to active. This restricts the local transcription pathway from firing compilations unless an explicit terminal punctuation mark (<code>?</code>, <code>.</code>, or <code>!</code>) is returned or matched via the ASR regex tree.</p>
+          </li>
+          <li><strong>Step 2: Adjust Voice Activity Detection (VAD)</strong>
+            <p>Decrease your VAD silence threshold to <strong>450ms</strong> inside settings. This prevents natural mid-sentence pauses from being categorized as completed queries.</p>
+          </li>
+          <li><strong>Step 3: Update local COMPLETE prompts</strong>
+            <p>Ensure your local Whisper parser maps loose streams to cloud endpoints for intent validation only, protecting the local loop.</p>
+          </li>
+        </ul>
+      `
+    },
+    {
+      "id": "clyde-go-mv3-auth",
+      "keyword": "Clyde Go MV3 Extension Auth & Chrome Sandbox",
+      "draftTitle": "Resolving Chrome MV3 Extension Authentication & Sandbox Failures",
+      "draftContent": "The Clyde Go Chrome extension operates under Google's strict Manifest V3 (MV3) guidelines. If you face authentication drops or session timeouts inside Chrome, it's usually caused by Chrome's service worker going idle.\n\nTo resolve:\n1. Update Clyde Go to v2.4.2 to ensure keep-alive nonces are sent.\n2. Ensure the background service worker registry is white-listed under Chrome's Content Security Policies (CSP)."
+    }
+  ];
+
+  const filteredArticles = articles.filter(art => {
+    const matchesSearch = art.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          art.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (art.content && art.content.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesCategory = activeCategory === 'all' || art.category === activeCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  return (
+    <div class="min-h-screen bg-cyber-bg text-slate-200 py-12 px-4 sm:px-6 lg:px-8 font-sans">
+      <div class="max-w-6xl mx-auto">
+        
+        {/* KB Breadcrumb & Header */}
+        <div class="mb-10" data-reveal>
+          <div class="flex items-center gap-2 text-xs text-slate-400 font-mono mb-4">
+            <button onClick={() => navigate('/')} class="hover:text-cyber-cyan transition-colors">Home</button>
+            <span>/</span>
+            <span class="text-cyber-violet">Knowledge Base</span>
+          </div>
+          <h1 class="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-cyber-cyan to-cyber-violet bg-clip-text text-transparent inline-block">
+            Clyde Knowledge Center
+          </h1>
+          <p class="text-slate-400 text-sm mt-2 max-w-xl">
+            Detailed configurations, technical guides, troubleshooting runbooks, and manual workarounds built for Clyde Desktop and Clyde Go.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          {/* Left Sidebar Filter & Search */}
+          <div class="lg:col-span-4 space-y-6">
+            
+            {/* Search Box */}
+            <div class="relative rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl">
+              <label class="text-xs font-bold text-slate-300 block mb-2 font-mono">Search Runbooks</label>
+              <div class="relative">
+                <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="e.g., Realtek, Workday, BYOK..." 
+                  class="w-full bg-cyber-bg/80 border border-cyber-line/30 rounded-lg p-2.5 pl-9 text-sm text-slate-200 focus:outline-none focus:border-cyber-cyan/50 font-sans transition-all"
+                />
+                <div class="absolute left-3 top-3 text-slate-400">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Categories */}
+            <div class="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl space-y-2">
+              <span class="text-xs font-bold text-slate-300 block mb-3 font-mono">Filter by Category</span>
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => { setActiveCategory(cat.id); setSelectedArticle(null); }}
+                  class={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold font-mono transition-all flex items-center justify-between ${
+                    activeCategory === cat.id 
+                      ? 'bg-cyber-cyan/15 border border-cyber-cyan/30 text-cyber-cyan shadow-sm shadow-cyber-cyan/10' 
+                      : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                >
+                  <span>{cat.label}</span>
+                  <span class="text-[9px] opacity-60">
+                    {cat.id === 'all' 
+                      ? articles.length 
+                      : articles.filter(a => a.category === cat.id).length
+                    }
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Direct Ticket Help Card */}
+            <div class="rounded-xl border border-cyber-line/30 bg-gradient-to-br from-cyber-violetMuted/10 to-cyber-cyanMuted/5 p-5 relative overflow-hidden shadow-xl">
+              <h3 class="text-xs font-bold font-mono text-cyber-cyan mb-2">Still need support?</h3>
+              <p class="text-[11px] text-slate-400 leading-relaxed mb-4">
+                Can't find a solution to your device or extension conflict? Submit a technical ticket directly to our engineers.
+              </p>
+              <button 
+                onClick={() => navigate('/support')}
+                class="w-full text-center py-2.5 rounded-lg text-xs font-bold text-cyber-bg bg-gradient-to-r from-cyber-cyan to-cyber-violet hover:opacity-90 transition-all font-mono"
+              >
+                Open Support Ticket
+              </button>
+            </div>
+
+          </div>
+
+          {/* Right Main Article Section */}
+          <div class="lg:col-span-8">
+            
+            {/* If an article is open */}
+            {selectedArticle ? (
+              <div class="rounded-2xl border border-cyber-line/30 bg-cyber-bgSoft/50 backdrop-blur-md p-8 shadow-2xl space-y-6" data-reveal>
+                <div class="flex items-center justify-between pb-4 border-b border-cyber-line/20">
+                  <span class="px-2.5 py-1 rounded-full text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/15 border border-cyber-cyan/30">
+                    {selectedArticle.categoryLabel || 'Support'}
+                  </span>
+                  <button 
+                    onClick={() => setSelectedArticle(null)}
+                    class="text-xs font-mono text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                    <span>Back to Article List</span>
+                  </button>
+                </div>
+
+                <div class="space-y-4">
+                  <h2 class="text-2xl font-extrabold text-white leading-tight font-sans">
+                    {selectedArticle.title}
+                  </h2>
+                  <div 
+                    className="kb-article-body text-slate-300 text-sm leading-relaxed space-y-4 font-sans"
+                    dangerouslySetInnerHTML={{ __html: selectedArticle.content || selectedArticle.draftContent }}
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Article Grid/List */
+              <div class="space-y-4">
+                <span class="text-xs font-bold text-slate-400 font-mono block mb-2">
+                  Showing {filteredArticles.length} matching runbooks
+                </span>
+                
+                {filteredArticles.length === 0 ? (
+                  <div class="rounded-xl border border-cyber-line/20 bg-cyber-bgSoft/30 p-12 text-center text-slate-400 space-y-4">
+                    <p class="text-sm font-semibold">No Knowledge Base articles found matching "{searchQuery}"</p>
+                    <button 
+                      onClick={() => { setSearchQuery(''); setActiveCategory('all'); }}
+                      class="text-xs text-cyber-cyan hover:underline font-mono"
+                    >
+                      Clear filters and try again
+                    </button>
+                  </div>
+                ) : (
+                  filteredArticles.map(art => (
+                    <div 
+                      key={art.id}
+                      onClick={() => setSelectedArticle(art)}
+                      class="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 hover:bg-cyber-bgSoft/65 hover:border-cyber-violet/30 cursor-pointer p-5 transition-all space-y-3 group shadow-lg"
+                    >
+                      <div class="flex items-center justify-between">
+                        <span class="text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/10 px-2 py-0.5 rounded border border-cyber-cyan/20">
+                          {art.categoryLabel || 'Support'}
+                        </span>
+                        <span class="text-[9px] font-mono text-slate-500 group-hover:text-cyber-violet transition-colors">
+                          Read runbook →
+                        </span>
+                      </div>
+                      <div>
+                        <h3 class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">
+                          {art.title || art.draftTitle}
+                        </h3>
+                        <p class="text-[11px] text-slate-400 mt-1 leading-normal font-sans">
+                          {art.summary || art.draftContent.substring(0, 120) + "..."}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+              </div>
+            )}
+
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+export { normalizePath };
 export default App;
