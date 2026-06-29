@@ -3308,150 +3308,244 @@ function KnowledgeBasePage({ navigate }) {
 
   const articles = [
     {
-      id: 'desktop-loopback-conflict',
+      id: 'clyde-desktop-setup',
       category: 'desktop',
       categoryLabel: 'Clyde Desktop App',
-      title: 'Resolving Realtek HSA & Nahimic Loopback Audio Conflicts',
-      summary: 'Standard troubleshooting steps for loopback capture engine crash alerts like ERR_LOOPBACK_CONFLICT_REALTEK.',
-      content: `
-        <h3>The Problem</h3>
-        <p>While using Clyde Desktop loopback capture on certain Windows machines (especially gaming laptops like HP OMEN, Dell Alienware, or Asus ROG), you might encounter audio engine crash logs or an explicit error console code: <code>ERR_LOOPBACK_CONFLICT_REALTEK</code>.</p>
-        
-        <h3>The Underlying Cause</h3>
-        <p>Proprietary audio optimization suites—specifically <strong>Nahimic Audio</strong>, <strong>Realtek HSA Service</strong>, or gaming center audio drivers—inject active handles into the windows default output device. They capture exclusive loopback hooks, which prevents Clyde's local recorder from binding to the stream.</p>
-        
-        <h3>How to Fix It Manually</h3>
-        <ul>
-          <li><strong>Step 1: Disable Exclusive Mode</strong>
-            <p>Open the Windows Sound Control Panel (type <code>mmsys.cpl</code> in Run), select your default playback device, click <strong>Properties</strong>, navigate to the <strong>Advanced</strong> tab, and uncheck "Allow applications to take exclusive control of this device". Click Apply.</p>
-          </li>
-          <li><strong>Step 2: Append CLI Bypasses</strong>
-            <p>Launch Clyde Desktop with the direct launch flag: <code>--disable-exclusive-audio-hooks</code>. This instructs Clyde's recording driver to hook into shared loopback streams instead of exclusive system audio registers.</p>
-          </li>
-          <li><strong>Step 3: Administrative Escalation</strong>
-            <p>Right-click the Clyde.exe shortcut and choose <strong>"Run as administrator"</strong>. This overrides driver registry exclusion hierarchies and forces audio handle alignment.</p>
-          </li>
-        </ul>
-      `
+      title: 'Getting Started with Clyde Desktop',
+      summary: 'A quick-and-dirty, step-by-step guide to installing Clyde Desktop, picking your workspace mode, and starting your first captured session.',
+      content: `<h3 style="color: #00ffcc; border-bottom: 1px solid #00ffcc; padding-bottom: 4px;">Getting Up and Running</h3>
+<p>Hey there! Ready to get Clyde set up? We designed Clyde to be zero-friction, running fully on your machine with no annoying cloud-recording bots joining your calls. No one will ever know you're using it unless you tell them.</p>
+<p>First, grab the installer for your OS, run it, and launch the Clyde app. Once you're inside, follow the five-minute onboarding tour or close it to dive straight into the main dashboard.</p>
+
+<h3 style="color: #00ffcc; border-bottom: 1px solid #00ffcc; padding-bottom: 4px;">The Big Choice: Interview Mode vs. Meeting Mode</h3>
+<p>Before you hit record, you need to decide what kind of session you're running. This defines how Clyde behaves, what kind of suggestions it gives you, and where your data gets saved:</p>
+<ul style="list-style-type: square; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;"><strong style="color: #ff3366;">Interview Mode:</strong> Perfect for technical rounds, recruiter screens, and hiring manager loops. In this mode, Clyde pulls up your job descriptions, links opportunity context, tracks your questions, and calibrates your post-session confidence scorecards.</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #ff3366;">Meeting Mode:</strong> Built for weekly standups, product retros, investor updates, or 1:1s. This mode ditches interview grading and focuses on keeping razor-sharp transcripts, tracking action items, identifying blockers, and listing key decisions by attendee.</li>
+</ul>
+
+<h3 style="color: #00ffcc; border-bottom: 1px solid #00ffcc; padding-bottom: 4px;">Step-by-Step Workspace Setup</h3>
+<p>Here is your quick pre-flight checklist to make sure your first call is a massive win:</p>
+<ul style="list-style-type: decimal; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;"><strong style="color: #ffff00;">Select Your Active Context:</strong> Look at the top title bar and pick the specific interview opportunity or meeting context. Clyde uses this to file your transcripts, notes, and suggested next steps correctly.</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #ffff00;">Configure AI Models:</strong> Hit the gear icon to open <span style="background-color: #222; color: #00ffcc; padding: 2px 6px; font-family: monospace;">Settings</span>. Pick your transcription provider and your LLM companion (we support cloud models and offline local setups).</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #ffff00;">Run Preflight Checks:</strong> When you hit the bright <strong style="color: #00ffcc;">Start</strong> button, a preflight window pops up. Use this to double-check your audio inputs, confirm screen capture protection is on, and verify Clyde is reading the right files.</li>
+</ul>
+
+<div style="background-color: #1a0033; border: 2px solid #9933ff; color: #ffffff; padding: 15px; border-radius: 6px; margin: 15px 0;">
+  <strong style="color: #00ffcc; font-size: 1.1rem;">💻 Pro-Tip: Opacity controls</strong><br/>
+  You can slide Clyde's window transparency from 100% all the way down to 35% in the bottom control bar. This lets you lay Clyde directly over your meeting slides or IDE, keeping helpful cues visible while keeping your desktop completely clean.
+</div>`
     },
     {
-      id: 'go-react-hydration',
-      category: 'go',
-      categoryLabel: 'Clyde Go (Extension)',
-      title: 'Addressing Workday Form Input React State Hydration Latency',
-      summary: 'Why form fields visually fill out but empty upon submission on Workday portals, and how to fix it.',
-      content: `
-        <h3>The Problem</h3>
-        <p>When using the Clyde Go Chrome extension (MV3) to auto-fill applicant portals (specifically Workday, Taleo, or Greenhouse), the input elements visually fill out. However, when you click Submit, fields like graduation date, graduation year, or GPA vanish or throw required validation errors.</p>
-        
-        <h3>The Underlying Cause</h3>
-        <p>Workday and enterprise HR gateways run heavily throttled React synthetic state frameworks. When an extension injects text directly into the raw DOM node's <code>value</code> attribute too rapidly, React's virtual DOM state handlers do not hydrate. The field updates visually, but the database state remains blank.</p>
-        
-        <h3>How to Fix It Manually</h3>
-        <ul>
-          <li><strong>Step 1: Check Extension Version</strong>
-            <p>Verify you are running Clyde Go <strong>v2.4.1 or higher</strong>. We implemented a native <strong>150ms post-hydration delay</strong> inside our MV3 injection pipeline specifically to accommodate Workday throttle rates.</p>
-          </li>
-          <li><strong>Step 2: Force Change Handlers</strong>
-            <p>If you are encountering a custom form, select the field and press any key (like Space then Backspace). This manual keystroke triggers the DOM's native <code>change</code> event and binds the visual data directly to React's synthetic states.</p>
-          </li>
-          <li><strong>Step 3: Clear Overlapping Auto-Fills</strong>
-            <p>Ensure that Chrome's default browser auto-fill is turned off. Overlapping auto-fills can cause race conditions inside React's state tree.</p>
-          </li>
-        </ul>
-      `
-    },
-    {
-      id: 'pro-byok-licensing',
-      category: 'pro',
-      categoryLabel: 'Pro & Licensing',
-      title: 'Bring Your Own Key (BYOK) Configuration & Signature Validation',
-      summary: 'How to wire up your own API keys (Anthropic, OpenAI, Pinecone) for infinite offline-ready AI drafts.',
-      content: `
-        <h3>The Advantage of BYOK</h3>
-        <p>Clyde Pro includes high-speed managed cloud credits, but also provides a complete **Bring Your Own Key (BYOK)** system. This allows you to configure your local client with personal OpenAI, Anthropic, or Pinecone credentials for unlimited, unconstrained AI draft generation.</p>
-        
-        <h3>How to Configure Custom Keys</h3>
-        <p>To enter your credentials securely:</p>
-        <ol>
-          <li>Open Clyde Desktop and navigate to <strong>Settings</strong> -> <strong>AI API Configuration</strong>.</li>
-          <li>Toggle on the **"Enable Personal API keys"** option.</li>
-          <li>Input your custom keys:
-            <ul>
-              <li><code>GEMINI_API_KEY</code> - For high-speed models.</li>
-              <li><code>OPENAI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code> - For complex reasoning drafts.</li>
-              <li><code>PINECONE_API_KEY</code> - For indexing custom sitemaps/KBs locally.</li>
-            </ul>
-          </li>
-          <li>Click Save. Your keys are fully encrypted using Windows Credential Locker APIs on disk.</li>
-        </ol>
-        
-        <h3>Offline Licensing Architecture</h3>
-        <p>Your Clyde Pro lifetime or monthly validation runs locally on-machine. Upon purchase, Clyde generates a locally-validated license block signed using secure **RSA-2048 cryptographically signed signatures** (via <code>validateLicenseKey</code>). This ensures Clyde remains functional and authentic even during offline network gaps.</p>
-      `
-    },
-    {
-      id: 'desktop-stealth-mode',
+      id: 'audio-permissions',
       category: 'desktop',
       categoryLabel: 'Clyde Desktop App',
-      title: 'Enabling Stealth Mode (Programmatic Taskbar & Alt+Tab Bypass)',
-      summary: 'How to completely hide Clyde from active screens, Windows taskbars, and Alt+Tab switchers.',
-      content: `
-        <h3>The Stealth Feature</h3>
-        <p>Stephen designed Clyde to maintain absolute "stealth and undetectable" characteristics during high-stakes customer sessions. Clyde Desktop includes options to completely bypass the standard Windows taskbar and Alt+Tab panels.</p>
-        
-        <h3>How to Activate Stealth Mode</h3>
-        <ol>
-          <li>Go to the **Settings** panel inside Clyde Desktop.</li>
-          <li>Scroll down to **Stealth & OS Integration**.</li>
-          <li>Turn on **"Stealth Taskbar Mode"**.</li>
-          <li>Once enabled, Clyde will call native win32 APIs to re-register its active window handle as a tool window:
-            <pre><code>SetWindowLong(hwnd, GWL_EXSTYLE, WS_EX_TOOLWINDOW)</code></pre>
-            This strips Clyde from the Windows Taskbar and Alt+Tab switcher instantly.
-          </li>
-        </ol>
-        
-        <h3>How to Recall the Window</h3>
-        <p>When running in Stealth mode, Clyde remains active and triaging in the background. To recall the visual window, press your global configured shortcut (default is <code>Ctrl + Alt + C</code>) or click the Clyde system tray icon.</p>
-      `
+      title: 'Resolving Microphone & System Audio Access',
+      summary: 'Is Clyde silent? Here is how to navigate macOS and Windows permissions, make sure your mic is unblocked, and ensure system audio flows cleanly.',
+      content: `<h3 style="color: #ff3366; border-bottom: 1px solid #ff3366; padding-bottom: 4px;">Why Clyde Needs Your Mic</h3>
+<p>Because Clyde runs completely locally on your desktop (no cloud bots, no calendar invitations needed), it acts like a high-performance recording deck. That means it needs explicit permission from your operating system to grab your microphone and capture the audio outputting from Zoom, Teams, or Google Meet.</p>
+
+<h3 style="color: #ff3366; border-bottom: 1px solid #ff3366; padding-bottom: 4px;">Unblocking Permissions on Windows 10 & 11</h3>
+<p>Usually, Windows plays nice out of the box, but OS security updates can sometimes shut down mic access. Follow these steps to make sure Clyde is in the clear:</p>
+<ul style="list-style-type: square; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;">Open your system menu and head to <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">Settings → Privacy & Security → Microphone</span>.</li>
+  <li style="margin-bottom: 8px;">Ensure <strong style="color: #ffff00;">Microphone access</strong> is toggled to <strong style="color: #00ffcc;">ON</strong>.</li>
+  <li style="margin-bottom: 8px;">Scroll down to "Let desktop apps access your microphone" and make sure Clyde is allowed. If Clyde isn't listed, simply close the app, launch it as Administrator once, and trigger a capture session to force the Windows prompt.</li>
+</ul>
+
+<h3 style="color: #ff3366; border-bottom: 1px solid #ff3366; padding-bottom: 4px;">Fixing the macOS Security Gauntlet</h3>
+<p>Apple's macOS is incredibly strict about audio and screen recording. If Clyde isn't generating transcripts, it's almost always an OS permission block:</p>
+<ul style="list-style-type: circle; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;"><strong style="color: #ff3366;">Microphone Access:</strong> Go to <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">System Settings → Privacy & Security → Microphone</span> and toggle Clyde <strong style="color: #00ffcc;">ON</strong>.</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #ff3366;">Screen & System Audio Recording:</strong> Since system audio capture utilizes desktop capture frameworks to isolate meeting audio, you MUST toggle Clyde to <strong style="color: #00ffcc;">ON</strong> in <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">System Settings → Privacy & Security → Screen & System Audio Recording</span>.</li>
+</ul>
+
+<div style="background-color: #330000; border: 2px solid #ff3333; color: #ffffff; padding: 15px; border-radius: 6px; margin: 15px 0;">
+  <strong style="color: #ff3333; font-size: 1.1rem;">⚠️ Dead Silence? Check the Indicator!</strong><br/>
+  During an active call, look at the microphone icon in Clyde's bottom control bar. If it isn't pulsing, Clyde isn't getting any audio. Try clicking the mic icon directly—it acts as a quick mute/unmute and capture pause switch!
+</div>`
     },
     {
-      id: 'audio-one-question-lag',
+      id: 'cloud-providers-setup',
+      category: 'desktop',
+      categoryLabel: 'Clyde Desktop App',
+      title: 'Setting Up Cloud Providers: OpenAI, Anthropic, and Gemini',
+      summary: "Step-by-step instructions on adding API keys, picking models, configuring endpoints, and running validations for Clyde's cloud-based AI.",
+      content: `<h3 style="color: #ffff00; border-bottom: 1px solid #ffff00; padding-bottom: 4px;">Unleashing Frontier Models</h3>
+<p>If you aren't running local AI models, Clyde hooks up directly to top-tier cloud models using your own API keys. This keeps costs pennies-per-call, avoids expensive monthly mockups, and gives you access to state-of-the-art reasoning engines during live interviews and meetings.</p>
+
+<h3 style="color: #ffff00; border-bottom: 1px solid #ffff00; padding-bottom: 4px;">Supported Providers & Models</h3>
+<p>Clyde allows you to mix and match models for different jobs. Go to <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">Settings → LLM</span> to configure these options:</p>
+<ul style="list-style-type: square; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;"><strong style="color: #00ffcc;">OpenAI:</strong> Paste your OpenAI API key. We recommend <code style="color: #00ffcc; font-family: monospace;">gpt-4o</code> for general assistant duties, screenshot analysis, and post-session grading. For ultra-low latency transcription, configure <code style="color: #00ffcc; font-family: monospace;">OpenAI Realtime Whisper</code> using the same key.</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #00ffcc;">Anthropic:</strong> Paste your Claude API key. Claude models like <code style="color: #00ffcc; font-family: monospace;">claude-3-5-sonnet</code> are elite at tracking complex technical interview steps and providing beautifully written, conversational answer nudges.</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #00ffcc;">Google Gemini:</strong> Paste your Gemini key. Use Gemini models for incredibly fast summaries and large-context reasoning. You can also configure Gemini as your embedding provider for our Semantic RAG.</li>
+</ul>
+
+<h3 style="color: #ffff00; border-bottom: 1px solid #ffff00; padding-bottom: 4px;">Validation: Stop Guessing, Test Now</h3>
+<p>Once you paste your API key and configure your model names, don't just hope for the best. Head over to <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">Settings → General</span> and click <strong style="color: #00ffcc;">Validate services</strong>. Clyde will instantly ping each endpoint and let you know if your keys are valid, models are active, and connections are clean.</p>
+
+<div style="background-color: #1a0033; border: 2px solid #00ffcc; color: #ffffff; padding: 15px; border-radius: 6px; margin: 15px 0;">
+  <strong style="color: #ffff00; font-size: 1.1rem;">💡 Hybrid Configuration Trick</strong><br/>
+  Many users configure <strong style="color: #00ffcc;">OpenAI Realtime Whisper</strong> for blazing-fast, word-by-word transcription, but set their standard assistant provider to <strong style="color: #ff3366;">Anthropic Claude 3.5 Sonnet</strong>. This gives you speed on the input and maximum intelligence on the output!
+</div>`
+    },
+    {
+      id: 'local-lm-studio',
+      category: 'desktop',
+      categoryLabel: 'Clyde Desktop App',
+      title: 'Private Mode: Local LM Studio & Offline Whisper',
+      summary: 'Keep your secrets secret. Learn how to run Clyde fully on-device by routing your LLM through LM Studio and transcribing locally with Whisper.',
+      content: `<h3 style="color: #ff00ff; border-bottom: 1px solid #ff00ff; padding-bottom: 4px;">Zero Cloud Footprint</h3>
+<p>For sensitive enterprise meetings, proprietary code discussions, or just peace of mind, Clyde supports a 100% offline pipeline. By hooking Clyde up to <strong style="color: #00ffcc;">LM Studio</strong> and a local Whisper server, your audio waves, transcribed text, system prompts, and notes never leave your physical device.</p>
+
+<h3 style="color: #ff00ff; border-bottom: 1px solid #ff00ff; padding-bottom: 4px;">Step 1: Setting Up LM Studio</h3>
+<p>LM Studio makes running open-source LLMs incredibly simple. Here's how to route Clyde's brains locally:</p>
+<ul style="list-style-type: decimal; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;">Download and install LM Studio, then fetch an OpenAI-compatible model (we love <code style="color: #00ffcc; font-family: monospace;">Llama-3-8B-Instruct</code> or <code style="color: #00ffcc; font-family: monospace;">Mistral-7B-Instruct</code>).</li>
+  <li style="margin-bottom: 8px;">Navigate to the Local Server tab (double-arrow icon) in LM Studio.</li>
+  <li style="margin-bottom: 8px;">Set the port (default is usually <code style="color: #00ffcc; font-family: monospace;">1234</code>) and click <strong style="color: #ff3366;">Start Server</strong>.</li>
+</ul>
+
+<h3 style="color: #ff00ff; border-bottom: 1px solid #ff00ff; padding-bottom: 4px;">Step 2: Connecting Clyde to Your Local LLM</h3>
+<p>Now, let's wire Clyde to point to your offline engine:</p>
+<ul style="list-style-type: circle; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;">In Clyde, go to <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">Settings → LLM</span>.</li>
+  <li style="margin-bottom: 8px;">Set your standard AI provider to <strong style="color: #00ffcc;">Local LM Studio</strong>.</li>
+  <li style="margin-bottom: 8px;">Paste your endpoint URL. For LM Studio, this is typically <code style="color: #ffff00; font-family: monospace;">http://localhost:1234/v1</code>.</li>
+  <li style="margin-bottom: 8px;">Enter the exact model ID loaded in LM Studio so Clyde can address it properly.</li>
+</ul>
+
+<h3 style="color: #ff00ff; border-bottom: 1px solid #ff00ff; padding-bottom: 4px;">Step 3: Offline Local Whisper Setup</h3>
+<p>To avoid sending audio packets to cloud APIs, navigate to <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">Settings → Speech</span>:</p>
+<ul style="list-style-type: square; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;">Change your Transcription Provider to <strong style="color: #00ffcc;">Local Whisper</strong>.</li>
+  <li style="margin-bottom: 8px;">Configure your local Whisper endpoint (e.g., <code style="color: #ffff00; font-family: monospace;">http://localhost:8000/v1/audio/transcriptions</code>). If you run a local whisper-asr-webservice, make sure the port is correct and matching!</li>
+</ul>
+
+<div style="background-color: #001a11; border: 2px solid #00ffcc; color: #ffffff; padding: 15px; border-radius: 6px; margin: 15px 0;">
+  <strong style="color: #00ffcc; font-size: 1.1rem;">✅ Remember to Validate!</strong><br/>
+  Before starting your call, go to <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">Settings → General → Validate services</span>. If validation fails, double-check that LM Studio is actually running, the model is fully loaded in memory, and the endpoint paths are typed correctly!
+</div>`
+    },
+    {
+      id: 'sound-settings',
+      category: 'desktop',
+      categoryLabel: 'Clyde Desktop App',
+      title: 'Speech & Audio settings: Selecting Engines, Devices & Whisper Ports',
+      summary: 'Make sure your voice is captured crystal-clear. Learn how to configure Rust Native Audio, choose output devices, refresh devices, and point to Local Whisper.',
+      content: `<h3 style="color: #00ffcc; border-bottom: 1px solid #00ffcc; padding-bottom: 4px;">Optimizing the Audio Pipeline</h3>
+<p>Clyde's superpower is splitting and capturing sound from multiple sources simultaneously: your local physical microphone (your voice) and the virtual output driver (the meeting attendees' voices). Getting these sound lines configured correctly is key to clean transcripts.</p>
+
+<h3 style="color: #00ffcc; border-bottom: 1px solid #00ffcc; padding-bottom: 4px;">Rust Native Audio vs. Legacy Recorder</h3>
+<p>In <span style="background-color: #222; color: #00ffcc; padding: 2px 4px; font-family: monospace;">Settings → Speech</span>, you can toggle between two audio processing engines:</p>
+<ul style="list-style-type: square; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;"><strong style="color: #00ffcc;">Rust Native Audio (Recommended):</strong> Our blazingly fast, custom-built native audio pipeline. It utilizes low-level OS hooks, consumes minimal CPU, and handles multi-device aggregation flawlessly. It has a built-in noise gate and automatic audio level balancing.</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #ff3366;">Legacy Recorder:</strong> A fallback electron-based recorder. Useful if you have complex virtual soundboards or specialized virtualization software that blocks low-level OS hooks.</li>
+</ul>
+
+<h3 style="color: #00ffcc; border-bottom: 1px solid #00ffcc; padding-bottom: 4px;">Device Selection & Re-Scanning</h3>
+<p>To avoid taking audio from the wrong webcam mic or sending it to an inactive headset, configure your routing manually:</p>
+<ul style="list-style-type: decimal; padding-left: 20px; color: #e0e0e0;">
+  <li style="margin-bottom: 8px;"><strong style="color: #ffff00;">Microphone Selection:</strong> Choose your main talking input device from the dropdown list.</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #ffff00;">System Audio Selection:</strong> Choose the device capturing the other side's voice (your headphones or speaker device).</li>
+  <li style="margin-bottom: 8px;"><strong style="color: #00ffcc;">Refresh Devices:</strong> Plugged in a new USB microphone mid-app? Don't restart Clyde! Just click the <strong style="color: #00ffcc;">Refresh devices</strong> button to instantly re-scan your computer's audio slots.</li>
+</ul>
+
+<h3 style="color: #00ffcc; border-bottom: 1px solid #00ffcc; padding-bottom: 4px;">Whisper Port Configuration</h3>
+<p>If you're using <strong style="color: #00ffcc;">Local Whisper</strong>, Clyde communicates via HTTP requests. Your endpoint URL should point directly to the port where your local transcriber is running (usually port <code style="color: #ffff00; font-family: monospace;">8000</code> or <code style="color: #ffff00; font-family: monospace;">5000</code>). Ensure the URL reads <code style="color: #00ffcc; font-family: monospace;">http://localhost:PORT/v1/audio/transcriptions</code> so Clyde can POST audio chunks for immediate translation into text.</p>
+
+<div style="background-color: #1a0033; border: 2px solid #ff3366; color: #ffffff; padding: 15px; border-radius: 6px; margin: 15px 0;">
+  <strong style="color: #00ffcc; font-size: 1.1rem;">🎧 Speaker Detection Hint</strong><br/>
+  Clyde separates speakers by tracking which device input generated the audio chunk. If your system audio is bleeding into your mic input (like playing meeting sound through desktop speakers), turn down your speaker volume or switch to headphones to prevent Clyde from misidentifying speakers!
+</div>`
+    },
+    {
+      id: 'live-call-recording-setup',
       category: 'audio',
       categoryLabel: 'Audio & Transcription',
-      title: 'Eliminating One-Question-Behind Lag on Local Call Transcripts',
-      summary: 'Adjusting voice activity detection and sentence completion thresholds to prevent display latency.',
-      content: `
-        <h3>The Issue</h3>
-        <p>During active calls under local offline transcription modes, you might experience a "one-question-behind" latency. The answer card representing the current question does not appear until the interviewer begins speaking the *subsequent* question.</p>
-        
-        <h3>The Root Cause</h3>
-        <p>Local Speech-to-Text models lack complex contextual punctuation filters. Unpunctuated phrase fragments (like *"this particular"* or *"maintain high"*) are parsed as complete sentences. The local engine triggers the answer compiler early, and the subsequent 12-second rate-limiting gate blocks the actual completed question when it concludes.</p>
-        
-        <h3>The Fix</h3>
-        <ul>
-          <li><strong>Step 1: Enforce Strict Punctuation Gates</strong>
-            <p>In Sound Settings, toggle **"Enforce Strict Punctuation Gates"** to active. This restricts the local transcription pathway from firing compilations unless an explicit terminal punctuation mark (<code>?</code>, <code>.</code>, or <code>!</code>) is returned or matched via the ASR regex tree.</p>
-          </li>
-          <li><strong>Step 2: Adjust Voice Activity Detection (VAD)</strong>
-            <p>In settings, set the VAD limit to 450ms to prevent breath transitions from slicing statements.</p>
-          </li>
-        </ul>
-      `
+      title: 'Running Live Calls, Screen Analysis, and Recording Workflows',
+      summary: 'Learn how to execute live calls in Clyde using the preflight check, real-time transcription, desktop screenshot analysis, and safe session saving.',
+      content: `<h3>1. Preflight Readiness Assessment</h3><p>Before launching a live call, clicking the <strong>Start</strong> button opens Clyde's Preflight Check modal. This critical safety step allows you to verify several components before any recording begins:</p><ul><li><strong>Active Context:</strong> Confirm that the session is tied to the correct opportunity or meeting so that transcripts, summaries, and action items are saved to the proper entity.</li><li><strong>AI Provider Verification:</strong> See at a glance which LLM and transcription services are validated and active.</li><li><strong>Capture Protection Status:</strong> Verify if Clyde's UI overlay safety feature is active to prevent the app from being captured in external recordings.</li><li><strong>Linked Q&A Pairs:</strong> Review how many customized questions from the Question Bank are loaded and primed for the active call.</li></ul><h3>2. Real-Time Transcription & Speaker Separation</h3><p>Once you pass the preflight check and initiate recording, Clyde captures audio streams from both your microphone and your system's output (the other party's voice). Using your configured transcription service (such as Local Whisper or OpenAI Whisper), Clyde separates turns by speaker and populates a scrolling live transcript. The turns are shown in a chat-bubble interface, where your utterances appear on the right side and the other caller's comments appear on the left, making the conversation structure easy to follow at a glance.</p><h3>3. Custom 'Ask Clyde' Prompts and Screenshot Analysis</h3><p>At any point during the call, you can type directly into the input pill at the bottom of the capture window. The <strong>Ask Clyde</strong> input allows you to request instant help, such as explaining technical terms, suggesting counter-arguments, or identifying risks. Additionally, you can utilize visual intelligence:</p><ul><li><strong>1-Click Screenshot (Camera Button):</strong> Click the camera icon in the input pill to capture your desktop. Clyde uses your vision-capable LLM to analyze slide decks, code snippets, charts, or shared diagrams instantly.</li><li><strong>Include Screenshot Toggle:</strong> Toggle this switch to attach a real-time screen capture to your next typed prompt, allowing you to ask hyper-specific questions about what is currently visible on screen.</li></ul><h3>4. Stop, Save, and Export Options</h3><p>When the call finishes, clicking the <strong>Stop</strong> button automatically stops audio capture, cleans the transcript, generates concise meeting notes or interview evaluations, and extracts concrete action items. You can also export the session history dynamically: clicking the <strong>Download</strong> icon in the bottom bar exports your entire prompt history and Clyde's corresponding suggestions as a formatted Markdown file for external review.</p>`
     },
     {
-      id: 'go-mv3-security',
+      id: 'nudge-hotkey-system',
+      category: 'audio',
+      categoryLabel: 'Audio & Transcription',
+      title: 'Deep Dive into the Nudge System and Global Hotkey Configuration',
+      summary: 'Master the Nudge system in Clyde, including the manual trigger, distinct purple/indigo answer styling, and system-wide keyboard shortcut configuration.',
+      content: `<h3>1. What is the Nudge System?</h3><p>The Nudge system is designed to provide immediate, low-latency suggestions for what you should say next during live, high-pressure conversations. Unlike normal prompts which might require you to formulate and type out a detailed request, Nudge is a single-action trigger. When activated, Clyde instantly reviews the most recent incoming turns in the active transcript, identifies the interviewer's last question or topic of discussion, and outputs a highly relevant talking point, counter-argument, or direct answer suggestion.</p><h3>2. Distinct Purple and Indigo Card Styling</h3><p>To prevent confusion during rapid live calls, Nudge responses do not look like standard answer cards. While regular answers are styled with the application's base color scheme, Nudge suggestions are rendered in distinct purple/indigo cards. This immediate visual cue lets you identify Nudge cards at a glance without having to read the surrounding text, allowing you to quickly spot suggested responses while maintaining eye contact and conversational flow.</p><h3>3. Configuring the Global Hotkey</h3><p>To make the Nudge system accessible while you are focused on other windows—such as Zoom, Google Meet, Microsoft Teams, or a browser-based coding environment—Clyde includes a programmable system-wide global hotkey. The default shortcut is set to <strong>Ctrl+Shift+N</strong>, but it can be fully customized:</p><ul><li>Navigate to <strong>Settings → General → Nudge hotkey</strong>.</li><li>Click inside the recording input field.</li><li>Press your preferred key combination on your keyboard (the system will record and display it in real time).</li><li>Click <strong>Clear</strong> if you want to remove the registered hotkey entirely.</li></ul><h3>4. How the Shortcut Operates System-Wide</h3><p>The global hotkey is designed with deep safety and resource efficiency in mind. The keyboard hook is only registered globally when active audio capture is running, and is immediately unregistered once the call is stopped or paused. This ensures that the hotkey does not conflict with other desktop applications during normal computer use. If you experience hotkey issues, ensure that capture is actively running, confirm that the hotkey is properly mapped in Settings, and verify that the combination is not reserved by another system-level process.</p>`
+    },
+    {
+      id: 'pre-call-prep-strategy',
+      category: 'audio',
+      categoryLabel: 'Audio & Transcription',
+      title: 'Configuring Pre-Call Prep Cards for Focus Alignment',
+      summary: "Learn how to leverage Clyde's Pre-Call Prep page and cards to align focus, review cumulative phase summaries, and prepare tailored questions before your call starts.",
+      content: `<h3>1. Accessing the Pre-Call Prep Page</h3><p>Preparation is key to interview and meeting success. The dedicated <strong>Pre-Call Prep</strong> page is easily accessible from the application sidebar, located under the 'Now' section. Rather than starting from scratch, Clyde automatically synthesizes your saved opportunity data, previous meeting transcripts, job descriptions, and resume details to build a highly targeted, structured preparation layout.</p><h3>2. Core Sections of the Pre-Call Prep Card</h3><p>When Clyde gathers sufficient context, it generates a comprehensive, context-aware preparation card. This card features four highly tailored sections to align your focus before the call begins:</p><ul><li><strong>Cumulative Phase Summary:</strong> A concise retrospective of what has been discussed and covered in previous sessions of the opportunity, ensuring you do not repeat yourself or miss critical unresolved talking points.</li><li><strong>Probable Focus:</strong> A predictive analysis of what to expect in the upcoming call phase (e.g., technical deep dive, hiring manager behavioral round, or system design) based on typical patterns in similar roles and your opportunity history.</li><li><strong>Strengths Aligned to the Role:</strong> A curated list of your core experiences, project milestones, and tech stack proficiencies matched against the active job description's explicit requirements.</li><li><strong>Questions to Ask:</strong> A series of smart, customized questions designed to impress your interviewer, formulated from gaps identified in the JD and prior conversation transcripts.</li></ul><h3>3. Quick Launch Operations</h3><p>The Pre-Call Prep card is also an action hub. Once you are done reviewing your prep card, you can use the quick-access actions at the top of the interface to jump straight into the live capture window, validate your audio and LLM service configurations, or switch to other related opportunity files instantly.</p>`
+    },
+    {
+      id: 'question-bank-linking',
+      category: 'audio',
+      categoryLabel: 'Audio & Transcription',
+      title: 'Managing the Question Bank and Linking Contextual Q&A Pairs',
+      summary: 'Optimize your live call responses by manually adding questions, importing bulk CSV files, and linking Q&A pairs to specific active opportunities.',
+      content: `<h3>1. Purpose of the Question Bank</h3><p>The <strong>Question Bank</strong> is a dedicated workspace available in Interview Mode designed to store, manage, and retrieve your personalized question-and-answer pairs. By storing your ideal responses to common behaviorals, technical challenges, or project overviews, you give Clyde's AI context engine direct access to your verified 'brag facts' and model answers. During live calls, if an interviewer asks a question that matches or relates to a bank entry, Clyde leverages that exact answer text to formulate highly accurate, personalized suggestions.</p><h3>2. Bulk Importing Q&A via CSV</h3><p>While you can add individual question-and-answer pairs manually through the user interface, Clyde provides a bulk import feature to streamline your onboarding workflow:</p><ul><li>Create a standard CSV file with two main columns: <strong>Question</strong> and <strong>Answer</strong>.</li><li>Go to the <strong>Question Bank</strong> tab in the sidebar.</li><li>Click the <strong>Import CSV</strong> button and select your file.</li><li>Clyde parses the document and instantly populates your Question Bank dashboard.</li></ul><h3>3. Opportunity-Specific vs. Global Scopes</h3><p>To prevent Clyde's suggestion cards from being cluttered with irrelevant answers, you can control the scope of each Q&A pair:</p><ul><li><strong>Opportunity-Specific Linking:</strong> Link a Q&A pair directly to a specific active opportunity (e.g., 'Senior Product Manager at Stripe'). Clyde will only load and search this pair when that opportunity is active.</li><li><strong>Global Question Bank:</strong> For generic questions (like 'Tell me about yourself' or 'What are your salary expectations?'), keep them unscoped. You can include these in any call by toggling the <strong>Include Global</strong> setting in Settings or in the Question Bank header.</li></ul><h3>4. Preflight and Management</h3><p>All linked Q&A pairs are summarized in the Preflight Check modal, letting you confirm exactly how many specialized answers are active before recording begins. From the main Question Bank page, you can search, browse, edit, or delete any pair at any time to keep your answer database clean and current.</p>`
+    },
+    {
+      id: 'assistant-vs-pro-agent',
+      category: 'audio',
+      categoryLabel: 'Audio & Transcription',
+      title: 'Clyde Assistant vs. Clyde Pro Agent Capabilities and Workflows',
+      summary: 'Understand the differences between Clyde Assistant (Free) and Clyde Pro Agent (Pro), including observational bounds, sync triggers, autonomous actions, and mock scorecards.',
+      content: `<h3>1. Observational Bounds and Core Memory</h3><p>Clyde offers two levels of artificial intelligence workflows to accommodate different needs. The free tier includes <strong>Clyde Assistant</strong>, which is constrained to localized, immediate-context help. It is ideal for active-context support during a single call, floating chat interactions, and answering queries based on the currently open meeting or interview. The premium tier unlocks <strong>Clyde Pro Agent</strong>, which expands the AI's observational boundaries to cross-opportunity memory, global file semantic search (via advanced Pinecone RAG), and comprehensive trend tracking across multiple historical sessions.</p><h3>2. Google Gmail & Calendar Sync Triggers</h3><p>Clyde Pro Agent features automatic background integrations to keep your workflow synchronized without manual data entry. By enabling Google Sync in settings:</p><ul><li><strong>Triggers:</strong> Clyde periodically scans your connected Gmail inbox and Google Calendar for status updates, interview schedules, recruiter invites, offers, or rejections.</li><li><strong>Proposals:</strong> Upon detecting these triggers, Clyde Pro Agent generates sync proposals—such as 'Import interview prep email', 'Add final loop to calendar', or 'Mark opportunity as Offered'. You can review, approve, or dismiss these proposals in the Sync center.</li></ul><h3>3. Autonomous Actions and UI Approval Cards</h3><p>With autonomous updates enabled in Settings, Clyde Pro Agent can automatically transition opportunity statuses and calendar events inside the application. However, for any external or critical actions (such as sending emails or scheduling live follow-ups), Clyde adheres to a strict safety-first protocol by generating interactive <strong>Approval Cards</strong>. These cards outline the proposed changes, and Clyde waits for your explicit click-to-approve confirmation before executing them.</p><h3>4. Mock Interviews & Star-Style Scorecard Calibration</h3><p>Pro users gain access to advanced prep tools such as the Realtime Mock Interview module, which leverages a low-latency voice agent model to conduct realistic practice rounds. After completing a practice or live session, Clyde Pro Agent generates a detailed <strong>0-100 Scorecard</strong>. This scorecard measures key performance categories, highlights strengths and risks, and provides a concrete improvement plan. These scorecards are then saved into your long-term memory store, allowing Clyde to calibrate your overall performance trends and confidence metrics over time.</p>`
+    },
+    {
+      id: 'go-google-sync-proposals',
       category: 'go',
       categoryLabel: 'Clyde Go (Extension)',
-      title: 'Clyde Go Extension Manifest V3 Privilege Isolation',
-      summary: 'How security boundaries are maintained between web pages and privileged background workers.',
-      content: `
-        <h3>Privilege Isolation</h3>
-        <p>To enforce robust user safety and comply with Chrome Web Store MV3 specifications, Clyde Go maintains a rigid firewall between on-page content script DOM injections and central background workers.</p>
-        
-        <h3>The Safety Gates</h3>
-        <p>Under no circumstances can an active web page trigger background database updates or consume Pro credits. Background service workers validate every payload message, implementing strict early exits on un-authenticated action headers: <code>if (sender.tab) return false;</code></p>
-      `
+      title: 'Troubleshooting Google Sync: Gmail Invitation Scanning & Calendar Proposals',
+      summary: "How Clyde's background sync engine scans Gmail invites, proposes calendar updates, maintains poll intervals, and logs operations in the Audit Log.",
+      content: `<h3>How Google Sync Works</h3><p>For Clyde Pro users, the calendar sync background worker periodically polls Gmail and Google Calendar to automatically surface upcoming meetings and job opportunities. This integration scans the content of incoming emails for interview invites, schedule updates, and next-round signals.</p><h3>Poll Intervals & Performance</h3><p>To avoid hitting Google API rate limits while keeping your workspace fresh, Clyde uses a configurable poll interval (defaulting to 15 minutes). During each poll, Clyde performs the following tasks:</p><ul><li><strong>Gmail Scanning:</strong> Checks for emails from recruiter addresses containing keywords like "interview", "schedule", "meet", "offer", or "reject".</li><li><strong>Calendar Discovery:</strong> Identifies new meetings with external participants that look like interviews.</li><li><strong>Candidate Tracking:</strong> Automatically extracts details like company name, interviewer names, and roles.</li></ul><h3>Sync Proposals vs. Autonomous Updates</h3><p>By default, when Clyde detects a new event or status update, it does not modify your data directly. Instead, it generates a <strong>Sync Proposal</strong> on your dashboard. You can approve or dismiss actions such as:</p><ul><li>Adding a final loop or technical round to your calendar.</li><li>Importing a preparation email with a job description.</li><li>Marking an opportunity status as Advanced or Rejected based on email content.</li></ul><p>If you prefer an automated experience, you can toggle on <strong>Autonomous Updates</strong> in Settings, which lets Clyde keep opportunity statuses and calendar items current without manual confirmation.</p><h3>Reviewing the Audit Log</h3><p>If a calendar event fails to sync or an email is not parsed, check the <strong>Audit Log</strong> under <strong>Settings → Sync</strong>. The Audit Log tracks every sync attempt, showing timestamps, action statuses, and any error messages received from the Google API.</p>`
+    },
+    {
+      id: 'go-opportunity-tracking-states',
+      category: 'go',
+      categoryLabel: 'Clyde Go (Extension)',
+      title: 'Managing Opportunity States & Recurring Meeting Contexts',
+      summary: 'A deep dive into opportunity state transitions, outcomes calibration, and tracking recurring meeting types like Product Weekly or Customer Calls.',
+      content: `<h3>Understanding Opportunity States</h3><p>The Opportunity Tracker allows candidates to manage their entire recruitment lifecycle. Each opportunity moves through a series of formal states:</p><ul><li><strong>Active:</strong> Currently interviewing or preparing.</li><li><strong>Advanced:</strong> Moved forward to subsequent rounds (e.g., technical or final loop).</li><li><strong>Offered:</strong> Received a formal offer.</li><li><strong>Rejected:</strong> Application or interview process concluded without an offer.</li></ul><h3>State Transitions & Outcomes Calibration</h3><p>Transitioning opportunities to their correct terminal states (Offered or Rejected) is vital. Clyde's <strong>Confidence Calibration Engine</strong> uses historical ratings and outcomes to predict your performance. By marking old opportunities as offered or rejected, you calibrate the grading algorithm. Note that the active opportunity is always excluded from its own calibration set to maintain unbiased scoring.</p><h3>Recurring Meeting Contexts</h3><p>Clyde isn't just for interviews—Meeting Mode supports structured recurring contexts. You can create permanent contexts such as:</p><ul><li><strong>Product Weekly:</strong> Focuses on feature timelines, blockers, and product updates.</li><li><strong>Investor Updates:</strong> Highlights key metrics, growth charts, and strategic decisions.</li><li><strong>Customer Calls:</strong> Perfect for capturing feature requests, bugs, and direct feedback.</li></ul><p>Once a session concludes, Clyde processes the transcript and groups action items by attendee for easy follow-up.</p>`
+    },
+    {
+      id: 'go-extension-overview',
+      category: 'go',
+      categoryLabel: 'Clyde Go (Extension)',
+      title: 'Clyde Go Chrome Extension: The Browser Copilot',
+      summary: 'How the Clyde Go Chrome extension integrates with Clyde Desktop, clips jobs, and analyzes roles against your Master Resume with matching scores.',
+      content: `<h3>Introducing Clyde Go</h3><p>Clyde Go is the companion Chrome extension designed to streamline the top-of-funnel application pipeline. While Clyde Desktop serves as your real-time overlay assistant during calls, Clyde Go lives in your browser to capture job descriptions and automate application forms.</p><h3>Job Clipping & Master Resume Analysis</h3><p>When browsing jobs on LinkedIn, Indeed, or company boards, Clyde Go lets you clip roles directly into your Clyde workspace. The extension performs a real-time comparison against your Master Resume:</p><ul><li><strong>Match Score:</strong> Computes a 0.0 to 5.0 rating indicating your alignment with the role's requirements.</li><li><strong>Key Strengths:</strong> Highlights the exact experiences and bullet points on your resume that match the job description.</li><li><strong>Candidate Gaps:</strong> Identifies missing skills, technologies, or experience levels that you should address.</li><li><strong>Interview Mitigations:</strong> Generates speaking points and tailored answers to handle those gaps during a live call.</li></ul><h3>1-Click Form Filling</h3><p>Clyde Go integrates with major Applicant Tracking Systems (ATS) including Greenhouse, Lever, Ashby, and Workday. It parses form fields and injects your structured applicant profile with one click, saving hours of manual data entry.</p>`
+    },
+    {
+      id: 'go-workday-hydration-lag',
+      category: 'go',
+      categoryLabel: 'Clyde Go (Extension)',
+      title: 'Resolving Workday Form Submission Failures & React Hydration Lag',
+      summary: 'Why auto-filled fields on Workday or Greenhouse portals might disappear upon clicking submit, and how Clyde Go bypasses React state hydration delay.',
+      content: `<h3>The Symptom</h3><p>When using Clyde Go's 1-click form-filling on enterprise HR gateways like Workday, Greenhouse, or Taleo, the inputs appear to fill out correctly with your graduation year, GPA, or work history. However, upon clicking the "Submit" or "Next" button, these fields suddenly clear out or throw "Required Field" validation errors.</p><h3>The React Hydration Bottleneck</h3><p>Modern enterprise portals are built on heavily throttled React single-page frameworks. When an extension modifies the DOM node's <code>value</code> attribute directly and rapidly, React's virtual DOM state handlers do not recognize the change. Since no physical keyboard event was fired, React's synthetic event system never triggers, leaving the React state blank. When you submit, React posts its internal state (which is empty) rather than the visible DOM values.</p><h3>How Clyde Go Resolves This</h3><p>To bypass this hydration lag, Clyde Go employs a multi-step injection pipeline:</p><ul><li><strong>150ms Post-Hydration Delay:</strong> Clyde Go v2.4.1+ introduces a native 150ms delay between field discovery and input injection, allowing Workday's background scripts to finish loading and binding to the DOM.</li><li><strong>Synthetic Event Dispatch:</strong> Instead of simply setting the <code>.value</code> property, Clyde Go programmatically dispatches native <code>input</code> and <code>change</code> events on every filled element to force React's state tree to hydrate.</li></ul><h3>Manual Workaround</h3><p>If a custom or heavily modified form field still fails to bind, select the input box, type a single character (such as Space), and delete it. This manual keystroke triggers the physical keyboard events that force the React state to sync with the visual DOM value.</p>`
+    },
+    {
+      id: 'go-mv3-security-boundaries',
+      category: 'go',
+      categoryLabel: 'Clyde Go (Extension)',
+      title: 'Manifest V3 Security Boundaries & Tab Privilege Isolation in Clyde Go',
+      summary: 'How Clyde Go secures your user data and Pro credits through strict privilege isolation, CSP sandboxing, and secure background workers.',
+      content: `<h3>The Manifest V3 Security Standard</h3><p>Clyde Go is engineered on Google Chrome's Manifest V3 (MV3) platform. MV3 mandates a modern security model that restricts extensions from executing arbitrary remote scripts and requires strict boundaries between different extension execution environments.</p><h3>Privilege Isolation & Firewalling</h3><p>To protect your account and Clyde Pro credits, Clyde Go maintains a rigid firewall between on-page content scripts and privileged background service workers:</p><ul><li><strong>Content Scripts:</strong> These scripts execute in an isolated world on the active web page to parse job descriptions and fill fields. They have access to the page's DOM but have zero access to your API keys, subscription tokens, or database.</li><li><strong>Background Service Workers:</strong> These background processes handle authentication, API queries, and licensing. They do not run on the web page and cannot be directly targeted by web page scripts.</li></ul><h3>Preventing Message Spoofing & Origin Leaks</h3><p>Communication between the content script and background worker occurs via Chrome's message passing APIs. To prevent malicious web pages from spoofing message requests and draining your AI credits, Clyde Go implements strict origin validation:</p><pre><code>chrome.runtime.onMessage.addListener((message, sender, sendResponse) =&gt; {
+  if (sender.tab) {
+    // Restrict messages originating from web pages from triggering privileged actions
+    const allowedActions = ['GET_PAGE_TEXT', 'FILL_FIELD_CONFIRM'];
+    if (!allowedActions.includes(message.action)) return false;
+  }
+});</code></pre><h3>Content Security Policy (CSP) & Sandboxing</h3><p>Clyde Go uses a strict Content Security Policy that forbids unsafe-eval and remote code loading. All parsing models and matching logic are compiled locally within the extension package. Sandboxed frames are utilized for rendering custom preview screens, ensuring that page-level cross-site scripting (XSS) cannot leak user resumes or tokens.</p>`
     }
   ];
 
