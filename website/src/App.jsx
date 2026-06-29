@@ -3419,7 +3419,7 @@ function KnowledgeBasePage({ navigate }) {
       id: 'audio-one-question-lag',
       category: 'audio',
       categoryLabel: 'Audio & Transcription',
-      title: 'Eliminating One-Question-Behind Lag on Local Call Transcripts',
+      title: 'Eliminating One-Question-Behind Lag on Local Calls',
       summary: 'Adjusting voice activity detection and sentence completion thresholds to prevent display latency.',
       content: `
         <h3>The Issue</h3>
@@ -3434,19 +3434,24 @@ function KnowledgeBasePage({ navigate }) {
             <p>In Sound Settings, toggle **"Enforce Strict Punctuation Gates"** to active. This restricts the local transcription pathway from firing compilations unless an explicit terminal punctuation mark (<code>?</code>, <code>.</code>, or <code>!</code>) is returned or matched via the ASR regex tree.</p>
           </li>
           <li><strong>Step 2: Adjust Voice Activity Detection (VAD)</strong>
-            <p>Decrease your VAD silence threshold to <strong>450ms</strong> inside settings. This prevents natural mid-sentence pauses from being categorized as completed queries.</p>
-          </li>
-          <li><strong>Step 3: Update local COMPLETE prompts</strong>
-            <p>Ensure your local Whisper parser maps loose streams to cloud endpoints for intent validation only, protecting the local loop.</p>
+            <p>In settings, set the VAD limit to 450ms to prevent breath transitions from slicing statements.</p>
           </li>
         </ul>
       `
     },
     {
-      "id": "clyde-go-mv3-auth",
-      "keyword": "Clyde Go MV3 Extension Auth & Chrome Sandbox",
-      "draftTitle": "Resolving Chrome MV3 Extension Authentication & Sandbox Failures",
-      "draftContent": "The Clyde Go Chrome extension operates under Google's strict Manifest V3 (MV3) guidelines. If you face authentication drops or session timeouts inside Chrome, it's usually caused by Chrome's service worker going idle.\n\nTo resolve:\n1. Update Clyde Go to v2.4.2 to ensure keep-alive nonces are sent.\n2. Ensure the background service worker registry is white-listed under Chrome's Content Security Policies (CSP)."
+      id: 'go-mv3-security',
+      category: 'go',
+      categoryLabel: 'Clyde Go (Extension)',
+      title: 'Clyde Go Extension Manifest V3 Privilege Isolation',
+      summary: 'How security boundaries are maintained between web pages and privileged background workers.',
+      content: `
+        <h3>Privilege Isolation</h3>
+        <p>To enforce robust user safety and comply with Chrome Web Store MV3 specifications, Clyde Go maintains a rigid firewall between on-page content script DOM injections and central background workers.</p>
+        
+        <h3>The Safety Gates</h3>
+        <p>Under no circumstances can an active web page trigger background database updates or consume Pro credits. Background service workers validate every payload message, implementing strict early exits on un-authenticated action headers: <code>if (sender.tab) return false;</code></p>
+      `
     }
   ];
 
@@ -3459,42 +3464,42 @@ function KnowledgeBasePage({ navigate }) {
   });
 
   return (
-    <div class="min-h-screen bg-cyber-bg text-slate-200 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div class="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-cyber-bg text-slate-200 py-12 px-4 sm:px-6 lg:px-8 font-sans">
+      <div className="max-w-6xl mx-auto">
         
         {/* KB Breadcrumb & Header */}
-        <div class="mb-10" data-reveal>
-          <div class="flex items-center gap-2 text-xs text-slate-400 font-mono mb-4">
-            <button onClick={() => navigate('/')} class="hover:text-cyber-cyan transition-colors">Home</button>
+        <div className="mb-10" data-reveal>
+          <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mb-4">
+            <button onClick={() => navigate('/')} className="hover:text-cyber-cyan transition-colors">Home</button>
             <span>/</span>
-            <span class="text-cyber-violet">Knowledge Base</span>
+            <span className="text-cyber-violet">Knowledge Base</span>
           </div>
-          <h1 class="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-cyber-cyan to-cyber-violet bg-clip-text text-transparent inline-block">
+          <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-cyber-cyan to-cyber-violet bg-clip-text text-transparent inline-block">
             Clyde Knowledge Center
           </h1>
-          <p class="text-slate-400 text-sm mt-2 max-w-xl">
+          <p className="text-slate-400 text-sm mt-2 max-w-xl">
             Detailed configurations, technical guides, troubleshooting runbooks, and manual workarounds built for Clyde Desktop and Clyde Go.
           </p>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
           {/* Left Sidebar Filter & Search */}
-          <div class="lg:col-span-4 space-y-6">
+          <div className="lg:col-span-4 space-y-6">
             
             {/* Search Box */}
-            <div class="relative rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl">
-              <label class="text-xs font-bold text-slate-300 block mb-2 font-mono">Search Runbooks</label>
-              <div class="relative">
+            <div className="relative rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl">
+              <label className="text-xs font-bold text-slate-300 block mb-2 font-mono">Search Runbooks</label>
+              <div className="relative">
                 <input 
                   type="text" 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="e.g., Realtek, Workday, BYOK..." 
-                  class="w-full bg-cyber-bg/80 border border-cyber-line/30 rounded-lg p-2.5 pl-9 text-sm text-slate-200 focus:outline-none focus:border-cyber-cyan/50 font-sans transition-all"
+                  className="w-full bg-cyber-bg/80 border border-cyber-line/30 rounded-lg p-2.5 pl-9 text-sm text-slate-200 focus:outline-none focus:border-cyber-cyan/50 font-sans transition-all"
                 />
-                <div class="absolute left-3 top-3 text-slate-400">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <div className="absolute left-3 top-3 text-slate-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                   </svg>
                 </div>
@@ -3502,20 +3507,20 @@ function KnowledgeBasePage({ navigate }) {
             </div>
 
             {/* Categories */}
-            <div class="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl space-y-2">
-              <span class="text-xs font-bold text-slate-300 block mb-3 font-mono">Filter by Category</span>
+            <div className="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 backdrop-blur-md p-4 shadow-xl space-y-2">
+              <span className="text-xs font-bold text-slate-300 block mb-3 font-mono">Filter by Category</span>
               {categories.map(cat => (
                 <button
                   key={cat.id}
                   onClick={() => { setActiveCategory(cat.id); setSelectedArticle(null); }}
-                  class={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold font-mono transition-all flex items-center justify-between ${
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold font-mono transition-all flex items-center justify-between ${
                     activeCategory === cat.id 
                       ? 'bg-cyber-cyan/15 border border-cyber-cyan/30 text-cyber-cyan shadow-sm shadow-cyber-cyan/10' 
                       : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
                   <span>{cat.label}</span>
-                  <span class="text-[9px] opacity-60">
+                  <span className="text-[9px] opacity-60">
                     {cat.id === 'all' 
                       ? articles.length 
                       : articles.filter(a => a.category === cat.id).length
@@ -3526,14 +3531,14 @@ function KnowledgeBasePage({ navigate }) {
             </div>
 
             {/* Direct Ticket Help Card */}
-            <div class="rounded-xl border border-cyber-line/30 bg-gradient-to-br from-cyber-violetMuted/10 to-cyber-cyanMuted/5 p-5 relative overflow-hidden shadow-xl">
-              <h3 class="text-xs font-bold font-mono text-cyber-cyan mb-2">Still need support?</h3>
-              <p class="text-[11px] text-slate-400 leading-relaxed mb-4">
+            <div className="rounded-xl border border-cyber-line/30 bg-gradient-to-br from-cyber-violetMuted/10 to-cyber-cyanMuted/5 p-5 relative overflow-hidden shadow-xl">
+              <h3 className="text-xs font-bold font-mono text-cyber-cyan mb-2">Still need support?</h3>
+              <p className="text-[11px] text-slate-400 leading-relaxed mb-4">
                 Can't find a solution to your device or extension conflict? Submit a technical ticket directly to our engineers.
               </p>
               <button 
                 onClick={() => navigate('/support')}
-                class="w-full text-center py-2.5 rounded-lg text-xs font-bold text-cyber-bg bg-gradient-to-r from-cyber-cyan to-cyber-violet hover:opacity-90 transition-all font-mono"
+                className="w-full text-center py-2.5 rounded-lg text-xs font-bold text-cyber-bg bg-gradient-to-r from-cyber-cyan to-cyber-violet hover:opacity-90 transition-all font-mono"
               >
                 Open Support Ticket
               </button>
@@ -3542,28 +3547,28 @@ function KnowledgeBasePage({ navigate }) {
           </div>
 
           {/* Right Main Article Section */}
-          <div class="lg:col-span-8">
+          <div className="lg:col-span-8">
             
             {/* If an article is open */}
             {selectedArticle ? (
-              <div class="rounded-2xl border border-cyber-line/30 bg-cyber-bgSoft/50 backdrop-blur-md p-8 shadow-2xl space-y-6" data-reveal>
-                <div class="flex items-center justify-between pb-4 border-b border-cyber-line/20">
-                  <span class="px-2.5 py-1 rounded-full text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/15 border border-cyber-cyan/30">
+              <div className="rounded-2xl border border-cyber-line/30 bg-cyber-bgSoft/50 backdrop-blur-md p-8 shadow-2xl space-y-6" data-reveal>
+                <div className="flex items-center justify-between pb-4 border-b border-cyber-line/20">
+                  <span className="px-2.5 py-1 rounded-full text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/15 border border-cyber-cyan/30">
                     {selectedArticle.categoryLabel || 'Support'}
                   </span>
                   <button 
                     onClick={() => setSelectedArticle(null)}
-                    class="text-xs font-mono text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
+                    className="text-xs font-mono text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
                   >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"></path>
                     </svg>
                     <span>Back to Article List</span>
                   </button>
                 </div>
 
-                <div class="space-y-4">
-                  <h2 class="text-2xl font-extrabold text-white leading-tight font-sans">
+                <div className="space-y-4">
+                  <h2 className="text-2xl font-extrabold text-white leading-tight font-sans">
                     {selectedArticle.title}
                   </h2>
                   <div 
@@ -3574,17 +3579,17 @@ function KnowledgeBasePage({ navigate }) {
               </div>
             ) : (
               /* Article Grid/List */
-              <div class="space-y-4">
-                <span class="text-xs font-bold text-slate-400 font-mono block mb-2">
+              <div className="space-y-4">
+                <span className="text-xs font-bold text-slate-400 font-mono block mb-2">
                   Showing {filteredArticles.length} matching runbooks
                 </span>
                 
                 {filteredArticles.length === 0 ? (
-                  <div class="rounded-xl border border-cyber-line/20 bg-cyber-bgSoft/30 p-12 text-center text-slate-400 space-y-4">
-                    <p class="text-sm font-semibold">No Knowledge Base articles found matching "{searchQuery}"</p>
+                  <div className="rounded-xl border border-cyber-line/20 bg-cyber-bgSoft/30 p-12 text-center text-slate-400 space-y-4">
+                    <p className="text-sm font-semibold">No Knowledge Base articles found matching "{searchQuery}"</p>
                     <button 
                       onClick={() => { setSearchQuery(''); setActiveCategory('all'); }}
-                      class="text-xs text-cyber-cyan hover:underline font-mono"
+                      className="text-xs text-cyber-cyan hover:underline font-mono"
                     >
                       Clear filters and try again
                     </button>
@@ -3594,21 +3599,21 @@ function KnowledgeBasePage({ navigate }) {
                     <div 
                       key={art.id}
                       onClick={() => setSelectedArticle(art)}
-                      class="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 hover:bg-cyber-bgSoft/65 hover:border-cyber-violet/30 cursor-pointer p-5 transition-all space-y-3 group shadow-lg"
+                      className="rounded-xl border border-cyber-line/30 bg-cyber-bgSoft/40 hover:bg-cyber-bgSoft/65 hover:border-cyber-violet/30 cursor-pointer p-5 transition-all space-y-3 group shadow-lg"
                     >
-                      <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/10 px-2 py-0.5 rounded border border-cyber-cyan/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold font-mono text-cyber-cyan bg-cyber-cyan/10 px-2 py-0.5 rounded border border-cyber-cyan/20">
                           {art.categoryLabel || 'Support'}
                         </span>
-                        <span class="text-[9px] font-mono text-slate-500 group-hover:text-cyber-violet transition-colors">
+                        <span className="text-[9px] font-mono text-slate-500 group-hover:text-cyber-violet transition-colors">
                           Read runbook →
                         </span>
                       </div>
                       <div>
-                        <h3 class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">
+                        <h3 className="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">
                           {art.title || art.draftTitle}
                         </h3>
-                        <p class="text-[11px] text-slate-400 mt-1 leading-normal font-sans">
+                        <p className="text-[11px] text-slate-400 mt-1 leading-normal font-sans">
                           {art.summary || art.draftContent.substring(0, 120) + "..."}
                         </p>
                       </div>
