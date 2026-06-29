@@ -136,7 +136,7 @@ export default async function handler(req, res) {
               </p>
               
               <p style="font-size: 0.75rem; color: #475569; text-align: center; margin-top: 24px; margin-bottom: 0;">
-                Clyde — The Undetectable Agentic Partner.
+                Clyde — The Undetectable Agentic Interview Copilot
               </p>
             </div>
           `

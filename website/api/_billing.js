@@ -431,7 +431,8 @@ export async function activatePaidCheckoutSession(sessionId) {
     return {
       success: true,
       alreadyProcessed: true,
-      email: session.customer_details?.email || session.customer_email || session.metadata?.pendingProSignupEmail || session.metadata?.pendingEmail || ''
+      email: session.customer_details?.email || session.customer_email || session.metadata?.pendingProSignupEmail || session.metadata?.pendingEmail || '',
+      amountTotal: session.amount_total ? session.amount_total / 100 : 0
     };
   }
 
@@ -487,7 +488,8 @@ export async function activatePaidCheckoutSession(sessionId) {
         amount,
         credits: newCredits,
         invited,
-        email
+        email,
+        amountTotal: session.amount_total ? session.amount_total / 100 : 0
       };
     }
 
@@ -541,7 +543,8 @@ export async function activatePaidCheckoutSession(sessionId) {
         userId: resolvedUserId,
         email,
         invited,
-        licenseKey
+        licenseKey,
+        amountTotal: session.amount_total ? session.amount_total / 100 : 0
       };
     }
   }
@@ -604,7 +607,8 @@ export async function activatePaidCheckoutSession(sessionId) {
     invited,
     userId: user.id,
     subscriptionId: subscription.id,
-    status: subscription.status
+    status: subscription.status,
+    amountTotal: session.amount_total ? session.amount_total / 100 : 0
   };
 }
 
@@ -671,7 +675,7 @@ export async function sendByokLicenseEmail(email, licenseKey) {
           </ol>
           <hr style="border: none; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 24px 0;" />
           <p style="font-size: 0.75rem; color: #475569; text-align: center; margin: 0;">
-            Clyde — The Undetectable Agentic Partner.
+            Clyde — The Undetectable Agentic Interview Copilot
           </p>
         </div>
       `

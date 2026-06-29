@@ -10133,7 +10133,7 @@ function EntityFilesPanel({ mode, entity }) {
   );
 }
 
-function TimelineView({ entities, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onUpdateEntity, onEditSession, onSelectEntity, selectedEntity, justSyncedEntityId, setJustSyncedEntityId, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
+function TimelineView({ entities, salaryRanges = {}, mode, onStartCapture, onRefresh, onAddNewOpportunity, onAddNewMeeting, onEditEntity, onUpdateEntity, onEditSession, onSelectEntity, selectedEntity, justSyncedEntityId, setJustSyncedEntityId, sessions, settings, onChangeActiveInterview, onChangeActiveMeeting, calendarEvents }) {
   const selected = entities.find((entity) => entity.id === selectedEntity);
   const activeMeetingId = mode === 'meeting'
     ? entities.find((entity) => entity.id === settings?.meetingTitle || entity.name === settings?.meetingTitle)?.id || ''
@@ -14298,12 +14298,13 @@ function extractSalaryRange(text) {
   }
 
   const regexes = [
-    /\$(\d{2,3})[kK]\s*(?:-|to)\s*\$(\d{2,3})[kK]\b/,
-    /\$(\d{1,3}(?:,\d{3})+)\s*(?:-|to)\s*\$(\d{1,3}(?:,\d{3})+)\b/,
-    /\b(\d{2,3})[kK]\s*(?:-|to)\s*(\d{2,3})[kK]\b/,
-    /\$(\d{2,3})\s*(?:-|to)\s*\$(\d{2,3})[kK]\b/i,
-    /\$(\d{2,3})[kK]\s*(?:-|to)\s*\$(\d{2,3})\b/i,
-    /salary\s*(?:range)?\s*(?:of|is)?\s*\$?(\d{2,3})[kK]?\s*(?:-|to)\s*\$?(\d{2,3})[kK]?/i
+    /\$(\d{2,3})[kK](?:\/yr)?\s*(?:--?|to)\s*\$(\d{2,3})[kK]\b/,
+    /\$(\d{1,3}(?:,\d{3})+)\s*(?:--?|to)\s*\$(\d{1,3}(?:,\d{3})+)\b/,
+    /\$(\d{5,6})\s*(?:--?|to)\s*\$(\d{5,6})\b/,
+    /\b(\d{2,3})[kK]\s*(?:--?|to)\s*(\d{2,3})[kK]\b/,
+    /\$(\d{2,3})\s*(?:--?|to)\s*\$(\d{2,3})[kK]\b/i,
+    /\$(\d{2,3})[kK]\s*(?:--?|to)\s*\$(\d{2,3})\b/i,
+    /salary\s*(?:range)?\s*(?:of|is)?\s*\$?(\d{2,3})[kK]?\s*(?:--?|to)\s*\$?(\d{2,3})[kK]?/i
   ];
 
   for (const regex of regexes) {

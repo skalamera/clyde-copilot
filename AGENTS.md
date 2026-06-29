@@ -211,6 +211,10 @@ Think of it like a human reviewing their journal and updating their mental model
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 
+## Knowledge Base Maintenance
+
+- **Documentation Requirement**: Going forward, anytime a new feature is added or any existing feature is modified within the Clyde or Clyde Go codebases, you must create a new knowledge base article or update an existing article on <https://clydeai.live/kb>.
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.

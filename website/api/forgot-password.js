@@ -86,7 +86,7 @@ export default async function handler(req, res) {
             </div>
             <p style="font-size: 0.8rem; color: #64748b; line-height: 1.5; text-align: center;">If you did not request a password reset, you can safely ignore this email.</p>
             <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 28px 0;" />
-            <p style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0;">Clyde — The Undetectable Agentic Partner.</p>
+            <p style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0;">Clyde — The Undetectable Agentic Interview Copilot</p>
           </div>
         `
       })

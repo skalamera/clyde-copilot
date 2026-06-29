@@ -340,7 +340,8 @@ async function handleCreateCreditsCheckout(req, res) {
     metadata: {
       type: 'credits_purchase',
       amount: String(creditsAmount)
-    }
+    },
+    allow_promotion_codes: true
   };
 
   if (userId) {
@@ -480,7 +481,8 @@ async function handleCreateByokCheckout(req, res) {
     client_reference_id: userId || email,
     metadata: {
       type: 'byok_purchase'
-    }
+    },
+    allow_promotion_codes: true
   };
 
   if (userId) {
