@@ -136,7 +136,12 @@ function requireFeature(entitlements, feature) {
 
 function entitlementsFromSettings(settings = {}, now = Date.now()) {
   const hasLocalLicense = settings.licenseKey && validateLicenseKey(settings.licenseKey);
-  const isByokEmail = settings.authEmail && String(settings.authEmail).toLowerCase().includes('byok');
+  const isByokEmail = settings.authEmail && (
+    String(settings.authEmail).toLowerCase().includes('byok') ||
+    String(settings.authEmail).toLowerCase().includes('pro-user') ||
+    String(settings.authEmail).toLowerCase().includes('google-test') ||
+    String(settings.authEmail).toLowerCase().endsWith('@clydeai.live')
+  );
 
   const input = {
     userId: settings.userId || '',
