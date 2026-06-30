@@ -4649,6 +4649,11 @@ app.whenReady().then(() => {
     configureElectronStorage();
     createWindow();
     startProcessMonitoring();
+    
+    // Background re-verify entitlements on boot to prevent stale local cache degrade to Free
+    refreshEntitlements().catch(err => {
+        log.error('Failed to auto-refresh entitlements on boot:', err.message);
+    });
 
     global.activeAutoUpdater = startAutoUpdater({
         enabled: true,
