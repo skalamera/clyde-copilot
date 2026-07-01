@@ -139,7 +139,7 @@ test('prefers reconstructed stakeholder question over continuation fragment', ()
 test('resolves configurable embedding providers for pro knowledge search', () => {
   assert.deepEqual(
     resolveEmbeddingConfig({ embeddingProvider: 'openai', embeddingModel: 'custom-embed', embeddingApiKey: 'embed-key' }),
-    { provider: 'openai', model: 'custom-embed', apiKey: 'embed-key' }
+    { provider: 'gemini', model: 'gemini-embedding-2', apiKey: 'embed-key' }
   );
 
   assert.equal(resolveEmbeddingConfig({ geminiApiKey: 'gemini-key' }).provider, 'gemini');

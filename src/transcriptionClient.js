@@ -51,7 +51,8 @@ function createTranscriptionProcessor(options = {}) {
       apiUrl = 'https://api.openai.com/v1/audio/transcriptions';
       model = 'whisper-1';
   } else if (provider === 'clyde-cloud-whisper') {
-      apiUrl = 'https://clydeai.live/api/proxy?type=transcribe';
+      const baseUrl = process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api';
+      apiUrl = `${baseUrl.replace(/\/$/, '')}/proxy?type=transcribe`;
       model = 'whisper-1';
   }
 

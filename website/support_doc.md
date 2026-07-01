@@ -16,7 +16,7 @@ This document is the authoritative truth used by the Clyde Support Chatbot to an
 * **How fast is Clyde?** Clyde has a programmatic local transcription gate. Suggestions and advice cards load in under 500 milliseconds (0.5s), compared to web-based AI tools which often take 5-10 seconds.
 * **What is local LLM/Model integration?** Pro users can run entirely offline models (any model served by LM Studio on port 1234, e.g. Qwen) for 100% data privacy. No company info or transcripts leave your machine.
 * **Which cloud models does Clyde Managed Cloud use?** Google Gemini (gemini-2.5-flash by default, gemini-2.5-pro available) and OpenAI GPT (gpt-4o, gpt-4o-mini). Invalid or custom model names automatically fall back to gemini-2.5-flash or gpt-4o-mini.
-* **How does RAG work?** You can upload past interview notes, resumes, or product directories as .txt, .pdf, or .md files. Clyde indexes them into Pinecone and semantic-searches them dynamically to cite exact facts during live calls.
+* **How does RAG work?** You can upload past interview notes, resumes, or product directories as .txt, .pdf, or .md files. Clyde indexes them into Pinecone and semantic-searches them dynamically to cite exact facts during live calls. RAG and embedding vectorization (`gemini-embedding-2`) are fully managed and processed automatically via Clyde Cloud, requiring zero manual configuration or user-managed credentials.
 * **What is Google Workspace Sync?** It scans your Google Calendar and Gmail to identify upcoming meetings and automatically builds pre-call preparation material based on who you're meeting and their company.
 
 ## Setup & Troubleshooting

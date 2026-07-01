@@ -30,7 +30,8 @@ async function getCloudManagedFallback(text, options = {}) {
     
     if (accessToken) {
       const client = options.axiosClient || axios;
-      const response = await client.post('https://clydeai.live/api/proxy?type=embed', {
+      const baseUrl = process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api';
+      const response = await client.post(`${baseUrl.replace(/\/$/, '')}/proxy?type=embed`, {
         text
       }, {
         headers: {
@@ -44,7 +45,7 @@ async function getCloudManagedFallback(text, options = {}) {
       }
     }
   } catch (e) {
-    console.error('Failed to retrieve cloud-managed embedding fallback:', e);
+    console.error('Failed to retrieve cloud-managed embedding fallback:', e.message);
   }
   return null;
 }
@@ -87,7 +88,7 @@ async function getEmbedding(text, options = {}) {
 
       return response.data?.data?.[0]?.embedding || [];
     } catch (err) {
-      console.error('[Embedding] OpenAI embedding failed, attempting Clyde Managed Cloud fallback...', err);
+      console.error('[Embedding] OpenAI embedding failed, attempting Clyde Managed Cloud fallback...', err.message);
       const fallbackEmbedding = await getCloudManagedFallback(text, options);
       if (fallbackEmbedding) {
         return fallbackEmbedding;
@@ -106,7 +107,7 @@ async function getEmbedding(text, options = {}) {
 
     return result.embedding.values;
   } catch (err) {
-    console.error('[Embedding] Gemini embedding failed, attempting Clyde Managed Cloud fallback...', err);
+    console.error('[Embedding] Gemini embedding failed, attempting Clyde Managed Cloud fallback...', err.message);
     const fallbackEmbedding = await getCloudManagedFallback(text, options);
     if (fallbackEmbedding) {
       return fallbackEmbedding;
@@ -116,16 +117,14 @@ async function getEmbedding(text, options = {}) {
 }
 
 function resolveEmbeddingConfig(settings = {}) {
-  const provider = settings.embeddingProvider === 'openai' ? 'openai' : 'gemini';
-  const defaultModel = provider === 'openai' ? 'text-embedding-3-small' : 'gemini-embedding-2';
   const apiKey = settings.embeddingApiKey
-    || (provider === 'openai'
-      ? (settings.llmApiKey || process.env.OPENAI_API_KEY || '')
-      : (settings.geminiApiKey || process.env.GEMINI_API_KEY || ''));
+    || settings.geminiApiKey
+    || process.env.GEMINI_API_KEY
+    || '';
 
   return {
-    provider,
-    model: settings.embeddingModel || defaultModel,
+    provider: 'gemini',
+    model: 'gemini-embedding-2',
     apiKey
   };
 }

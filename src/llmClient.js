@@ -529,7 +529,8 @@ async function generateClydeCloud({ model, messages, jsonSchema, temperature, ma
         'Authorization': `Bearer ${accessToken}`
     };
 
-    const url = 'https://clydeai.live/api/proxy?type=chat';
+    const baseUrl = process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api';
+    const url = `${baseUrl.replace(/\/$/, '')}/proxy?type=chat`;
     
     try {
         const response = await axiosClient.post(url, payload, { headers, timeout: 300000 });

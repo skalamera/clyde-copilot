@@ -12186,26 +12186,10 @@ function ProSetupStep({ draft, update, onConnectGoogle, onOpenBilling, onRefresh
         <span className="switch-label">Enable RAG with Pinecone</span>
       </label>
 
-      {draft.ragEnabled && draft.llmProvider === 'clyde-cloud' && (
+      {draft.ragEnabled && (
         <div className="wide-field" style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', padding: '4px 8px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', margin: '4px 0 12px 0', boxSizing: 'border-box' }}>
-          ✓ Embeddings are managed and processed automatically via Clyde Cloud.
+          ✓ RAG is fully managed and processed automatically via Clyde Cloud.
         </div>
-      )}
-
-      {draft.ragEnabled && draft.llmProvider !== 'clyde-cloud' && (
-        <>
-          <label>Embedding provider<select value={draft.embeddingProvider || ''} onChange={(event) => update('embeddingProvider', event.target.value)}><option value="">Select provider</option><option value="gemini">Gemini</option><option value="openai">OpenAI</option></select></label>
-          <label>Embedding model<input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" /></label>
-          <label>Embedding API key<input type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} /></label>
-        </>
-      )}
-
-      {draft.ragEnabled && draft.llmProvider !== 'clyde-cloud' && (
-        <>
-          <label>Pinecone API key<input type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} /></label>
-          <label>Pinecone host<input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="https://index.pinecone.io" /></label>
-          <label>Pinecone namespace<input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} /></label>
-        </>
       )}
       
       <label className="toggle-row wide-field question-bank-global-toggle">
@@ -13266,46 +13250,9 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
             </label>
             {proEntitled && draft.ragEnabled && (
               <div className="form-grid">
-                {draft.llmProvider === 'clyde-cloud' ? (
-                  <div className="wide-field" style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', padding: '8px 12px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', margin: '0 0 12px 0', boxSizing: 'border-box' }}>
-                    ✓ Embeddings are managed and processed automatically via Clyde Cloud.
-                  </div>
-                ) : (
-                  <>
-                    <label>
-                      Embedding provider
-                      <select value={draft.embeddingProvider || ''} onChange={(event) => {
-                        const provider = event.target.value;
-                        update('embeddingProvider', provider);
-                        update('embeddingModel', '');
-                      }}>
-                        <option value="">Select an embedding provider</option>
-                        <option value="gemini">Gemini</option>
-                        <option value="openai">OpenAI</option>
-                      </select>
-                    </label>
-                    <label>
-                      Embedding model
-                      <input value={draft.embeddingModel || ''} onChange={(event) => update('embeddingModel', event.target.value)} placeholder="gemini-embedding-2" />
-                    </label>
-                    <label>
-                      Embedding API key
-                      <input autoComplete="new-password" type="password" value={draft.embeddingApiKey || ''} onChange={(event) => update('embeddingApiKey', event.target.value)} placeholder="Uses Gemini or OpenAI key when empty" />
-                    </label>
-                    <label>
-                      Pinecone API Key
-                      <input autoComplete="new-password" type="password" value={draft.pineconeApiKey || ''} onChange={(event) => update('pineconeApiKey', event.target.value)} placeholder="Stored locally" />
-                    </label>
-                    <label>
-                      Pinecone Host URL
-                      <input value={draft.pineconeHost || ''} onChange={(event) => update('pineconeHost', event.target.value)} placeholder="e.g. https://index.pinecone.io" />
-                    </label>
-                    <label>
-                      Pinecone namespace
-                      <input value={draft.pineconeNamespace || ''} onChange={(event) => update('pineconeNamespace', event.target.value)} placeholder="clyde-pro-knowledge" />
-                    </label>
-                  </>
-                )}
+                <div className="wide-field" style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', padding: '8px 12px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', margin: '0 0 12px 0', boxSizing: 'border-box' }}>
+                  ✓ RAG is fully managed and processed automatically via Clyde Cloud.
+                </div>
               </div>
             )}
           </div>
