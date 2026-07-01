@@ -50,8 +50,8 @@ export function getStripe() {
 export function getProPriceId(billingPeriod = 'monthly') {
   const period = String(billingPeriod || 'monthly').toLowerCase() === 'annual' ? 'annual' : 'monthly';
   const specific = period === 'annual'
-    ? process.env.STRIPE_CLYDE_PRO_PRICE_ID_ANNUAL
-    : process.env.STRIPE_CLYDE_PRO_PRICE_ID_MONTHLY;
+    ? (process.env.STRIPE_CLYDE_PRO_PRICE_ID_ANNUAL || 'price_1Th7BCBmOXAq5RyDLi3hEOVw')
+    : (process.env.STRIPE_CLYDE_PRO_PRICE_ID_MONTHLY || 'price_1Th7B4BmOXAq5RyDQ2oVY614');
   const price = specific || process.env.STRIPE_CLYDE_PRO_PRICE_ID;
   if (!price) {
     throw new Error(`Stripe price for the ${period} plan is not configured (STRIPE_CLYDE_PRO_PRICE_ID_${period.toUpperCase()} or STRIPE_CLYDE_PRO_PRICE_ID).`);
