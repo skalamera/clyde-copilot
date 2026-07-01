@@ -49,12 +49,25 @@ export function getStripe() {
  */
 export function getProPriceId(billingPeriod = 'monthly') {
   const period = String(billingPeriod || 'monthly').toLowerCase() === 'annual' ? 'annual' : 'monthly';
-  const specific = period === 'annual'
+  let price = period === 'annual'
     ? (process.env.STRIPE_CLYDE_PRO_PRICE_ID_ANNUAL || 'price_1Th7BCBmOXAq5RyDLi3hEOVw')
     : (process.env.STRIPE_CLYDE_PRO_PRICE_ID_MONTHLY || 'price_1Th7B4BmOXAq5RyDQ2oVY614');
-  const price = specific || process.env.STRIPE_CLYDE_PRO_PRICE_ID;
+
+  // Safety Sanitization: Overwrite any misconfigured one-time price IDs to prevent Stripe subscription mode failures
+  const oneTimePriceIds = new Set([
+    'price_1Tl09WBmOXAq5RyDnR6hszMb', // Clyde BYOK Lifetime (one-time)
+    'price_1Ti7O4BmOXAq5RyDTdSriT6M', // Starter Credit Pack
+    'price_1Ti7UyBmOXAq5RyD067Spveu', // Sprint Credit Pack
+    'price_1Ti7SHBmOXAq5RyDombuD9u4'  // Career Hunter Credit Pack
+  ]);
+
+  if (oneTimePriceIds.has(price)) {
+    console.warn(`[getProPriceId] WARNING: Detected one-time price ${price} inside subscription price resolver! Forcing fallback subscription price.`);
+    price = period === 'annual' ? 'price_1Th7BCBmOXAq5RyDLi3hEOVw' : 'price_1Th7B4BmOXAq5RyDQ2oVY614';
+  }
+
   if (!price) {
-    throw new Error(`Stripe price for the ${period} plan is not configured (STRIPE_CLYDE_PRO_PRICE_ID_${period.toUpperCase()} or STRIPE_CLYDE_PRO_PRICE_ID).`);
+    throw new Error(`Stripe price for the ${period} plan is not configured.`);
   }
   return price;
 }
