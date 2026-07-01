@@ -77,27 +77,35 @@ export default async function handler(req, res) {
                 <span style="font-family: 'Mokoto', system-ui, sans-serif; font-size: 2.2rem; font-weight: 800; color: #22c55e; letter-spacing: 2px;">CLYDE</span>
               </div>
               
-              <h1 style="color: #ffffff; margin-bottom: 16px; font-size: 1.5rem; font-weight: 800; text-align: center;">Welcome to the Future of Job Searching, ${email.split('@')[0]}!</h1>
+              <h1 style="text-align: center; font-size: 1.6rem; font-weight: 800; color: #ffffff; margin-bottom: 16px;">Welcome to the Future of Job Searching, ${email.split('@')[0]}!</h1>
               <p style="font-size: 0.95rem; line-height: 1.6; color: #94a3b8; text-align: center; margin-bottom: 28px;">
                 You have successfully created your Clyde account. By combining the power of the <strong>Clyde Desktop App</strong> and our high-performance <strong>Clyde-Go Chrome Extension</strong>, you now have an elite, fully integrated AI career cockpit.
               </p>
 
               <hr style="border: none; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 24px 0;" />
 
-              <h3 style="color: #38bdf8; font-size: 1.1rem; font-weight: 700; margin-bottom: 12px;">🎮 Get Started in 3 Steps:</h3>
-              <ol style="padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6; margin-bottom: 24px;">
-                <li style="margin-bottom: 8px;"><strong>Upload & Standardize Your Resume:</strong> Open Settings inside the Clyde-Go extension to run our <strong>Master Resume Onboarding Wizard</strong>. This compiles your background into a high-fidelity JSON profile.</li>
-                <li style="margin-bottom: 8px;"><strong>Pair Extension with Desktop:</strong> Copy your pairing code from Clyde Desktop Settings and paste it into Clyde-Go to automatically sync clips and documents in real-time.</li>
-                <li style="margin-bottom: 8px;"><strong>Autofill & Tailor:</strong> Clip any job description on LinkedIn, Indeed, or Greenhouse. Then, click <strong>AI Apply</strong> to let Clyde autofill standard or complex form fields automatically!</li>
-              </ol>
+              <h3 style="color: #38bdf8; font-size: 1.1rem; font-weight: 700; margin-bottom: 12px;">🖥️ 1. Get Started with Clyde Desktop:</h3>
+              <ul style="padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6; margin-bottom: 20px;">
+                <li style="margin-bottom: 8px;"><strong>Download the App:</strong> Grab your setup installer directly from <a href="https://clydeai.live/download" style="color: #38bdf8; text-decoration: underline;">clydeai.live/download</a> (or the Microsoft Store) and complete the simple Windows installation.</li>
+                <li style="margin-bottom: 8px;"><strong>Sign In & Calibrate:</strong> Open Clyde, sign in with your credentials, and run the 5-second Audio preflight check to ensure your microphone and system audio loopbacks are perfectly aligned.</li>
+                <li style="margin-bottom: 8px;"><strong>Launch Live Triage:</strong> Keep Clyde visible during any live call or interview. Click <strong>Start Capture</strong>, and witness instant suggested next lines and behavioral answer cards update in real-time under the STAR method!</li>
+              </ul>
 
-              <h3 style="color: #38bdf8; font-size: 1.1rem; font-weight: 700; margin-bottom: 12px;">📊 Your Subscription & Benefits Breakdown</h3>
-              <p style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 14px;">Since email confirmations are bypassed, your account is active immediately. Here is a breakdown of what features are unlocked for your current tier:</p>
+              <h3 style="color: #38bdf8; font-size: 1.1rem; font-weight: 700; margin-bottom: 12px;">🔌 2. Connect the Clyde Go Extension:</h3>
+              <ul style="padding-left: 20px; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6; margin-bottom: 24px;">
+                <li style="margin-bottom: 8px;"><strong>Install & Standardize:</strong> Install Clyde Go from the Chrome Web Store, open Settings, and run our Onboarding Wizard to standardize your resume into your secure JSON Profile.</li>
+                <li style="margin-bottom: 8px;"><strong>Pair in Real-Time:</strong> Copy your pairing code from Clyde Desktop Settings and paste it into Clyde Go to instantly sync your opportunities and clips in real-time.</li>
+                <li style="margin-bottom: 8px;"><strong>AI Auto-Fill:</strong> Clip any job description on LinkedIn, Indeed, or Greenhouse. Then, click <strong>AI Apply</strong> to auto-fill standard and complex application inputs automatically!</li>
+              </ul>
+
+              <hr style="border: none; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 24px 0;" />
+
+              <h3 style="color: #38bdf8; font-size: 1.1rem; font-weight: 700; margin-bottom: 12px;">📊 Tier Comparison & Benefits Breakdown:</h3>
 
               <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px; margin-bottom: 24px; box-sizing: border-box;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
-                  <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #a855f7; margin-right: 12px;">🎁 Clyde Pro / Credits Plan</span>
-                  <span style="font-size: 11px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.2); color: #4ade80; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 12px; flex-shrink: 0;">PREMIUM</span>
+                  <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #a855f7; margin-right: 12px;">🎁 Clyde Pro (Premium Tier)</span>
+                  <span style="font-size: 11px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.2); color: #4ade80; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 12px; flex-shrink: 0;">UNLOCKED</span>
                 </div>
                 <ul style="padding-left: 20px; color: #4ade80; font-size: 0.85rem; line-height: 1.5; margin: 0; list-style-type: '✓ ';">
                   <li style="margin-bottom: 6px;"><strong>AI Auto-Apply form filler</strong> (unlocked)</li>
@@ -107,8 +115,8 @@ export default async function handler(req, res) {
                 </ul>
                 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
-                  <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #94a3b8; margin-right: 12px;">⚪ Clyde Assistant (Your Current Free Tier)</span>
-                  <span style="font-size: 11px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #cbd5e1; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 12px; flex-shrink: 0;">FREE</span>
+                  <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #94a3b8; margin-right: 12px;">⚪ Clyde Assistant (Basic Tier)</span>
+                  <span style="font-size: 11px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #cbd5e1; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 12px; flex-shrink: 0;">BASIC</span>
                 </div>
                 <ul style="padding-left: 20px; color: #cbd5e1; font-size: 0.85rem; line-height: 1.5; margin: 0; list-style-type: '✓ ';">
                   <li style="margin-bottom: 6px;">Store and manage up to 50 clipped JDs</li>
@@ -122,11 +130,11 @@ export default async function handler(req, res) {
               <p style="font-size: 0.9rem; line-height: 1.6; color: #cbd5e1; margin-bottom: 24px;">
                 Clyde operates on a clean, pay-as-you-go <strong>Credit System</strong>. Premium AI features (like tailoring documents or preparing interview answers) consume <strong>1 credit</strong> per generation.
                 <br><br>
-                You can purchase pay-as-you-go credit packs (credits never expire!) or unlock <strong>unlimited premium generations</strong> immediately by subscribing to <strong>Clyde Pro</strong> for just $29.99/month.
+                Pro subscribers automatically receive <strong>unlimited premium generations</strong> included immediately as part of their Clyde Pro subscription.
               </p>
 
               <div style="text-align: center; margin: 28px 0;">
-                <a href="https://clydeai.live/pricing" style="background: linear-gradient(to right, #6366f1, #a855f7); color: #ffffff !important; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 700; display: inline-block; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.35); font-size: 0.95rem;">Upgrade to Clyde Pro or Buy Credits</a>
+                <a href="https://clydeai.live/dashboard" style="background: linear-gradient(to right, #6366f1, #a855f7); color: #ffffff !important; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 700; display: inline-block; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.35); font-size: 0.95rem;">Launch Your Clyde Dashboard</a>
               </div>
 
               <hr style="border: none; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 24px 0;" />
