@@ -112,7 +112,7 @@ test('onboarding gates Pro setup and keeps Free setup local', () => {
   assert.match(wizardSource, /\.\.\.\(proEntitled \? \[\{ id: 'pro', label: 'Pro setup' \}\] : \[\]\)/);
   assert.match(wizardSource, /Connect Google/);
   assert.match(wizardSource, /Enable RAG with Pinecone/);
-  assert.match(wizardSource, /Pinecone API key/);
+  assert.match(wizardSource, /Clyde Cloud/);
   assert.match(wizardSource, /Enable Clyde Pro agent/);
   assert.match(wizardSource, /OpenAI Realtime Whisper/);
 });

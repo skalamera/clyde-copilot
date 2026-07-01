@@ -13362,8 +13362,8 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   const checked = event.target.checked;
                   update('proAgentEnabled', checked);
                   if (checked) {
-                    update('proRealtimeModel', 'gpt-realtime-2');
-                    update('transcriptionProvider', 'openai-realtime-whisper');
+                    update('proRealtimeModel', draft.proRealtimeModel || 'gpt-realtime-2');
+                    update('transcriptionProvider', (draft.proRealtimeModel || '').includes('gemini') ? 'openai' : 'openai-realtime-whisper');
                     if (draft.openAiApiKey) {
                       update('transcriptionApiKey', draft.openAiApiKey);
                     }
@@ -13377,24 +13377,74 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           </label>
           {proEntitled && draft.proAgentEnabled && (
             <>
-              <label>
-                Realtime OpenAI API key
-                <input 
-                  autoComplete="new-password" 
-                  type="password" 
-                  value={draft.openAiApiKey || ''} 
+              <label className="wide-field" style={{ marginTop: '12px' }}>
+                Realtime Copilot Model
+                <select 
+                  value={draft.proRealtimeModel || 'gpt-realtime-2'} 
                   onChange={(event) => {
-                    update('openAiApiKey', event.target.value);
-                    if (draft.proAgentEnabled) {
-                      update('transcriptionApiKey', event.target.value);
+                    const val = event.target.value;
+                    update('proRealtimeModel', val);
+                    if (val.includes('gemini')) {
+                      update('transcriptionProvider', 'openai');
+                    } else {
+                      update('transcriptionProvider', 'openai-realtime-whisper');
                     }
-                  }} 
-                  placeholder="Stored locally" 
-                />
+                  }}
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.42)',
+                    border: '1px solid rgba(56, 189, 248, 0.24)',
+                    color: '#ffffff',
+                    borderRadius: '8px',
+                    padding: '8px',
+                    fontSize: '0.9rem',
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    marginTop: '4px'
+                  }}
+                >
+                  <option value="gpt-realtime-2">OpenAI Realtime (gpt-realtime-2)</option>
+                  <option value="gemini-2.0-flash-exp">Google Gemini Live (gemini-2.0-flash-exp)</option>
+                </select>
               </label>
-              <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500' }}>
-                ✓ OpenAI Realtime Whisper has been enabled with the same API key.
-              </div>
+
+              {String(draft.proRealtimeModel || '').includes('gemini') ? (
+                <>
+                  <label className="wide-field" style={{ marginTop: '12px' }}>
+                    Google Gemini API key
+                    <input 
+                      autoComplete="new-password" 
+                      type="password" 
+                      value={draft.geminiApiKey || ''} 
+                      onChange={(event) => {
+                        update('geminiApiKey', event.target.value);
+                      }} 
+                      placeholder="Stored locally (used for Gemini Live and Gemini model tasks)" 
+                    />
+                  </label>
+                  <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', lineHeight: '1.4' }}>
+                    ✓ Google Gemini Live has been enabled. No extra transcription API key or Whisper server is required.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="wide-field" style={{ marginTop: '12px' }}>
+                    Realtime OpenAI API key
+                    <input 
+                      autoComplete="new-password" 
+                      type="password" 
+                      value={draft.openAiApiKey || ''} 
+                      onChange={(event) => {
+                        update('openAiApiKey', event.target.value);
+                        update('transcriptionApiKey', event.target.value);
+                      }} 
+                      placeholder="Stored locally" 
+                    />
+                  </label>
+                  <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500' }}>
+                    ✓ OpenAI Realtime Whisper has been enabled with the same API key.
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
