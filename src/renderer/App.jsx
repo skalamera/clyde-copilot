@@ -1528,6 +1528,7 @@ function ManualTranscriptModal({ entity, mode = 'interview', onClose, onSave }) 
 function EditEntityModal({ entity, onClose, onSave }) {
   const [name, setName] = useState(entity?.name || '');
   const [role, setRole] = useState(entity?.role || '');
+  const [salary, setSalary] = useState(entity?.salary || '');
   const [outcome, setOutcome] = useState(normalizeOpportunityOutcome(entity?.outcome));
   const [outcomeReason, setOutcomeReason] = useState(entity?.outcomeReason || '');
   const [outcomeDate, setOutcomeDate] = useState(toDateInput(entity?.outcomeDate));
@@ -1535,6 +1536,7 @@ function EditEntityModal({ entity, onClose, onSave }) {
   useEffect(() => {
     setName(entity?.name || '');
     setRole(entity?.role || '');
+    setSalary(entity?.salary || '');
     setOutcome(normalizeOpportunityOutcome(entity?.outcome));
     setOutcomeReason(entity?.outcomeReason || '');
     setOutcomeDate(toDateInput(entity?.outcomeDate));
@@ -1558,6 +1560,10 @@ function EditEntityModal({ entity, onClose, onSave }) {
           <label>
             Title
             <input value={role} onChange={(event) => setRole(event.target.value)} />
+          </label>
+          <label>
+            Salary range / Compensation
+            <input value={salary} onChange={(event) => setSalary(event.target.value)} placeholder="e.g. $140K - $180K" />
           </label>
           <label>
             Status
@@ -1589,6 +1595,7 @@ function EditEntityModal({ entity, onClose, onSave }) {
             onClick={() => onSave({
               name: name.trim(),
               role: role.trim(),
+              salary: salary.trim(),
               outcome,
               outcomeReason: outcomeReason.trim(),
               outcomeDate
@@ -1864,7 +1871,7 @@ function TrendsView({ entities, salaryRanges = {}, mode, onSelectEntity, selecte
       >
         <div className="opportunity-row-main">
           <strong>{entity.name}</strong>
-          {mode === 'interview' && salaryRanges[entity.id] && (
+          {mode === 'interview' && (entity.salary || salaryRanges[entity.id]) && (
             <span className="salary-pill" style={{
               display: 'inline-block',
               background: '#38bdf8',
@@ -1877,7 +1884,7 @@ function TrendsView({ entities, salaryRanges = {}, mode, onSelectEntity, selecte
               verticalAlign: 'middle',
               lineHeight: '1.2'
             }}>
-              {salaryRanges[entity.id]}
+              {entity.salary || salaryRanges[entity.id]}
             </span>
           )}
           <span className="entity-list-badges">
@@ -10323,7 +10330,7 @@ function TimelineView({ entities, salaryRanges = {}, mode, onStartCapture, onRef
         >
           <div className="opportunity-row-main">
             <strong>{entity.name}</strong>
-            {mode === 'interview' && salaryRanges[entity.id] && (
+            {mode === 'interview' && (entity.salary || salaryRanges[entity.id]) && (
               <span className="salary-pill" style={{
                 display: 'inline-block',
                 background: '#38bdf8',
@@ -10336,7 +10343,7 @@ function TimelineView({ entities, salaryRanges = {}, mode, onStartCapture, onRef
                 verticalAlign: 'middle',
                 lineHeight: '1.2'
               }}>
-                {salaryRanges[entity.id]}
+                {entity.salary || salaryRanges[entity.id]}
               </span>
             )}
             <span className="entity-list-badges" style={{ position: 'relative' }}>

@@ -115,6 +115,7 @@ function createSessionManager({ appPath }) {
       id: normalizedEntityId,
       name: clean(patch.name || existing.name || entityId),
       role: clean(patch.role !== undefined ? patch.role : existing.role),
+      salary: clean(patch.salary !== undefined ? patch.salary : existing.salary),
       attendees: Array.isArray(patch.attendees)
         ? patch.attendees
         : (Array.isArray(existing.attendees) ? existing.attendees : []),
@@ -200,6 +201,7 @@ function createSessionManager({ appPath }) {
         id: entityId,
         name: entity.name || entityId,
         role: entity.role || '',
+        salary: clean(entity.salary !== undefined ? entity.salary : existing.salary),
         attendees: Array.isArray(entity.attendees) ? entity.attendees : (Array.isArray(existing.attendees) ? existing.attendees : []),
         kind: entity.kind || normalizeMode(mode),
         confidence_score: hasEntityConfidence
@@ -286,7 +288,8 @@ function createSessionManager({ appPath }) {
             match_score: meta.match_score,
             top_strength: meta.top_strength,
             main_gap: meta.main_gap,
-            mitigation: meta.mitigation
+            mitigation: meta.mitigation,
+            salary: clean(meta.salary || '')
           };
         });
     }
@@ -311,7 +314,8 @@ function createSessionManager({ appPath }) {
             outcome: normalizeOutcome(meta.outcome),
             outcomeReason: clean(meta.outcomeReason),
             outcomeDate: clean(meta.outcomeDate),
-            outcomeUpdatedAt: clean(meta.outcomeUpdatedAt)
+            outcomeUpdatedAt: clean(meta.outcomeUpdatedAt),
+            salary: clean(meta.salary || '')
           };
         });
     }
