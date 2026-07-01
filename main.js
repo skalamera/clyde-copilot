@@ -1430,6 +1430,8 @@ function buildCallPreflightContext(settings = loadSettings()) {
         ? questionBankManager.listEntries({ mode: 'interview', scopeMode: 'global', limit: 1000 }).length
         : 0;
 
+    const isGeminiLive = Boolean(settings.userTier === 'pro' && settings.proAgentEnabled && String(settings.proRealtimeModel || '').includes('gemini'));
+
     return {
         mode,
         entityId,
@@ -1441,16 +1443,20 @@ function buildCallPreflightContext(settings = loadSettings()) {
         },
         health: JSON.parse(JSON.stringify(healthState)),
         models: {
-            transcriptionProvider: settings.transcriptionProvider || 'Not selected',
-            transcriptionModel: isCloudTranscriptionProvider(settings.transcriptionProvider)
-                ? (settings.transcriptionProvider === 'openai-realtime-whisper' 
-                    ? 'gpt-realtime-whisper' 
-                    : settings.transcriptionProvider === 'clyde-cloud-whisper' 
-                        ? 'Clyde Managed Whisper (Pro Only)' 
-                        : 'OpenAI Cloud Transcription')
-                : settings.localTranscriptionUrl || 'Not selected',
-            assistantProvider: settings.llmProvider || 'Not selected',
-            assistantModel: settings.llmProvider === 'local' ? (settings.llmModel || 'Local model not selected') : (settings.llmModel || settings.llmProvider || 'Not selected'),
+            transcriptionProvider: isGeminiLive ? 'gemini-live' : (settings.transcriptionProvider || 'Not selected'),
+            transcriptionModel: isGeminiLive 
+                ? 'Unified Gemini Live Audio Stream'
+                : (isCloudTranscriptionProvider(settings.transcriptionProvider)
+                    ? (settings.transcriptionProvider === 'openai-realtime-whisper' 
+                        ? 'gpt-realtime-whisper' 
+                        : settings.transcriptionProvider === 'clyde-cloud-whisper' 
+                            ? 'Clyde Managed Whisper (Pro Only)' 
+                            : 'OpenAI Cloud Transcription')
+                    : settings.localTranscriptionUrl || 'Not selected'),
+            assistantProvider: isGeminiLive ? 'gemini-live' : (settings.llmProvider || 'Not selected'),
+            assistantModel: isGeminiLive 
+                ? 'Unified Gemini Live Audio Stream'
+                : (settings.llmProvider === 'local' ? (settings.llmModel || 'Local model not selected') : (settings.llmModel || settings.llmProvider || 'Not selected')),
             proRealtimeModel: settings.proRealtimeModel || 'Not selected',
             proAgentEnabled: Boolean(settings.userTier === 'pro' && settings.proAgentEnabled),
             ragEnabled: Boolean(settings.ragEnabled),
