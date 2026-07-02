@@ -801,7 +801,7 @@ async function getFreshAccessToken() {
   } catch (e) {
     return '';
   }
-  const store = new Store();
+  const store = new Store({ projectName: 'clyde' });
   const userId = store.get('userId', '');
   const accessToken = store.get('authAccessToken', '');
   const refreshToken = store.get('authRefreshToken', '');

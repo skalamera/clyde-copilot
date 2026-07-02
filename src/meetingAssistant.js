@@ -1810,17 +1810,9 @@ function cleanText(value) {
 }
 
 function shouldUseProAgent(settings = {}, request = {}) {
-  const isGemini = String(settings.proRealtimeModel || '').includes('gemini');
-  if (isGemini) {
-    return settings.userTier === 'pro'
-      && settings.proAgentEnabled !== false
-      && !request.screenshot
-      && Boolean(settings.geminiApiKey || settings.llmApiKey || settings.transcriptionApiKey || process.env.GEMINI_API_KEY || process.env.GEMINI_LIVE_API_KEY);
-  }
   return settings.userTier === 'pro'
     && settings.proAgentEnabled !== false
-    && !request.screenshot
-    && Boolean(settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY);
+    && !request.screenshot;
 }
 
 function shouldAllowProMemorySearch({

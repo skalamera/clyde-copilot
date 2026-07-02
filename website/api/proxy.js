@@ -396,6 +396,85 @@ export default async function handler(request, response) {
     }
 
     // -----------------------------------------------------------------
+    // ROUTE B-2: Realtime Token Proxy
+    // -----------------------------------------------------------------
+    if (type === 'realtime-token') {
+      const body = await readJson(request);
+      const provider = String(body.provider || 'gemini').toLowerCase().trim();
+      const model = String(body.model || '').trim();
+
+      if (provider === 'openai') {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) {
+          sendJson(response, 500, { error: 'Clyde server-managed OpenAI API key is not configured.' });
+          return;
+        }
+
+        const oaiRes = await fetch('https://api.openai.com/v1/realtime/sessions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: model || 'gpt-4o-realtime-preview',
+            modalities: ['text']
+          })
+        });
+
+        const oaiData = await oaiRes.json();
+        if (!oaiRes.ok) {
+          sendJson(response, oaiRes.status, oaiData);
+          return;
+        }
+
+        const ephemeralToken = oaiData?.client_secret?.value;
+        if (!ephemeralToken) {
+          sendJson(response, 500, { error: 'Failed to retrieve ephemeral token from OpenAI Realtime API.' });
+          return;
+        }
+
+        sendJson(response, 200, { token: ephemeralToken });
+        return;
+      } else {
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        if (!apiKey) {
+          sendJson(response, 500, { error: 'Clyde server-managed Gemini API key is not configured.' });
+          return;
+        }
+
+        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1alpha/authTokens?key=${apiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            config: {
+              uses: 1,
+              expireTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+              newSessionExpireTime: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+            }
+          })
+        });
+
+        const geminiData = await geminiRes.json();
+        if (!geminiRes.ok) {
+          sendJson(response, geminiRes.status, geminiData);
+          return;
+        }
+
+        const ephemeralToken = geminiData?.name;
+        if (!ephemeralToken) {
+          sendJson(response, 500, { error: 'Failed to retrieve ephemeral token from Gemini Live API.' });
+          return;
+        }
+
+        sendJson(response, 200, { token: ephemeralToken });
+        return;
+      }
+    }
+
+    // -----------------------------------------------------------------
     // ROUTE C: Chat Proxy (Gemini 2.5 Flash / OpenAI GPT Fallback)
     // -----------------------------------------------------------------
     const body = await readJson(request);

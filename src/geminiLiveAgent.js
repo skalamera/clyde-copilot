@@ -6,7 +6,7 @@ const {
 } = require('./proAgentPrompts');
 const defaultPineconeClient = require('./pineconeClient');
 
-const DEFAULT_MODEL = 'gemini-2.0-flash-exp';
+const DEFAULT_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const DEFAULT_TIMEOUT_MS = 30000;
 
 function createGeminiLiveAgent(options = {}) {
@@ -306,11 +306,13 @@ function createGeminiLiveAgent(options = {}) {
     const setup = {
       model: geminiModelName,
       generation_config: {
-        response_modalities: ['TEXT'],
-        system_instruction: {
-          parts: [{ text: systemInstructionText }]
-        }
-      }
+        response_modalities: ['AUDIO']
+      },
+      system_instruction: {
+        parts: [{ text: systemInstructionText }]
+      },
+      input_audio_transcription: {},
+      output_audio_transcription: {}
     };
 
     if (geminiTools && geminiTools.length) {
@@ -327,6 +329,7 @@ function createGeminiLiveAgent(options = {}) {
       const mapSchema = (schema) => {
         if (!schema) return schema;
         const mapped = { ...schema };
+        delete mapped.additionalProperties; // Gemini doesn't support additionalProperties
         if (typeof mapped.type === 'string') {
           mapped.type = mapped.type.toUpperCase();
         }
@@ -383,13 +386,19 @@ function createGeminiLiveAgent(options = {}) {
       return;
     }
 
+    const serverContent = event.server_content || event.serverContent;
     let delta = '';
-    if (event.server_content?.model_turn?.parts) {
-      for (const part of event.server_content.model_turn.parts) {
+    if (serverContent?.model_turn?.parts || serverContent?.modelTurn?.parts) {
+      const parts = serverContent.model_turn?.parts || serverContent.modelTurn?.parts;
+      for (const part of parts) {
         if (part.text) {
           delta += part.text;
         }
       }
+    }
+    const outputTrans = serverContent?.output_transcription || serverContent?.outputTranscription;
+    if (outputTrans && outputTrans.text) {
+      delta += outputTrans.text;
     }
 
     if (delta && activeRun) {
@@ -402,7 +411,7 @@ function createGeminiLiveAgent(options = {}) {
       emitDraft(activeRun);
     }
 
-    const isTurnComplete = event.server_content?.turn_complete === true || event.turn_complete === true;
+    const isTurnComplete = serverContent?.turn_complete === true || event.turn_complete === true || serverContent?.turnComplete === true || event.turnComplete === true;
     if (isTurnComplete) {
       handleTurnComplete().catch(finishActiveRunWithError);
     }

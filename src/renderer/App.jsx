@@ -226,7 +226,9 @@ function normalizeEntitledSettings(settings = {}) {
       : (settings.llmProvider === 'clyde-cloud' && !pro ? '' : (settings.llmModel || ''));
   const transcriptionProvider = settings.transcriptionProvider === 'clyde-cloud-whisper' && !pro ? 'local' : (settings.transcriptionProvider || '');
 
-  const proRealtimeModel = pro && settings.proAgentEnabled ? 'gpt-realtime-2' : (settings.proRealtimeModel || '');
+  const proRealtimeModel = pro && settings.proAgentEnabled
+    ? (settings.proRealtimeModel || 'gpt-realtime-2')
+    : (settings.proRealtimeModel || '');
 
   const credits = typeof settings.subscriptionCredits === 'number'
     ? settings.subscriptionCredits
@@ -13362,8 +13364,9 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   const checked = event.target.checked;
                   update('proAgentEnabled', checked);
                   if (checked) {
-                    update('proRealtimeModel', draft.proRealtimeModel || 'gpt-realtime-2');
-                    update('transcriptionProvider', (draft.proRealtimeModel || '').includes('gemini') ? 'openai' : 'openai-realtime-whisper');
+                    const model = draft.proRealtimeModel || 'gpt-realtime-2';
+                    update('proRealtimeModel', model);
+                    update('transcriptionProvider', 'openai-realtime-whisper');
                     if (draft.openAiApiKey) {
                       update('transcriptionApiKey', draft.openAiApiKey);
                     }
@@ -13384,11 +13387,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   onChange={(event) => {
                     const val = event.target.value;
                     update('proRealtimeModel', val);
-                    if (val.includes('gemini')) {
-                      update('transcriptionProvider', 'openai');
-                    } else {
-                      update('transcriptionProvider', 'openai-realtime-whisper');
-                    }
+                    update('transcriptionProvider', 'openai-realtime-whisper');
                   }}
                   style={{
                     background: 'rgba(15, 23, 42, 0.42)',
@@ -13403,7 +13402,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   }}
                 >
                   <option value="gpt-realtime-2">OpenAI Realtime (gpt-realtime-2)</option>
-                  <option value="gemini-2.0-flash-exp">Google Gemini Live (gemini-2.0-flash-exp)</option>
+                  <option value="gemini-2.5-flash-native-audio-preview-12-2025">Google Gemini Live (gemini-2.5-flash-native-audio-preview-12-2025)</option>
                 </select>
               </label>
 
@@ -13421,8 +13420,21 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                       placeholder="Stored locally (used for Gemini Live and Gemini model tasks)" 
                     />
                   </label>
+                  <label className="wide-field" style={{ marginTop: '12px' }}>
+                    Realtime OpenAI API key (required for Realtime Whisper transcription)
+                    <input 
+                      autoComplete="new-password" 
+                      type="password" 
+                      value={draft.openAiApiKey || ''} 
+                      onChange={(event) => {
+                        update('openAiApiKey', event.target.value);
+                        update('transcriptionApiKey', event.target.value);
+                      }} 
+                      placeholder="Stored locally" 
+                    />
+                  </label>
                   <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', lineHeight: '1.4' }}>
-                    ✓ Google Gemini Live has been enabled. No extra transcription API key or Whisper server is required.
+                    ✓ Google Gemini Live has been enabled. OpenAI Realtime Whisper is enabled for low latency.
                   </div>
                 </>
               ) : (
@@ -13536,7 +13548,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           ) : (draft.transcriptionProvider && draft.transcriptionProvider !== 'clyde-cloud-whisper') ? (
             <label>
               OpenAI API key
-              <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} disabled={Boolean(draft.proAgentEnabled)} onChange={(event) => { update('openAiApiKey', event.target.value); update('transcriptionApiKey', event.target.value); }} placeholder="Stored locally" />
+              <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} disabled={Boolean(draft.proAgentEnabled && !(draft.proRealtimeModel || '').includes('gemini'))} onChange={(event) => { update('openAiApiKey', event.target.value); update('transcriptionApiKey', event.target.value); }} placeholder="Stored locally" />
             </label>
           ) : null}
         </div>

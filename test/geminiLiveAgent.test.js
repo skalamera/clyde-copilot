@@ -54,7 +54,7 @@ test('gemini realtime agent executes memory tool calls and returns normalized ca
     settings: {
       transcriptionApiKey: 'gemini-key',
       llmApiKey: 'gemini-key',
-      proRealtimeModel: 'gemini-2.0-flash-exp',
+      proRealtimeModel: 'gemini-2.5-flash-native-audio-preview-12-2025',
       pineconeApiKey: 'pine-key',
       pineconeHost: 'https://example-index.pinecone.io'
     },
@@ -90,8 +90,8 @@ test('gemini realtime agent executes memory tool calls and returns normalized ca
 
   assert.equal(ws.url, 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=gemini-key');
   assert.ok(ws.sent[0].setup);
-  assert.equal(ws.sent[0].setup.model, 'models/gemini-2.0-flash-exp');
-  assert.match(ws.sent[0].setup.generation_config.system_instruction.parts[0].text, /Global story bank/);
+  assert.equal(ws.sent[0].setup.model, 'models/gemini-2.5-flash-native-audio-preview-12-2025');
+  assert.match(ws.sent[0].setup.system_instruction.parts[0].text, /Global story bank/);
 
   assert.ok(ws.sent[1].client_content);
   assert.equal(ws.sent[1].client_content.turns[0].role, 'user');
@@ -163,7 +163,7 @@ test('gemini realtime agent scopes memory search to the active entity context', 
     settings: {
       transcriptionApiKey: 'gemini-key',
       llmApiKey: 'gemini-key',
-      proRealtimeModel: 'gemini-2.0-flash-exp',
+      proRealtimeModel: 'gemini-2.5-flash-native-audio-preview-12-2025',
       pineconeApiKey: 'pine-key',
       pineconeHost: 'https://example-index.pinecone.io'
     },

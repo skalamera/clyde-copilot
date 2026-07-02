@@ -25,7 +25,7 @@ async function retryWithBackoff(fn, retries = 3, delay = 1000) {
 async function getCloudManagedFallback(text, options = {}) {
   try {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     const accessToken = store.get('authAccessToken', '');
     
     if (accessToken) {

@@ -68,7 +68,7 @@ function decryptSecret(text) {
 function syncAndMigrateSecrets() {
     isAppReadyForEncryption = true;
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
 
     let hasUpdates = false;
     for (const key of ENCRYPTED_KEYS) {
@@ -299,7 +299,7 @@ function configureElectronStorage() {
 
 function loadSettings() {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     
     let extensionPairingToken = store.get('extensionPairingToken', '');
     if (!extensionPairingToken) {
@@ -414,7 +414,7 @@ function publicSettings(settings = loadSettings()) {
 
 function saveSettings(newSettings, options = {}) {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     const openAiApiKey = String(newSettings?.openAiApiKey || '').trim();
     const normalizedLlmProvider = ['clyde-cloud', 'local', 'gemini', 'openai'].includes(newSettings?.llmProvider) ? newSettings.llmProvider : '';
     const normalizedLlmModel = normalizedLlmProvider === 'clyde-cloud' || normalizedLlmProvider === 'gemini'
@@ -549,7 +549,7 @@ function buildOutcomeCalibrationSummary(entity = {}) {
 
 function getSettingsStore() {
     const Store = require('electron-store').default || require('electron-store');
-    return new Store();
+    return new Store({ projectName: 'clyde' });
 }
 
 async function archiveSessionKnowledge(record, settings = loadSettings()) {
@@ -618,7 +618,7 @@ function authSessionFromSettings(settings = loadSettings()) {
 
 function saveAuthSession(session) {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     store.set({
         userId: session.userId || '',
         authEmail: session.email || '',
@@ -630,7 +630,7 @@ function saveAuthSession(session) {
 
 function clearAuthSession() {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     const currentSettings = loadSettings();
     for (const key of ['userId', 'authEmail', 'authAccessToken', 'authRefreshToken', 'authExpiresAt', 'licenseKey']) {
         store.delete(key);
@@ -679,7 +679,7 @@ async function getFreshAuthSession() {
 
 async function refreshEntitlements() {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     // loadSettings() intentionally normalizes signed-out/free users by disabling
     // Pro-only switches. Keep the raw locally saved preferences so signing back
     // into a valid Pro account can restore the user's chosen toggles instead of
@@ -2421,7 +2421,7 @@ function createWindow () {
     });
 
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     if (!store.get('knowledgeBackfillDone_v2')) {
         backfillKnowledgeFromSessions(settings).then(() => {
             store.set('knowledgeBackfillDone_v2', true);
@@ -2839,13 +2839,13 @@ function createWindow () {
 
   ipcMain.handle('load-floating-agent-prefs', () => {
       const Store = require('electron-store').default || require('electron-store');
-      const store = new Store();
+      const store = new Store({ projectName: 'clyde' });
       return store.get('floatingAgentPrefs', { enabled: true, x: 24, y: 120, panelOpen: false });
   });
 
   ipcMain.handle('save-floating-agent-prefs', (event, prefs = {}) => {
       const Store = require('electron-store').default || require('electron-store');
-      const store = new Store();
+      const store = new Store({ projectName: 'clyde' });
       const current = store.get('floatingAgentPrefs', { enabled: true, x: 24, y: 120, panelOpen: false });
       const next = {
           ...current,
