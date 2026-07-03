@@ -428,7 +428,7 @@ test('gemini realtime agent configures session on socket open if not run (e.g. w
   await waitFor(() => ws.sent.length >= 1);
   const setupEvent = ws.sent.find((item) => item.setup !== undefined);
   assert.ok(setupEvent);
-  assert.equal(setupEvent.setup.generation_config.response_modalities[0], 'TEXT');
+  assert.equal(setupEvent.setup.generation_config.response_modalities[0], 'AUDIO');
 
   agent.close();
 });

@@ -236,6 +236,7 @@ function normalizeEntitledSettings(settings = {}) {
 
   return {
     ...settings,
+    audioEngine: 'rust',
     userTier,
     llmProvider,
     llmModel,
@@ -13293,8 +13294,8 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                 <option value="clyde-cloud">Clyde Managed Cloud (Pro only)</option>
               )}
               <option value="local">Local LM Studio (Offline)</option>
-              <option value="gemini">Google Gemini (Custom Key)</option>
-              <option value="openai">OpenAI ChatGPT (Custom Key)</option>
+              <option value="gemini">Google Gemini (BYOK)</option>
+              <option value="openai">OpenAI ChatGPT (BYOK)</option>
             </select>
           </label>
           {draft.llmProvider === 'clyde-cloud' && settings.subscriptionPlan === 'clyde_byok_lifetime' && (
@@ -13364,8 +13365,7 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
                   const checked = event.target.checked;
                   update('proAgentEnabled', checked);
                   if (checked) {
-                    const model = draft.proRealtimeModel || 'gpt-realtime-2';
-                    update('proRealtimeModel', model);
+                    update('proRealtimeModel', 'gpt-realtime-2');
                     update('transcriptionProvider', 'openai-realtime-whisper');
                     if (draft.openAiApiKey) {
                       update('transcriptionApiKey', draft.openAiApiKey);
@@ -13380,63 +13380,10 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
           </label>
           {proEntitled && draft.proAgentEnabled && (
             <>
-              <label className="wide-field" style={{ marginTop: '12px' }}>
-                Realtime Copilot Model
-                <select 
-                  value={draft.proRealtimeModel || 'gpt-realtime-2'} 
-                  onChange={(event) => {
-                    const val = event.target.value;
-                    update('proRealtimeModel', val);
-                    update('transcriptionProvider', 'openai-realtime-whisper');
-                  }}
-                  style={{
-                    background: 'rgba(15, 23, 42, 0.42)',
-                    border: '1px solid rgba(56, 189, 248, 0.24)',
-                    color: '#ffffff',
-                    borderRadius: '8px',
-                    padding: '8px',
-                    fontSize: '0.9rem',
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    marginTop: '4px'
-                  }}
-                >
-                  <option value="gpt-realtime-2">OpenAI Realtime (gpt-realtime-2)</option>
-                  <option value="gemini-2.5-flash-native-audio-preview-12-2025">Google Gemini Live (gemini-2.5-flash-native-audio-preview-12-2025)</option>
-                </select>
-              </label>
-
-              {String(draft.proRealtimeModel || '').includes('gemini') ? (
-                <>
-                  <label className="wide-field" style={{ marginTop: '12px' }}>
-                    Google Gemini API key
-                    <input 
-                      autoComplete="new-password" 
-                      type="password" 
-                      value={draft.geminiApiKey || ''} 
-                      onChange={(event) => {
-                        update('geminiApiKey', event.target.value);
-                      }} 
-                      placeholder="Stored locally (used for Gemini Live and Gemini model tasks)" 
-                    />
-                  </label>
-                  <label className="wide-field" style={{ marginTop: '12px' }}>
-                    Realtime OpenAI API key (required for Realtime Whisper transcription)
-                    <input 
-                      autoComplete="new-password" 
-                      type="password" 
-                      value={draft.openAiApiKey || ''} 
-                      onChange={(event) => {
-                        update('openAiApiKey', event.target.value);
-                        update('transcriptionApiKey', event.target.value);
-                      }} 
-                      placeholder="Stored locally" 
-                    />
-                  </label>
-                  <div style={{ marginTop: '8px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', lineHeight: '1.4' }}>
-                    ✓ Google Gemini Live has been enabled. OpenAI Realtime Whisper is enabled for low latency.
-                  </div>
-                </>
+              {draft.llmProvider === 'clyde-cloud' ? (
+                <div className="wide-field" style={{ marginTop: '12px', color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', padding: '8px 12px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', boxSizing: 'border-box' }}>
+                  ✓ OpenAI Realtime model and Whisper transcription are fully managed via Clyde Cloud.
+                </div>
               ) : (
                 <>
                   <label className="wide-field" style={{ marginTop: '12px' }}>
@@ -13465,92 +13412,89 @@ function SetupFields({ api, compact = false, initialTab = 'general', mode, onSav
       {activeTab === 'transcription' && (
         <div className="form-grid">
           <label>
-            Audio engine
-            <select value={draft.audioEngine || 'rust'} onChange={(event) => updateAudioSetting('audioEngine', event.target.value)}>
-              <option value="rust">Rust native audio</option>
-              <option value="legacy">Legacy recorder</option>
+            Microphone
+            <select value={draft.microphoneDeviceId || ''} onChange={(event) => updateAudioSetting('microphoneDeviceId', event.target.value)}>
+              <option value="">Default microphone</option>
+              {audioDevices.microphones.map((device) => (
+                <option key={device.id || device.name} value={device.id || device.name}>
+                  {device.name || device.id}
+                </option>
+              ))}
             </select>
           </label>
-          {draft.audioEngine !== 'legacy' && (
+          <label>
+            System audio
+            <select value={draft.systemAudioDeviceId || ''} onChange={(event) => updateAudioSetting('systemAudioDeviceId', event.target.value)}>
+              <option value="">Default system audio</option>
+              {audioDevices.systemOutputs.map((device) => (
+                <option key={device.id || device.name} value={device.id || device.name}>
+                  {device.name || device.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="wide-field audio-device-actions">
+            <button type="button" className="ghost" onClick={refreshAudioDevices}>Refresh devices</button>
+            {audioDeviceStatus ? <small>{audioDeviceStatus}</small> : null}
+          </div>
+          {draft.proAgentEnabled ? (
+            <div className="wide-field" style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500', padding: '8px 12px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', marginTop: '12px', boxSizing: 'border-box' }}>
+              ✓ Transcription engine is managed automatically by Clyde Pro Agent.
+            </div>
+          ) : (
             <>
-              <label>
-                Microphone
-                <select value={draft.microphoneDeviceId || ''} onChange={(event) => updateAudioSetting('microphoneDeviceId', event.target.value)}>
-                  <option value="">Default microphone</option>
-                  {audioDevices.microphones.map((device) => (
-                    <option key={device.id || device.name} value={device.id || device.name}>
-                      {device.name || device.id}
-                    </option>
-                  ))}
+              <label className="wide-field" style={{ marginTop: '12px' }}>
+                Transcription provider
+                <select value={draft.transcriptionProvider || ''} onChange={(event) => {
+                  const val = event.target.value;
+                  if (val === 'clyde-cloud-whisper' && draft.subscriptionPlan === 'clyde_byok_lifetime') {
+                    window.alert('Clyde Managed Whisper is not available on the BYOK Lifetime plan. Please select a local or custom API provider.');
+                    return;
+                  }
+                  if (val === 'clyde-cloud-whisper' && !proEntitled) {
+                    window.alert('Clyde Managed Whisper is a Pro-only feature! Please select a local or custom API provider, or upgrade to Clyde Pro from settings.');
+                    return;
+                  }
+                  update('transcriptionProvider', val);
+                }}>
+                  <option value="">Select a transcription provider</option>
+                  {draft.subscriptionPlan !== 'clyde_byok_lifetime' && (
+                    <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
+                  )}
+                  <option value="local">Local Whisper (Offline)</option>
+                  <option value="openai">OpenAI Whisper (BYOK)</option>
+                  <option value="openai-realtime-whisper">OpenAI Realtime Whisper (BYOK)</option>
                 </select>
               </label>
-              <label>
-                System audio
-                <select value={draft.systemAudioDeviceId || ''} onChange={(event) => updateAudioSetting('systemAudioDeviceId', event.target.value)}>
-                  <option value="">Default system audio</option>
-                  {audioDevices.systemOutputs.map((device) => (
-                    <option key={device.id || device.name} value={device.id || device.name}>
-                      {device.name || device.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="wide-field audio-device-actions">
-                <button type="button" className="ghost" onClick={refreshAudioDevices}>Refresh devices</button>
-                {audioDeviceStatus ? <small>{audioDeviceStatus}</small> : null}
-              </div>
+              {draft.transcriptionProvider === 'clyde-cloud-whisper' && settings.subscriptionPlan === 'clyde_byok_lifetime' && (
+                <div className="wide-field upgrade-pro-callout">
+                  <strong>Clyde Managed Whisper is not available on the BYOK Lifetime plan</strong>
+                  <span>Please select Local Whisper or configure a custom OpenAI API key.</span>
+                </div>
+              )}
+              {draft.transcriptionProvider === 'clyde-cloud-whisper' && settings.subscriptionPlan !== 'clyde_byok_lifetime' && !proEntitled && (
+                <div className="wide-field upgrade-pro-callout">
+                  <strong>Clyde Managed Whisper requires Clyde Pro</strong>
+                  <span>Open the website to upgrade, then refresh your subscription in Clyde.</span>
+                  <div className="upgrade-pro-actions">
+                    <UpgradeToProButton />
+                    <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
+                  </div>
+                </div>
+              )}
+              {draft.transcriptionProvider === 'local' ? (
+                <label>
+                  Transcription URL
+                  <input value={draft.localTranscriptionUrl || ''} onChange={(event) => update('localTranscriptionUrl', event.target.value)} placeholder="http://localhost:8000/v1/audio/transcriptions" />
+                </label>
+              ) : (draft.transcriptionProvider && draft.transcriptionProvider !== 'clyde-cloud-whisper') ? (
+                <label>
+                  OpenAI API key
+                  <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} disabled={Boolean(draft.proAgentEnabled && !(draft.proRealtimeModel || '').includes('gemini'))} onChange={(event) => { update('openAiApiKey', event.target.value); update('transcriptionApiKey', event.target.value); }} placeholder="Stored locally" />
+                </label>
+              ) : null}
             </>
           )}
-          <label>
-            Transcription provider
-            <select value={draft.transcriptionProvider || ''} disabled={Boolean(draft.proAgentEnabled)} onChange={(event) => {
-              const val = event.target.value;
-              if (val === 'clyde-cloud-whisper' && draft.subscriptionPlan === 'clyde_byok_lifetime') {
-                window.alert('Clyde Managed Whisper is not available on the BYOK Lifetime plan. Please select local or custom API providers.');
-                return;
-              }
-              if (val === 'clyde-cloud-whisper' && !proEntitled) {
-                window.alert('Clyde Managed Whisper is a Pro-only feature! Please select local or custom API providers.');
-                return;
-              }
-              update('transcriptionProvider', val);
-            }}>
-              <option value="">Select a transcription provider</option>
-              {draft.subscriptionPlan !== 'clyde_byok_lifetime' && (
-                <option value="clyde-cloud-whisper">Clyde Managed Whisper (Pro only)</option>
-              )}
-              <option value="local">Local Whisper (Offline)</option>
-              <option value="openai">OpenAI Whisper (Custom Key)</option>
-              <option value="openai-realtime-whisper">OpenAI Realtime Whisper (Custom Key)</option>
-            </select>
-          </label>
-          {draft.transcriptionProvider === 'clyde-cloud-whisper' && settings.subscriptionPlan === 'clyde_byok_lifetime' && (
-            <div className="wide-field upgrade-pro-callout">
-              <strong>Clyde Managed Whisper is not available on the BYOK Lifetime plan</strong>
-              <span>Please select Local Whisper or configure a custom OpenAI API key.</span>
-            </div>
-          )}
-          {draft.transcriptionProvider === 'clyde-cloud-whisper' && settings.subscriptionPlan !== 'clyde_byok_lifetime' && !proEntitled && (
-            <div className="wide-field upgrade-pro-callout">
-              <strong>Clyde Managed Whisper requires Clyde Pro</strong>
-              <span>Open the website to upgrade, then refresh your subscription in Clyde.</span>
-              <div className="upgrade-pro-actions">
-                <UpgradeToProButton />
-                <RefreshEntitlementsButton onRefresh={refreshEntitlements} />
-              </div>
-            </div>
-          )}
-          {draft.transcriptionProvider === 'local' ? (
-            <label>
-              Transcription URL
-              <input value={draft.localTranscriptionUrl || ''} onChange={(event) => update('localTranscriptionUrl', event.target.value)} placeholder="http://localhost:8000/v1/audio/transcriptions" />
-            </label>
-          ) : (draft.transcriptionProvider && draft.transcriptionProvider !== 'clyde-cloud-whisper') ? (
-            <label>
-              OpenAI API key
-              <input autoComplete="new-password" type="password" value={draft.openAiApiKey || ''} disabled={Boolean(draft.proAgentEnabled && !(draft.proRealtimeModel || '').includes('gemini'))} onChange={(event) => { update('openAiApiKey', event.target.value); update('transcriptionApiKey', event.target.value); }} placeholder="Stored locally" />
-            </label>
-          ) : null}
         </div>
       )}
 

@@ -53,11 +53,11 @@ function buildAssistantPrompt(options = {}) {
     `Current command: ${command}.`,
     targetQuestion ? (
       isStarQuestion(targetQuestion)
-        ? `The interviewer just asked this behavioral question: "${targetQuestion}". Because this is a behavioral/situational question, you MUST structure your response strictly using the STAR method. Format your 3-4 bullets exactly as:
-* **[S]** (Situation context...)
-* **[T]** (Task or goal...)
-* **[A]** (Actions you took...)
-* **[R]** (Quantifiable metrics/result...)
+        ? `The interviewer just asked this behavioral question: "${targetQuestion}". Because this is a behavioral/situational question, you MUST structure your response strictly using the STAR method. Format your exactly 4 bullets as follows:
+* **[S]** (Situation context — Set the scene with a concrete challenge, scale, and specific platform/company context)
+* **[T]** (Task or goal — Define the exact objective or expectation you had to achieve)
+* **[A]** (Actions you took — State the exact, specific actions you took using platforms/tools with strong active verbs)
+* **[R]** (Quantifiable metrics/result — Deliver the measurable business outcome, bolding all metrics)
 Do not use standard bullets. Bold key metrics and outcomes.`
         : `The interviewer just asked this question: "${targetQuestion}". Answer this exact question first.`
     ) : '',
@@ -74,9 +74,14 @@ Do not use standard bullets. Bold key metrics and outcomes.`
     command === 'screen_question' ? 'A desktop screenshot is attached. Analyze the attached screenshot of the user\'s own screen along with the recent transcript turns, and provide a single answer card summarizing your analysis and suggestions.' : '',
     'When a screenshot is provided, it is a capture of the user\'s own screen. Do not assume the interviewer is looking at it or has access to it, and describe the screen contents directly to the user.',
     'Use first-person language for suggested responses.',
-    'Keep every bullet point extremely concise, punchy, and easy to scan within 1 second. Limit each bullet point to a maximum of 12-18 words.',
-    'For behavioral questions (e.g., "Tell me about a time...", "Give an example of..."), structure the bullets strictly using the STAR format. Prefix each bullet point with a bolded tag: **[S]** (Situation), **[T]** (Task), **[A]** (Action), or **[R]** (Result).',
-    'Make every bullet highly readable during a live call by bolding key metrics, numbers, and core impact values (e.g., **32% handle time reduction**, **$45K saved**, etc.) to allow instant split-second scanning.',
+    'Keep every bullet point concise, punchy, and easy to scan in 2 seconds. Each bullet point should be around 15-25 words to ensure it contains high-quality, substantive, and highly specific details, without any generic fluff.',
+    'For behavioral/situational questions (e.g., "Tell me about a time...", "Give an example of...", "Describe a situation...", "How did you handle..."), you must ALWAYS use the STAR format with exactly 4 bullets, prefixed as follows:',
+    '  - Bullet 1: **[S]** (Situation) — Set the scene with a concrete challenge, scale, and specific platform/company context.',
+    '  - Bullet 2: **[T]** (Task) — Define the exact objective, goal, or expectation you had to achieve.',
+    '  - Bullet 3: **[A]** (Action) — State the exact, specific actions you took (using platforms like Zendesk, Jira, APIs, SQL, etc.). Use strong, first-person active verbs.',
+    '  - Bullet 4: **[R]** (Result) — Deliver the measurable business outcome, bolding all metrics, percentages, and dollar amounts (e.g., **98.2% SLA adherence**, **32% handle time reduction**).',
+    'Do not merge or omit any of the STAR components. Provide all 4 bullets strictly in order.',
+    'Make every bullet highly readable during a live call by bolding key metrics, numbers, and core impact values to allow instant split-second scanning.',
     'CRITICAL CONVERSATIONAL TONE RULES (Banish all AI-speak):',
     '- Tone must be natural, conversational, and peer-to-peer. Do not sound corporate, robotic, or like a formal teleprompter.',
     '- Use contractions naturally: I\'m, don\'t, can\'t, it\'s, we\'re, you\'re. Do not use overly formal/uncontracted phrasing.',

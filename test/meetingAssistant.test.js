@@ -600,6 +600,50 @@ test('pro automatic assist waits for a complete interviewer prompt', async () =>
   assert.match(proDigests[0], /how you approached it\?/);
 });
 
+test('pro automatic assist waits for 2000ms settle delay on interview prompt cues in production setting', async () => {
+  const proDigests = [];
+  const assistant = createMeetingAssistant({
+    settings: {
+      userTier: 'pro',
+      proAgentEnabled: true,
+      transcriptionApiKey: 'openai-key',
+      llmApiKey: 'openai-key',
+      llmProvider: 'local',
+      localLlmUrl: 'http://localhost:1234/v1/chat/completions',
+      llmModel: 'fallback-model'
+    },
+    proAgent: {
+      run: async (payload) => {
+        proDigests.push(payload.digest);
+        return {
+          ok: true,
+          text: '{"answers":[{"question":"Q","bullets":["A"]}]}',
+          cards: [{ type: 'answer', title: 'Answer', question: 'Q', bullets: ['A'] }],
+          toolCalls: 0
+        };
+      }
+    },
+    intervalMs: 0,
+    utteranceSettleMs: 650,
+    incompleteUtteranceSettleMs: 1400
+  });
+
+  const firstFragment = await assistant.addTranscript({
+    speaker: 'System Audio',
+    text: 'Can you tell me about a time you had to optimize customer support'
+  });
+
+  assert.equal(firstFragment.queued, 'pro-final-question-gate');
+  
+  // Wait 1000ms - since it's an interview prompt cue, it should wait for 2000ms and not run yet
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  assert.equal(proDigests.length, 0);
+
+  // Wait another 1200ms (total 2200ms) - now it should have settled and run
+  await waitFor(() => proDigests.length === 1, 3500);
+  assert.match(proDigests[0], /Can you tell me about a time you had to optimize customer support/);
+});
+
 test('pro automatic assist does not answer partial ASR prompts before terminal punctuation', async () => {
   const proPayloads = [];
 
@@ -838,7 +882,7 @@ test('pro queued forced run skips duplicate after draft is already shown', async
   assert.equal(updates.length, 1);
 });
 
-test('pro queued forced run skips duplicate continuation from a new item after first draft displays', async () => {
+test('pro queued forced run executes continuation with new details from a new item after first draft displays', async () => {
   const proPayloads = [];
   const updates = [];
   let releaseFirstRun;
@@ -911,8 +955,8 @@ test('pro queued forced run skips duplicate continuation from a new item after f
   releaseFirstRun();
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  assert.equal(proPayloads.length, 1);
-  assert.equal(updates.filter((update) => update.cards?.[0]?.type === 'answer').length, 1);
+  assert.equal(proPayloads.length, 2);
+  assert.equal(updates.filter((update) => update.cards?.[0]?.type === 'answer').length, 2);
 });
 
 test('pro gate combines realtime final fragments before answering', async () => {

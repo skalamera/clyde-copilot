@@ -44,11 +44,37 @@ function createProRealtimeAgent(options = {}) {
     activeContext = context || {};
   }
 
+  async function fetchRealtimeToken(provider, model) {
+    const { getFreshAccessToken } = require('./llmClient');
+    const accessToken = await getFreshAccessToken();
+    const axios = require('axios');
+
+    const baseUrl = process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api';
+    const url = `${baseUrl.replace(/\/$/, '')}/proxy?type=realtime-token`;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`
+    };
+
+    const response = await axios.post(url, { provider, model }, { headers, timeout: 15000 });
+    if (!response.data || !response.data.token) {
+      throw new Error('Failed to retrieve ephemeral session token from Clyde Managed Cloud.');
+    }
+    return response.data.token;
+  }
+
   async function run(payload = {}) {
     activeContext = payload.context || activeContext;
-    const apiKey = getApiKey();
+    let apiKey = getApiKey();
+
     if (!apiKey) {
-      throw new Error('OpenAI API key is required for Clyde Pro.');
+      if (settings.userTier === 'pro') {
+        sendStatus({ state: 'processing', message: 'Fetching secure Realtime session token...' });
+        apiKey = await fetchRealtimeToken('openai', settings.proRealtimeModel || 'gpt-realtime-2');
+      } else {
+        throw new Error('OpenAI API key is required for Clyde Pro.');
+      }
     }
 
     const model = getModel();
@@ -144,8 +170,15 @@ function createProRealtimeAgent(options = {}) {
   }
 
   async function warmup(payload = {}) {
-    const apiKey = getApiKey();
-    if (!apiKey || activeRun) {
+    let apiKey = getApiKey();
+    if (!apiKey) {
+      if (settings.userTier === 'pro') {
+        apiKey = await fetchRealtimeToken('openai', settings.proRealtimeModel || 'gpt-realtime-2');
+      } else {
+        return false;
+      }
+    }
+    if (activeRun) {
       return false;
     }
 
@@ -202,11 +235,15 @@ function createProRealtimeAgent(options = {}) {
     }
 
     const apiKey = getApiKey();
-    if (!apiKey) {
+    if (!apiKey && settings.userTier !== 'pro') {
       return;
     }
 
-    ensureSocket(apiKey, getModel(), false)
+    const getSocketPromise = apiKey
+      ? ensureSocket(apiKey, getModel(), false)
+      : fetchRealtimeToken('openai', settings.proRealtimeModel || 'gpt-realtime-2').then((token) => ensureSocket(token, getModel(), false));
+
+    getSocketPromise
       .then((ws) => {
         if (ws && ws.readyState === openReadyState) {
           sendJson(ws, {
@@ -936,6 +973,73 @@ function escapeRegExp(value = '') {
 function parseAgentCards(text) {
   const parsed = parseJsonObject(text);
   if (!parsed) {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      return [];
+    }
+    // Fallback: Parse natural text bullet points (e.g. from conversational speech transcription)
+    let cleanText = text
+      .replace(/\*\*Analyzing[^*]+\*\*/gi, '')
+      .replace(/\*\*Constructing[^*]+\*\*/gi, '')
+      .replace(/\*\*Formulating[^*]+\*\*/gi, '')
+      .replace(/\*\*Crafting[^*]+\*\*/gi, '')
+      .replace(/\*\*Refining[^*]+\*\*/gi, '')
+      .replace(/I'm now focusing on[\s\S]*?frame them to answer the interview question\./gi, '')
+      .replace(/I'm now building[\s\S]*?bullet points\./gi, '')
+      .replace(/I'm now formulating[\s\S]*?three bullets\./gi, '')
+      .replace(/I'm now structuring[\s\S]*?quantifiable results\./gi, '')
+      .replace(/I'm currently structuring[\s\S]*?address\./gi, '')
+      .replace(/I'm now zeroing in[\s\S]*?actual results\./gi, '')
+      .replace(/I'm solidifying[\s\S]*?critical support\./gi, '')
+      .replace(/I'm now structuring my STAR response[\s\S]*?core of my response\./gi, '')
+      .replace(/I am finalizing the answer[\s\S]*?presentation\./gi, '')
+      .trim();
+
+    if (!cleanText) {
+      return [];
+    }
+
+    const lines = cleanText.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+
+    const bullets = [];
+    let currentParagraph = '';
+
+    for (const line of lines) {
+      if (line.startsWith('*') || line.startsWith('-') || /^\d+\./.test(line)) {
+        const bulletContent = line.replace(/^[*-\s]+|^\d+\.\s*/, '').trim();
+        if (bulletContent) {
+          bullets.push(bulletContent);
+        }
+      } else {
+        if (bullets.length === 0) {
+          if (currentParagraph) {
+            currentParagraph += '\n' + line;
+          } else {
+            currentParagraph = line;
+          }
+        } else {
+          bullets.push(line);
+        }
+      }
+    }
+
+    if (bullets.length === 0 && currentParagraph) {
+      bullets.push(currentParagraph);
+    }
+
+    if (bullets.length > 0) {
+      return [{
+        type: 'answer',
+        title: 'Suggested response',
+        question: 'Suggested response',
+        body: currentParagraph || '',
+        bullets: bullets.map(clean).filter(Boolean),
+        id: Buffer.from(bullets.join(' ')).toString('base64')
+      }];
+    }
+
     return [];
   }
 
@@ -1048,9 +1152,9 @@ function condenseProInterviewCards(cards) {
     })
     .map((b) => String(b || '').trim())
     .filter(Boolean)
-    .slice(0, 3);
+    .slice(0, 4);
 
-  if (!question || bullets.length !== 3) {
+  if (!question || (bullets.length !== 3 && bullets.length !== 4)) {
     return [];
   }
 

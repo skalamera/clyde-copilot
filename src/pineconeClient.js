@@ -482,11 +482,19 @@ function mergeFragmentBoundary(left, right) {
   const maxOverlap = Math.min(6, leftWords.length, rightWords.length);
 
   for (let size = maxOverlap; size > 0; size -= 1) {
-    const leftTail = leftWords.slice(-size).join(' ').toLowerCase();
-    const rightHead = rightWords.slice(0, size).join(' ').toLowerCase();
+    const leftTail = leftWords.slice(-size).join(' ').replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const rightHead = rightWords.slice(0, size).join(' ').replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 
-    if (leftTail === rightHead) {
-      return [...leftWords, ...rightWords.slice(size)].join(' ');
+    if (leftTail === rightHead && leftTail !== '') {
+      const leftPart = leftWords.slice(0, leftWords.length - size).join(' ');
+      const rightPart = rightWords.slice(size).join(' ');
+      const hasQMark = /\?\s*$/.test(left) || /\?\s*$/.test(right);
+      const hasPeriod = /[.!]\s*$/.test(left) || /[.!]\s*$/.test(right);
+      const cleanRightPart = rightPart.replace(/[?.!]\s*$/, '');
+      const separator = leftPart && cleanRightPart ? ' ' : '';
+      const combinedOverlap = leftWords.slice(-size).join(' ').replace(/\?/g, '');
+      const finalPunct = hasQMark ? '?' : hasPeriod ? '.' : '';
+      return `${leftPart}${separator}${combinedOverlap} ${cleanRightPart}${finalPunct}`.trim().replace(/\s+/g, ' ');
     }
   }
 

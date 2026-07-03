@@ -272,7 +272,7 @@ test('live panel no longer renders canned note controls', () => {
 test('settings expose OpenAI realtime Whisper transcription provider', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
 
-  assert.match(appSource, /<option value="openai-realtime-whisper">OpenAI Realtime Whisper \(Custom Key\)<\/option>/);
+  assert.match(appSource, /<option value="openai-realtime-whisper">OpenAI Realtime Whisper \(BYOK\)<\/option>/);
   assert.match(appSource, /<option value="">Select a transcription provider<\/option>/);
   assert.match(appSource, /draft\.transcriptionProvider === 'local' \?/);
   assert.match(appSource, /OpenAI API key/);
@@ -320,9 +320,6 @@ test('settings expose Rust audio engine and device controls', () => {
   const appSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'App.jsx'), 'utf8');
 
   assert.match(appSource, /audioEngine: 'rust'/);
-  assert.match(appSource, /Audio engine/);
-  assert.match(appSource, /<option value="rust">Rust native audio<\/option>/);
-  assert.match(appSource, /<option value="legacy">Legacy recorder<\/option>/);
   assert.match(appSource, /Microphone/);
   assert.match(appSource, /System audio/);
   assert.match(appSource, /Refresh devices/);

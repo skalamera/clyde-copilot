@@ -659,6 +659,14 @@ function createMeetingAssistant(options = {}) {
             sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
             return { ok: true, text: finalProResult.text || '', cards: proCards };
           }
+
+          // If Clyde Pro Agent ran successfully but returned no cards, return immediately instead of falling back
+          transcriptTurns = [];
+          intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
+          lastDigest = '';
+          newlyAccumulatedTurns = 0;
+          sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
+          return { ok: true, text: finalProResult?.text || '', cards: [] };
         } catch (error) {
           logger.error('Clyde Pro agent failed:', describeAssistantError(error));
           trace('assistant.pro.error', { message: describeAssistantError(error) });
@@ -726,12 +734,21 @@ function createMeetingAssistant(options = {}) {
         
         sendStatus({ state: 'capturing', message: 'Meeting assistant updated.' });
       } else if (text) {
-        logger.log('Ignored non-JSON assistant response or empty array:', text);
-        trace('assistant.fallback.ignored', { text });
-        // Fast retry: The model failed to answer the question, so we reset the timers to let it try again on the next audio chunk
-        lastRunAt = 0;
-        lastDigest = '';
-        sendStatus({ state: 'warning', message: 'Model returned empty answers. Will auto-retry...' });
+        if (!parseJsonObject(text)) {
+          logger.log('Ignored non-JSON assistant response:', text);
+          trace('assistant.fallback.ignored', { text });
+          // Fast retry: The model failed to answer the question, so we reset the timers to let it try again on the next audio chunk
+          lastRunAt = 0;
+          lastDigest = '';
+          sendStatus({ state: 'warning', message: 'Model returned empty answers. Will auto-retry...' });
+        } else {
+          trace('assistant.fallback.empty_cards', { text });
+          transcriptTurns = [];
+          intentTurns = intentTurns.filter((turn) => turn.id > digestMaxIntentTurnId);
+          lastDigest = '';
+          newlyAccumulatedTurns = 0;
+          sendStatus({ state: 'capturing', message: 'Capturing audio.' });
+        }
       } else {
         trace('assistant.fallback.empty', { message: 'LM Studio or provider returned an empty assistant message.' });
         sendStatus({
@@ -846,12 +863,23 @@ function createMeetingAssistant(options = {}) {
       return { ok: true, skipped: 'partial-unchanged' };
     }
 
+    // Clear any OTHER active timers and gates in the map since the interviewer has moved on to a new segment/speech block
+    for (const [otherItemId, otherTimer] of partialQuestionTimers.entries()) {
+      if (otherItemId !== itemId) {
+        clearTimeout(otherTimer);
+        partialQuestionTimers.delete(otherItemId);
+        partialQuestionGate.delete(otherItemId);
+      }
+    }
+
     const priorTimer = partialQuestionTimers.get(itemId);
     if (priorTimer) {
       clearTimeout(priorTimer);
     }
 
-    const queueDelayMs = promptCompletion.hasStrongTerminal ? 180 : 1200;
+    const queueDelayMs = (utteranceSettleMs >= 500 && hasInterviewPromptCue(resolvedText))
+      ? 2000
+      : (promptCompletion.hasStrongTerminal ? 180 : 1200);
     const timer = setTimeout(() => {
       partialQuestionTimers.delete(itemId);
       trace('assistant.pro_gate.partial.fire', {
@@ -915,6 +943,15 @@ function createMeetingAssistant(options = {}) {
       reason: promptCompletion.reason
     });
 
+    // Clear any OTHER active timers and gates in the map since the interviewer has moved on to a new segment/speech block
+    for (const [otherItemId, otherTimer] of partialQuestionTimers.entries()) {
+      if (otherItemId !== itemId) {
+        clearTimeout(otherTimer);
+        partialQuestionTimers.delete(otherItemId);
+        partialQuestionGate.delete(otherItemId);
+      }
+    }
+
     if (!gate) {
       if (!resolvedFinalText || !promptCompletion.complete) {
         return null;
@@ -930,9 +967,24 @@ function createMeetingAssistant(options = {}) {
         triggered: false
       };
       finalGate.draftCardId = `${finalGate.groupId}-draft`;
-      runProPartialGate(finalGate, true).catch((error) => {
-        logger.error('Final Pro question gate failed:', describeAssistantError(error));
-      });
+
+      const delay = (utteranceSettleMs >= 500 && hasInterviewPromptCue(resolvedFinalText)) ? 2000 : 0;
+      if (delay > 0) {
+        partialQuestionGate.set(finalGate.itemId, finalGate);
+        const timer = setTimeout(() => {
+          partialQuestionTimers.delete(finalGate.itemId);
+          partialQuestionGate.delete(finalGate.itemId);
+          runProPartialGate(finalGate, true).catch((error) => {
+            logger.error('Final Pro question gate failed:', describeAssistantError(error));
+          });
+        }, delay);
+        partialQuestionTimers.set(finalGate.itemId, timer);
+      } else {
+        runProPartialGate(finalGate, true).catch((error) => {
+          logger.error('Final Pro question gate failed:', describeAssistantError(error));
+        });
+      }
+
       trace('assistant.pro_gate.final.queued', {
         itemId: finalGate.itemId,
         text: finalGate.text,
@@ -952,9 +1004,22 @@ function createMeetingAssistant(options = {}) {
 
     if (resolvedFinalText !== gate.lastText && promptCompletion.complete) {
       gate.text = resolvedFinalText;
-      runProPartialGate(gate, true).catch((error) => {
-        logger.error('Final Pro question gate failed:', describeAssistantError(error));
-      });
+      const delay = (utteranceSettleMs >= 500 && hasInterviewPromptCue(resolvedFinalText)) ? 2000 : 0;
+      if (delay > 0) {
+        partialQuestionGate.set(itemId, gate);
+        const newTimer = setTimeout(() => {
+          partialQuestionTimers.delete(itemId);
+          partialQuestionGate.delete(itemId);
+          runProPartialGate(gate, true).catch((error) => {
+            logger.error('Final Pro question gate failed:', describeAssistantError(error));
+          });
+        }, delay);
+        partialQuestionTimers.set(itemId, newTimer);
+      } else {
+        runProPartialGate(gate, true).catch((error) => {
+          logger.error('Final Pro question gate failed:', describeAssistantError(error));
+        });
+      }
       trace('assistant.pro_gate.final.queued', {
         itemId,
         text: gate.text,
@@ -1351,6 +1416,10 @@ function createMeetingAssistant(options = {}) {
 }
 
 function getIntentSettleDelay(text, utteranceSettleMs, incompleteUtteranceSettleMs) {
+  if (utteranceSettleMs >= 500 && hasInterviewPromptCue(text)) {
+    return Math.max(utteranceSettleMs, 2000);
+  }
+
   if (hasLikelyCompleteInterviewerPrompt(text)) {
     if (/[?.!]\s*$/.test(text)) {
       return utteranceSettleMs;
@@ -1917,6 +1986,10 @@ function cleanProTargetQuestion(text) {
     .replace(/\b(other systems or teams)\s+me through your process\b/gi, '$1 Walk me through your process')
     .replace(/\bfunc\b/gi, 'function')
     .replace(/\bAline\b/g, 'align')
+    // Strip mid-sentence capitalized STT filler: "process Just to" → "process to"
+    .replace(/\s+Just\s+to\s+/g, ' to ')
+    // Strip leading noise fragments common in STT misreads
+    .replace(/^give us\s+/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -1997,6 +2070,15 @@ function isSameOrNearDuplicateQuestion(left, right) {
     return true;
   }
 
+  const leftTokens = tokenSet(leftLower);
+  const rightTokens = tokenSet(rightLower);
+
+  // If the new/target question (right) has more non-stopword tokens than the previous/displayed question (left),
+  // it is a continuation or adds detail. It should not be considered a duplicate.
+  if (rightTokens.size > leftTokens.size) {
+    return false;
+  }
+
   const leftWords = leftLower.split(/\s+/).filter(Boolean);
   const rightWords = rightLower.split(/\s+/).filter(Boolean);
   const wordDelta = Math.abs(leftWords.length - rightWords.length);
@@ -2016,6 +2098,15 @@ function isDuplicateRecentDisplayedQuestion(displayedQuestion, targetQuestion) {
 
   if (isSameOrNearDuplicateQuestion(displayed, target)) {
     return true;
+  }
+
+  const displayedTokens = tokenSet(displayed.toLowerCase());
+  const targetTokens = tokenSet(target.toLowerCase());
+
+  // If the target question has more non-stopword tokens than the displayed question,
+  // it is a continuation or adds detail. It should not be skipped as a duplicate.
+  if (targetTokens.size > displayedTokens.size) {
+    return false;
   }
 
   const displayedWords = displayed.split(/\s+/).filter(Boolean);
@@ -2193,15 +2284,25 @@ function shouldMergeIntoPriorProPrompt(previous, current) {
     return true;
   }
 
+  // If the right side starts with a new sentence opener (new independent question), don't merge
+  const startsWithNewSentence = /^(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|tell|walk|describe|explain|share|give)\b/i.test(right);
+
   if (/[?.!]\s*$/.test(left)) {
-    return false;
+    // If the prior turn ended with terminal punctuation, only merge if it looks like a STT
+    // split continuation — i.e., the new fragment does NOT start with a new sentence opener
+    // and does NOT have its own interview prompt cue (which would indicate a truly new question)
+    if (startsWithNewSentence || hasInterviewPromptCue(right)) {
+      return false;
+    }
+    // The right side looks like a dangling continuation of the prior sentence — merge it
+    return true;
   }
 
   if (hasInterviewPromptCue(left) && !hasLikelyCompleteInterviewerPrompt(left)) {
     return true;
   }
 
-  return !/^(can|could|would|what|why|how|when|where|who|which|do|did|are|is|was|were|tell|walk|describe|explain|share|give)\b/i.test(right);
+  return !startsWithNewSentence;
 }
 
 function reconcileDraftAndFinalCards(draftCards = [], finalCards = []) {
@@ -2212,9 +2313,9 @@ function reconcileDraftAndFinalCards(draftCards = [], finalCards = []) {
     return finalCards;
   }
 
-  const draftBullets = Array.isArray(draft.bullets) ? draft.bullets.map(cleanText).filter(Boolean).slice(0, 3) : [];
+  const draftBullets = Array.isArray(draft.bullets) ? draft.bullets.map(cleanText).filter(Boolean).slice(0, 4) : [];
   const finalBullets = Array.isArray(final.bullets) ? final.bullets.map(cleanText).filter(Boolean) : [];
-  if (draftBullets.length !== 3 || !finalBullets.length) {
+  if ((draftBullets.length !== 3 && draftBullets.length !== 4) || !finalBullets.length) {
     return finalCards;
   }
 
@@ -2452,12 +2553,52 @@ function mergeUtteranceText(left, right) {
   const rightWords = cleanRight.split(' ');
   const maxOverlap = Math.min(8, leftWords.length, rightWords.length);
 
-  for (let size = maxOverlap; size > 0; size -= 1) {
-    const leftTail = leftWords.slice(-size).join(' ').toLowerCase();
-    const rightHead = rightWords.slice(0, size).join(' ').toLowerCase();
+  // Handle ASR partial-word correction: if the last word of left is a prefix of the first word
+  // of right (and long enough to be meaningful), drop it and use the full word from the right.
+  // Example: "customer satis" + "satisfaction when..." → "customer satisfaction when..."
+  const lastLeftWord = leftWords[leftWords.length - 1].replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '').toLowerCase();
+  const firstRightWord = rightWords[0].replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '').toLowerCase();
+  if (
+    lastLeftWord.length >= 3 &&
+    firstRightWord.length > lastLeftWord.length &&
+    firstRightWord.startsWith(lastLeftWord)
+  ) {
+    const leftPart = leftWords.slice(0, leftWords.length - 1).join(' ');
+    const hasQMark = /\?\s*$/.test(cleanLeft) || /\?\s*$/.test(cleanRight);
+    const hasPeriod = /[.!]\s*$/.test(cleanLeft) || /[.!]\s*$/.test(cleanRight);
+    const finalPunct = hasQMark ? '?' : hasPeriod ? '.' : '';
+    const rightPartClean = cleanRight.replace(/[?.!]\s*$/, '');
+    return `${leftPart} ${rightPartClean}${finalPunct}`.trim().replace(/\s+/g, ' ');
+  }
 
-    if (leftTail === rightHead) {
-      return [...leftWords, ...rightWords.slice(size)].join(' ');
+  // Single-word stopwords that should never be treated as a valid overlap on their own
+  const singleWordStopwords = new Set([
+    'i', 'you', 'we', 'they', 'he', 'she', 'it', 'a', 'an', 'the', 'and', 'or',
+    'but', 'so', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'from', 'that',
+    'this', 'these', 'those', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+    'has', 'had', 'do', 'did', 'does', 'will', 'would', 'could', 'should', 'may',
+    'might', 'my', 'your', 'our', 'their', 'its', 'not', 'no', 'as', 'if', 'when',
+    'where', 'which', 'who', 'what', 'how', 'why', 'then', 'than', 'there', 'here'
+  ]);
+
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    const leftTail = leftWords.slice(-size).join(' ').replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const rightHead = rightWords.slice(0, size).join(' ').replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+    if (leftTail === rightHead && leftTail !== '') {
+      // Skip single-word overlaps that are common stopwords/pronouns — these create false merges
+      if (size === 1 && singleWordStopwords.has(leftTail)) {
+        continue;
+      }
+      const leftPart = leftWords.slice(0, leftWords.length - size).join(' ');
+      const rightPart = rightWords.slice(size).join(' ');
+      const hasQMark = /\?\s*$/.test(cleanLeft) || /\?\s*$/.test(cleanRight);
+      const hasPeriod = /[.!]\s*$/.test(cleanLeft) || /[.!]\s*$/.test(cleanRight);
+      const cleanRightPart = rightPart.replace(/[?.!]\s*$/, '');
+      const separator = leftPart && cleanRightPart ? ' ' : '';
+      const combinedOverlap = leftWords.slice(-size).join(' ').replace(/\?/g, '');
+      const finalPunct = hasQMark ? '?' : hasPeriod ? '.' : '';
+      return `${leftPart}${separator}${combinedOverlap} ${cleanRightPart}${finalPunct}`.trim().replace(/\s+/g, ' ');
     }
   }
 
