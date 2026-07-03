@@ -20,7 +20,7 @@ test('interview grading leaves enough response budget for written evaluation', (
   const maxTokensMatch = gradingBlock.match(/maxTokens:\s*(\d+)/);
 
   assert.ok(maxTokensMatch, 'grading maxTokens is configured');
-  assert.equal(Number(maxTokensMatch[1]), 1800);
+  assert.equal(Number(maxTokensMatch[1]), 3000);
   assert.match(gradingBlock, /transcript_rating/);
   assert.match(gradingBlock, /minimum:\s*0/);
   assert.match(gradingBlock, /maximum:\s*5/);
@@ -61,7 +61,26 @@ test('trend analysis generation no longer requests per-interview confidence scor
   assert.match(trendBlock, /patterns\/themes/i);
   assert.match(trendBlock, /Address the user directly as "you"/);
   assert.match(trendBlock, /Do not call the user "the candidate"/);
+  assert.match(trendBlock, /baseline interview performance from one saved interview session/);
+  assert.match(trendBlock, /Return exactly 1 phase breakdown entry/);
   assert.match(trendBlock, /required:\s*\['trend', 'executive_summary', 'key_strengths', 'areas_for_improvement', 'phase_breakdown', 'pre_call_prep'\]/);
+});
+
+test('material pre-call prep falls back to useful JD/resume based guidance when AI generation is incomplete', () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'main.js'), 'utf8');
+  const helperBlock = sourceBetween(mainSource, 'function buildMaterialFallbackPrep', 'function buildAssistantContext');
+  const trendBlock = sourceBetween(mainSource, "ipcMain.handle('generate-trend-analysis'");
+
+  assert.match(helperBlock, /probableFocus/);
+  assert.match(helperBlock, /support operations/);
+  assert.match(helperBlock, /AI or automation/);
+  assert.match(helperBlock, /gaps_and_mitigation/);
+  assert.match(helperBlock, /questions_to_ask/);
+  assert.match(trendBlock, /!isMaterialPreCallPrepComplete\(normalized\)/);
+  assert.match(trendBlock, /buildMaterialFallbackPrep\(\{ companyName, role, jd, resumeText: settings\.resumeText \|\| '', opportunityFiles, pinnedFiles \}\)/);
+  const materialCatchBlock = sourceBetween(trendBlock, 'Material pre-call prep error:', 'const combinedTranscripts');
+  assert.match(materialCatchBlock, /return fallback/);
+  assert.doesNotMatch(materialCatchBlock, /return null/);
 });
 
 test('interview saves and deletes invalidate trend analysis and recompute overall confidence', () => {

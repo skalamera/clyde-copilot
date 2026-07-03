@@ -1,6 +1,49 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-11347129303"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-F9FQELLN69');
+      gtag('config', 'AW-11347129303');
+    </script>
+    <!-- Microsoft tag (UET) with Consent Mode -->
+    <script>
+        (function(w, d, t, u, o) {
+            w[u] = w[u] || [], o.ts = (new Date).getTime();
+            var n = d.createElement(t);
+            n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
+            n.async = 1, n.onload = n.onreadystatechange = function() {
+                var s = this.readyState;
+                s && "loaded" !== s && "complete" !== s ||
+                (o.q = w[u], w[u] = new UET(o), w[u].push("pageLoad"),
+                n.onload = n.onreadystatechange = null)
+            };
+            var i = d.getElementsByTagName(t)[0];
+            i.parentNode.insertBefore(n, i);
+        })(window, document, "script", "uetq", {
+            ti: "187259939",
+            enableAutoSpaTracking: true
+        });
+    </script>
+    <!-- Consent Mode Default Configuration -->
+    <script>
+       window.uetq = window.uetq || [];
+       window.uetq.push('consent', 'default', {
+         'ad_storage': 'denied'
+       });
+    </script>
+    <!-- Cookie Banner Consent Update Logic -->
+    <script>
+       window.uetq = window.uetq || [];
+       window.uetq.push('consent', 'update', {
+         'ad_storage': 'granted'
+       });
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Clyde | Private AI meeting and interview assistant</title>
@@ -23,6 +66,12 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <nav>
+        <a href="https://clydeai.live/privacy-policy">Privacy policy</a>
+        <a href="https://clydeai.live/terms-of-service">Terms of service</a>
+      </nav>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

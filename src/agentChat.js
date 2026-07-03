@@ -1,18 +1,59 @@
+const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const { generateChat: defaultGenerateChat } = require('./llmClient');
 const defaultPineconeClient = require('./pineconeClient');
+const {
+  CALENDAR_EVENTS_ID,
+  OPPORTUNITIES_STATUS_ID
+} = require('./systemKnowledge');
+
+let app;
+try {
+  const electron = require('electron');
+  app = electron.app;
+} catch (e) {
+  // outside electron context (e.g. testing)
+}
+
+function getSoulPath() {
+  const p1 = path.join(process.cwd(), 'soul.md');
+  try {
+    fs.accessSync(process.cwd(), fs.constants.W_OK);
+    return p1;
+  } catch (e) {
+    if (app && typeof app.getPath === 'function') {
+      return path.join(app.getPath('userData'), 'soul.md');
+    }
+    return p1;
+  }
+}
+
+function loadSoulContent() {
+  try {
+    const soulPath = getSoulPath();
+    if (fs.existsSync(soulPath)) {
+      return fs.readFileSync(soulPath, 'utf8');
+    }
+  } catch (e) {
+    console.warn('Failed to load soul.md in agentChat:', e);
+  }
+  return '';
+}
 
 const MAX_HISTORY_MESSAGES = 8;
 
-function createAgentChat(options = {}) {
-  const settings = options.settings || {};
-  const knowledgeManager = options.knowledgeManager;
-  const sessionManager = options.sessionManager;
-  const calendarStore = options.calendarStore;
-  const actionRegistry = options.actionRegistry;
-  const pineconeClient = options.pineconeClient || defaultPineconeClient;
-  const generateChat = options.generateChat || defaultGenerateChat;
-  const axiosClient = options.axiosClient || axios;
+  function createAgentChat(options = {}) {
+    const settings = options.settings || {};
+    const knowledgeManager = options.knowledgeManager;
+    const questionBankManager = options.questionBankManager;
+    const sessionManager = options.sessionManager;
+    const calendarStore = options.calendarStore;
+    const actionRegistry = options.actionRegistry;
+    const interviewManager = options.interviewManager;
+    const pineconeClient = options.pineconeClient || defaultPineconeClient;
+    const generateChat = options.generateChat || defaultGenerateChat;
+    const axiosClient = options.axiosClient || axios;
   const histories = new Map();
   const pendingActions = new Map();
 
@@ -27,29 +68,35 @@ function createAgentChat(options = {}) {
       };
     }
 
-    const effectiveSettings = { ...settings, ...(payload.settings || {}) };
+        const effectiveSettings = { ...settings, ...(payload.settings || {}) };
     const sources = await retrieveSources({ ...payload, message: messageText, settings: effectiveSettings });
     const history = histories.get(sessionId) || [];
+    const soulContent = loadSoulContent();
     const responseText = await generateChat({
       provider: effectiveSettings.llmProvider || 'local',
       apiKey: effectiveSettings.llmApiKey || '',
       model: effectiveSettings.llmModel || '',
       temperature: 0.2,
-      maxTokens: 1200,
+      maxTokens: 4000,
       axiosClient,
       localUrl: effectiveSettings.localLlmUrl,
       jsonSchema: chatJsonSchema(),
       messages: [
         {
           role: 'system',
-          content: buildSystemPrompt({ sources, mode: payload.mode, calendarEvents: calendarStore?.listEvents?.() || [] })
+          content: buildSystemPrompt({
+            sources,
+            mode: payload.mode,
+            calendarEvents: calendarStore?.listEvents?.() || [],
+            soul: soulContent
+          })
         },
         ...history,
         { role: 'user', content: messageText }
       ]
     });
 
-    const parsed = parseChatResponse(responseText, sessionId);
+    const parsed = parseChatResponse(responseText, sessionId, messageText);
     const nextHistory = [
       ...history,
       { role: 'user', content: messageText },
@@ -66,7 +113,7 @@ function createAgentChat(options = {}) {
 
   async function confirmAction(payload = {}) {
     const actionId = clean(payload.actionId || payload.id);
-    const action = pendingActions.get(actionId) || payload.pendingAction || payload;
+    const action = payload.pendingAction || pendingActions.get(actionId) || payload;
     if (!action || !action.actionType) {
       return { ok: false, changed: false, message: 'No pending action found.' };
     }
@@ -100,7 +147,7 @@ function createAgentChat(options = {}) {
     const sessions = sessionFilters.flatMap((filter) => sessionManager.getSessions(filter));
     const normalizedQuery = query.toLowerCase();
 
-    return uniqueSources(sessions.map((session) => ({
+    const sessionSources = sessions.map((session) => ({
           id: sessionSourceId(session),
           label: sessionSourceLabel(session),
           type: 'session',
@@ -109,7 +156,21 @@ function createAgentChat(options = {}) {
             entityId: session.entity?.id,
             sessionId: session.id
           }
-        })))
+        }));
+    const questionSources = questionBankSources({
+      ...filters,
+      tier,
+      mode: filters.mode || 'interview',
+      activeEntityId: filters.activeEntityId || filters.entityId || '',
+      allQuestionBank: tier === 'pro'
+    }).map((source) => ({
+      id: source.id,
+      label: source.label,
+      type: source.type,
+      metadata: {}
+    }));
+
+    return uniqueSources([...sessionSources, ...questionSources])
       .filter((source) => (
         !normalizedQuery
         || source.label.toLowerCase().includes(normalizedQuery)
@@ -121,28 +182,61 @@ function createAgentChat(options = {}) {
     const selectedSourceIds = Array.isArray(payload.selectedSourceIds) ? payload.selectedSourceIds.filter(Boolean) : [];
     const tier = payload.tier || payload.settings?.userTier || settings.userTier || 'free';
     const sources = [];
+    const activeEntityId = clean(payload.activeEntityId || payload.entityId);
+    const activeMode = payload.mode === 'meeting' ? 'meeting' : 'interview';
 
-    if (tier !== 'pro') {
-      return activeSessionSources(payload).filter((source) => source.text);
-    }
-
-    if (payload.sourceMode === 'selected') {
-      for (const id of selectedSourceIds) {
-        const session = findSessionBySourceId(id);
-        if (session) {
-          sources.push(sourceFromSession(session));
-        }
+      if (tier !== 'pro') {
+        return [
+          ...draftSessionContextSources(payload),
+          ...activeSessionSources(payload),
+          ...activeEntityKnowledgeSources(payload),
+          ...questionBankSources(payload),
+          ...resumeSource(payload.settings)
+        ].filter((source) => source.text);
       }
-    } else if (payload.sourceMode === 'all') {
-      sources.push(...allSessionSources());
-      sources.push(...pinnedKnowledgeSources(payload.settings));
-    } else {
-      sources.push(...activeSessionSources(payload));
-      sources.push(...pinnedKnowledgeSources(payload.settings));
-    }
+
+      if (payload.sourceMode === 'selected') {
+        for (const id of selectedSourceIds) {
+          const session = findSessionBySourceId(id);
+          if (session) {
+            sources.push(sourceFromSession(session));
+          }
+        }
+      } else if (payload.sourceMode === 'all') {
+        sources.push(...draftSessionContextSources(payload));
+        sources.push(...allUploadedKnowledgeSources());
+        sources.push(...allSessionSources(payload.message));
+        sources.push(...questionBankSources({ ...payload, allQuestionBank: true }));
+        sources.push(...pinnedKnowledgeSources(payload.settings));
+        sources.push(...systemKnowledgeSources());
+        sources.push(...resumeSource(payload.settings));
+      } else {
+        sources.push(...draftSessionContextSources(payload));
+        sources.push(...activeSessionSources(payload));
+        sources.push(...activeEntityKnowledgeSources(payload));
+        sources.push(...questionBankSources(payload));
+        sources.push(...pinnedKnowledgeSources(payload.settings));
+        sources.push(...systemKnowledgeSources());
+        sources.push(...resumeSource(payload.settings));
+      }
 
     if (tier === 'pro' && canSearchPinecone(payload.settings)) {
-      const matches = await pineconeClient.searchKnowledgeVectors(payload.message, payload.settings, { topK: 5 });
+      const pineconeOptions = { topK: 5 };
+      if (payload.sourceMode === 'active-context' && activeEntityId) {
+        pineconeOptions.filter = {
+          $or: [
+            {
+              mode: { $eq: activeMode },
+              entityId: { $eq: activeEntityId }
+            },
+            {
+              entityId: { $in: ['', 'general'] }
+            }
+          ]
+        };
+      }
+
+      const matches = await pineconeClient.searchKnowledgeVectors(payload.message, payload.settings, pineconeOptions);
       for (const match of matches) {
         sources.push({
           id: match.knowledgeId || match.source || `pinecone-${sources.length}`,
@@ -153,7 +247,39 @@ function createAgentChat(options = {}) {
       }
     }
 
-    return uniqueSources(sources).filter((source) => source.text).slice(0, 40);
+    // Filter out empty sources and apply budget-capping to prevent Vercel request payload caps (4.5MB)
+    // and serverless execution timeouts (10 seconds) on large raw transcripts.
+    const validSources = uniqueSources(sources).filter((source) => source.text);
+    const cappedSources = [];
+    let cumulativeChars = 0;
+    const MAX_CUMULATIVE_CHARS = 45000; // ~11,000 tokens of highly detailed context
+
+    for (const source of validSources) {
+        const maxSourceChars = 15000;
+        let text = source.text;
+        if (text.length > maxSourceChars) {
+            text = text.slice(0, maxSourceChars) + '\n... [Transcript truncated for size context limit]';
+        }
+
+        if (cumulativeChars + text.length > MAX_CUMULATIVE_CHARS) {
+            const remainingBudget = MAX_CUMULATIVE_CHARS - cumulativeChars;
+            if (remainingBudget > 1000) {
+                cappedSources.push({
+                    ...source,
+                    text: text.slice(0, remainingBudget) + '\n... [Truncated due to context limit]'
+                });
+            }
+            break;
+        }
+
+        cappedSources.push({
+            ...source,
+            text
+        });
+        cumulativeChars += text.length;
+    }
+
+    return cappedSources.slice(0, 40);
   }
 
   function activeSessionSources(payload = {}) {
@@ -164,14 +290,131 @@ function createAgentChat(options = {}) {
     return sessionManager.getSessions({ mode, entityId: payload.activeEntityId || '' }).map(sourceFromSession);
   }
 
-  function allSessionSources() {
+  function draftSessionContextSources(payload = {}) {
+    const draft = payload.draftSessionContext && typeof payload.draftSessionContext === 'object'
+      ? payload.draftSessionContext
+      : null;
+    if (!draft) {
+      return [];
+    }
+    const transcript = Array.isArray(draft.transcript)
+      ? draft.transcript.map((turn) => `${turn.speaker || 'Unknown'}: ${turn.text || ''}`).join('\n')
+      : '';
+    const notes = formatDraftNotes(draft.previewNotes);
+    return [
+      transcript ? {
+        id: 'draft-session-transcript',
+        label: 'Current unsaved meeting transcript',
+        type: 'draft-session',
+        text: transcript
+      } : null,
+      notes ? {
+        id: 'draft-session-notes',
+        label: 'Current draft meeting notes',
+        type: 'draft-session',
+        text: notes
+      } : null
+    ].filter(Boolean);
+  }
+
+  function questionBankSources(payload = {}) {
+    if (!questionBankManager?.listContextEntries) {
+      return [];
+    }
+    const tier = payload.tier || payload.settings?.userTier || settings.userTier || 'free';
+    const entries = payload.allQuestionBank && tier === 'pro'
+      ? questionBankManager.listEntries({ mode: payload.mode || 'interview', limit: 80 })
+      : questionBankManager.listContextEntries({
+        mode: payload.mode || 'interview',
+        entityId: payload.activeEntityId || payload.entityId || '',
+        tier,
+        limit: tier === 'pro' ? 40 : 20
+      });
+    return entries.map((entry) => ({
+      id: `question-bank:${entry.id}`,
+      label: `Question Bank / ${entry.entityName || 'Global'} / ${entry.question}`,
+      type: 'question-bank',
+      text: `Question: ${entry.question}\nSample answer: ${entry.sampleAnswer}`
+    }));
+  }
+
+    function activeEntityKnowledgeSources(payload = {}) {
+      const mode = payload.mode === 'meeting' ? 'meeting' : 'interview';
+      const sources = [];
+      
+      if (knowledgeManager?.listEntityKnowledge && payload.activeEntityId) {
+        sources.push(...knowledgeManager.listEntityKnowledge({ mode, entityId: payload.activeEntityId })
+          .map((item) => ({
+            ...sourceFromKnowledge(item),
+            id: `entity-file:${item.id}`,
+            type: 'entity-file'
+          })));
+      }
+
+      if (mode === 'interview' && payload.activeEntityId && interviewManager?.getCompanyJobDescription) {
+        const jd = interviewManager.getCompanyJobDescription(payload.activeEntityId);
+        if (jd) {
+          sources.push({
+            id: `entity-jd:${payload.activeEntityId}`,
+            label: 'Job Description',
+            type: 'entity-file',
+            text: jd
+          });
+        }
+      }
+
+      return sources;
+    }
+
+  function allSessionSources(query = '') {
     if (!sessionManager?.getSessions) {
       return [];
     }
-    return [
+    const list = [
       ...sessionManager.getSessions({ mode: 'interview' }),
       ...sessionManager.getSessions({ mode: 'meeting' })
-    ].map(sourceFromSession);
+    ];
+
+    const normalizedQuery = String(query || '').toLowerCase().trim();
+    if (!normalizedQuery) {
+      return list.map(sourceFromSession);
+    }
+
+    // Score sessions dynamically based on query keyword matches and direct entity name checks
+    const scored = list.map((session) => {
+      let score = 0;
+      const companyName = String(session.entity?.name || '').toLowerCase();
+      const role = String(session.entity?.role || '').toLowerCase();
+      const title = String(session.title || '').toLowerCase();
+      const phase = String(session.phase || '').toLowerCase();
+
+      // Priority 1: Direct company name match
+      if (companyName && normalizedQuery.includes(companyName)) {
+        score += 100;
+      }
+      // Priority 2: Role or title matches
+      if (role && normalizedQuery.includes(role)) {
+        score += 40;
+      }
+      if (title && normalizedQuery.includes(title)) {
+        score += 30;
+      }
+      if (phase && normalizedQuery.includes(phase)) {
+        score += 20;
+      }
+
+      // Keyword semantic boosts
+      if (normalizedQuery.includes('performance') && (phase.includes('technical') || title.includes('performance') || phase.includes('system'))) {
+        score += 15;
+      }
+
+      return { session, score };
+    });
+
+    // Sort descending by relevance score so high-priority documents occupy the prime spots in our context budget!
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .map(item => sourceFromSession(item.session));
   }
 
   function pinnedKnowledgeSources(effectiveSettings = {}) {
@@ -185,13 +428,43 @@ function createAgentChat(options = {}) {
       .map(sourceFromKnowledge);
   }
 
-  function findSessionBySourceId(id) {
-    const parts = clean(id).split(':');
-    if (parts[0] !== 'session' || parts.length < 4 || !sessionManager?.getSessions) {
-      return null;
+  function allUploadedKnowledgeSources() {
+    if (!knowledgeManager?.listKnowledge) {
+      return [];
     }
-    const [, mode, entityId, sessionId] = parts;
-    return sessionManager.getSessions({ mode, entityId }).find((session) => session.id === sessionId) || null;
+    let items = [];
+    try {
+      items = knowledgeManager.listKnowledge({}) || [];
+    } catch (e) {
+      try {
+        items = knowledgeManager.listKnowledge({ type: 'upload' }) || [];
+      } catch (err) {
+        // ignore
+      }
+    }
+    return items.map(sourceFromKnowledge);
+  }
+
+  function systemKnowledgeSources() {
+    if (!knowledgeManager?.getKnowledgeItem) {
+      return [];
+    }
+    return [
+      knowledgeManager.getKnowledgeItem(CALENDAR_EVENTS_ID),
+      knowledgeManager.getKnowledgeItem(OPPORTUNITIES_STATUS_ID)
+    ].filter(Boolean).map(sourceFromKnowledge);
+  }
+
+  function resumeSource(settings) {
+    if (settings && settings.resumeText) {
+      return [{
+        id: 'user-resume',
+        label: 'User Resume/Background',
+        type: 'system',
+        text: settings.resumeText
+      }];
+    }
+    return [];
   }
 
   return {
@@ -202,40 +475,80 @@ function createAgentChat(options = {}) {
   };
 }
 
-function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = [] } = {}) {
+function buildSystemPrompt({ sources = [], mode = 'interview', calendarEvents = [], soul = '' } = {}) {
   const sourceText = sources.length
     ? sources.map((source, index) => `[${index + 1}] ${source.label}\n${source.text}`).join('\n\n')
     : 'No sources found.';
-  const eventText = calendarEvents.length
-    ? calendarEvents.slice(0, 10).map((event) => `${event.id}: ${event.title} at ${event.date}`).join('\n')
+
+  // Filter and sort calendar events to keep the most relevant ones.
+  // calendarEvents is pre-sorted oldest-to-newest in calendarStore.js.
+  const now = new Date();
+  const pastEvents = [];
+  const futureEvents = [];
+
+  for (const event of calendarEvents) {
+    const eventDate = new Date(event.date);
+    if (isNaN(eventDate.getTime())) {
+      // Treat invalid or missing dates as future events so they are not omitted
+      futureEvents.push(event);
+    } else if (eventDate >= now) {
+      futureEvents.push(event);
+    } else {
+      pastEvents.push(event);
+    }
+  }
+
+  // Take the 5 most recent past events and the next 10 upcoming events
+  const recentPast = pastEvents.slice(-5);
+  const upcoming = futureEvents.slice(0, 10);
+  const relevantEvents = [...recentPast, ...upcoming];
+
+  const eventText = relevantEvents.length
+    ? relevantEvents.map((event) => {
+        const companyPart = event.entityName ? ` (Company: ${event.entityName})` : '';
+        return `${event.id}: ${event.title} at ${event.date}${companyPart}`;
+      }).join('\n')
     : 'No calendar events.';
 
   return [
     `You are Clyde, an agentic ${mode === 'meeting' ? 'meeting' : 'interview'} assistant.`,
-    'Answer from the provided sources when possible. Keep answers concise and cite sources by id when used.',
+    `Current Date & Time: ${new Date().toString()}`,
+    soul ? `Clyde\'s Soul & Personality Profile:\n${soul}` : '',
+    'Answer from the provided sources when possible. Do not truncate cover letters, resumes, or written drafts; write them out completely and in full when requested. Cite sources by id when used.',
+    'When the user asks about their schedule, upcoming events, or upcoming interviews, compare the event dates with the Current Date & Time and do NOT list any events that have already occurred.',
     'If the user asks to change app data, return a pendingAction instead of saying you completed it.',
     'Supported actionType values: updateOpportunity, createOpportunity, deleteOpportunity, createMeeting, updateMeeting, deleteMeeting, saveCalendarEvent, deleteCalendarEvent, deleteSession, setActiveContext.',
+    'Canonical updateOpportunity payload: { "entityName": "Sage", "entityId": "sage", "outcome": "advanced", "role": "Staff TechOps Manager" }.',
+    'Canonical saveCalendarEvent payload: { "title": "Google interview", "date": "2026-05-26T15:00:00-04:00", "entityName": "Google", "entityId": "google", "mode": "interview" }.',
+    'Canonical deleteCalendarEvent payload: { "id": "evt-123", "title": "Etsy interview", "date": "2026-05-26", "entityName": "Etsy" }.',
+    'If the user asks to add or schedule an interview, use saveCalendarEvent with mode "interview". If the user asks to add or schedule a meeting with a date, use saveCalendarEvent with mode "meeting".',
+    'Calendar action dates may come from natural user wording such as "tomorrow", "next Tuesday", or "5/27"; preserve the user intent in the payload if a full ISO date is not certain.',
+    'Map phrases such as "not moving forward" to rejected and "move forward" or "advanced" to advanced.',
     'For action requests, include a short confirmation label and summary. Do not mutate data yourself.',
     `Sources:\n${sourceText}`,
     `Calendar:\n${eventText}`
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
 }
 
-function parseChatResponse(text, sessionId) {
+function parseChatResponse(text, sessionId, userMessage = '') {
   try {
     const parsed = JSON.parse(cleanJson(text));
     const message = parsed.message || {};
-    const pendingAction = normalizePendingAction(parsed.pendingAction);
+    const pendingAction = normalizePendingAction(parsed.pendingAction, userMessage);
+    const messageContent = pendingAction
+      ? buildPendingActionMessage(pendingAction)
+      : clean(message.content || parsed.content) || 'I could not produce an answer.';
     return {
       sessionId,
       message: {
         role: 'assistant',
-        content: clean(message.content || parsed.content) || 'I could not produce an answer.',
+        content: messageContent,
         citations: Array.isArray(message.citations) ? message.citations : []
       },
       pendingAction
     };
   } catch (_error) {
+    console.error('[CHAT_PARSE_ERROR]', _error, 'raw text was:', text);
     return {
       sessionId,
       message: {
@@ -248,17 +561,176 @@ function parseChatResponse(text, sessionId) {
   }
 }
 
-function normalizePendingAction(action) {
+function normalizePendingAction(action, userMessage = '') {
   if (!action || typeof action !== 'object' || !action.actionType) {
     return null;
   }
+  const payload = action.payload && typeof action.payload === 'object' ? action.payload : {};
+  const normalizedPayload = {
+    ...payload,
+    originalUserMessage: clean(payload.originalUserMessage || action.originalUserMessage || userMessage)
+  };
+  const generatedLabel = buildPendingActionLabel(action.actionType, normalizedPayload);
+  const generatedSummary = buildPendingActionSummary(action.actionType, normalizedPayload);
   return {
     id: clean(action.id) || `action-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    label: clean(action.label) || 'Confirm action',
-    summary: clean(action.summary) || clean(action.label) || 'Confirm this action?',
+    label: clean(action.label) || generatedLabel,
+    summary: generatedSummary || clean(action.summary) || clean(action.label) || 'Confirm this action?',
     actionType: clean(action.actionType),
-    payload: action.payload && typeof action.payload === 'object' ? action.payload : {}
+    originalUserMessage: normalizedPayload.originalUserMessage,
+    payload: normalizedPayload
   };
+}
+
+function buildPendingActionMessage(action = {}) {
+  const summary = clean(buildPendingActionSummary(action.actionType, action.payload || {}));
+  if (!summary || /^confirm this action\.?$/i.test(summary)) {
+    return 'Review the action below to confirm.';
+  }
+  const normalized = summary.replace(/^I can\s+/i, '').replace(/\.$/, '');
+  const sentence = normalized.charAt(0).toLowerCase() + normalized.slice(1);
+  return `I can ${sentence}. Review the action below to confirm.`;
+}
+
+function buildPendingActionLabel(actionType, payload = {}) {
+  const type = clean(actionType);
+  const mode = normalizeCalendarMode(payload.mode, payload.originalUserMessage);
+  if (type === 'saveCalendarEvent' || type === 'createMeeting' || type === 'updateMeeting') {
+    return mode === 'meeting' ? 'Schedule meeting' : mode === 'generic' ? 'Schedule event' : 'Schedule interview';
+  }
+  if (type === 'updateOpportunity') {
+    return 'Update opportunity';
+  }
+  if (type === 'createOpportunity') {
+    return 'Create opportunity';
+  }
+  if (type === 'deleteOpportunity') {
+    return 'Delete opportunity';
+  }
+  if (type === 'deleteMeeting' || type === 'deleteCalendarEvent') {
+    return 'Delete event';
+  }
+  if (type === 'setActiveContext') {
+    return 'Set active context';
+  }
+  return 'Confirm action';
+}
+
+function buildPendingActionSummary(actionType, payload = {}) {
+  const type = clean(actionType);
+  const entityName = resolvePendingActionEntityName(payload);
+  const dateText = formatConversationDateTime(payload.date || payload.start || payload.startTime);
+  const mode = normalizeCalendarMode(payload.mode, payload.originalUserMessage);
+
+  if (type === 'saveCalendarEvent' || type === 'createMeeting' || type === 'updateMeeting') {
+    const subject = mode === 'meeting'
+      ? 'meeting'
+      : mode === 'generic'
+        ? 'calendar event'
+        : 'interview';
+    const target = entityName ? ` with ${entityName}` : '';
+    const scheduleText = dateText ? ` for ${dateText}` : '';
+    return `Schedule ${subject}${target}${scheduleText}`;
+  }
+
+  if (type === 'updateOpportunity') {
+    const outcome = clean(payload.outcome);
+    const target = entityName ? `${entityName} ` : '';
+    return outcome ? `Update ${target}to ${outcome}`.replace(/\s+/g, ' ').trim() : `Update ${target}opportunity`.replace(/\s+/g, ' ').trim();
+  }
+
+  if (type === 'createOpportunity') {
+    return entityName ? `Create opportunity for ${entityName}` : 'Create opportunity';
+  }
+
+  if (type === 'deleteOpportunity') {
+    return entityName ? `Delete opportunity for ${entityName}` : 'Delete opportunity';
+  }
+
+  if (type === 'deleteMeeting' || type === 'deleteCalendarEvent') {
+    const target = entityName ? ` for ${entityName}` : '';
+    const when = dateText ? ` on ${dateText}` : '';
+    return `Delete event${target}${when}`;
+  }
+
+  if (type === 'setActiveContext') {
+    return mode === 'meeting'
+      ? `Set active meeting to ${entityName || clean(payload.meetingTitle || payload.name || 'selected meeting')}`
+      : `Set active interview to ${entityName || clean(payload.company || payload.name || 'selected opportunity')}`;
+  }
+
+  return clean(payload.summary || payload.label || 'Confirm this action');
+}
+
+function resolvePendingActionEntityName(payload = {}) {
+  return clean(
+    payload.entityName
+    || payload.entityId
+    || payload.company
+    || payload.meetingName
+    || payload.meetingTitle
+    || extractEntityFromRequest(payload.originalUserMessage)
+  );
+}
+
+function extractEntityFromRequest(text) {
+  const value = clean(text);
+  if (!value) {
+    return '';
+  }
+  const patterns = [
+    /\b(?:of|for|with|about)\s+(?:the\s+|a\s+|an\s+)?(.+?)(?:\s+(?:opportunity|meeting|interview|event)\b|$)/i,
+    /\b(?:change|update|delete|schedule|create)\s+(?:the\s+)?(.+?)(?:\s+(?:opportunity|meeting|interview|event)\b|$)/i
+  ];
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (match && clean(match[1])) {
+      return clean(match[1]).replace(/\s+(?:to|for|with|on)\s+.*$/i, '');
+    }
+  }
+  return '';
+}
+
+function normalizeCalendarMode(value, text = '') {
+  const explicit = clean(value).toLowerCase();
+  if (explicit === 'meeting') {
+    return 'meeting';
+  }
+  if (explicit === 'interview') {
+    return 'interview';
+  }
+  if (explicit === 'generic') {
+    return 'generic';
+  }
+  const normalized = clean(text).toLowerCase();
+  if (/\bmeeting\b/.test(normalized)) {
+    return 'meeting';
+  }
+  if (/\binterview\b/.test(normalized)) {
+    return 'interview';
+  }
+  return 'interview';
+}
+
+function formatConversationDateTime(rawDate) {
+  const value = clean(rawDate);
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const datePart = new Intl.DateTimeFormat([], {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat([], {
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(date);
+  return `${datePart} at ${timePart}`;
 }
 
 function chatJsonSchema() {
@@ -332,6 +804,19 @@ function sourceFromSession(session = {}) {
     ].filter(Boolean).join('\n\n'),
     type: 'session'
   };
+}
+
+function formatDraftNotes(notes = {}) {
+  const sections = notes?.notes && typeof notes.notes === 'object' ? notes.notes : notes;
+  if (!sections || typeof sections !== 'object') {
+    return '';
+  }
+  return Object.entries(sections)
+    .flatMap(([key, value]) => {
+      const items = Array.isArray(value) ? value : (value ? [value] : []);
+      return items.map((item) => `${key}: ${String(item || '').trim()}`).filter(Boolean);
+    })
+    .join('\n');
 }
 
 function sessionSourceLabel(session = {}) {

@@ -50,6 +50,10 @@ function createTranscriptionProcessor(options = {}) {
   if (provider === 'openai') {
       apiUrl = 'https://api.openai.com/v1/audio/transcriptions';
       model = 'whisper-1';
+  } else if (provider === 'clyde-cloud-whisper') {
+      const baseUrl = process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api';
+      apiUrl = `${baseUrl.replace(/\/$/, '')}/proxy?type=transcribe`;
+      model = 'whisper-1';
   }
 
   const axiosClient = options.axiosClient;
@@ -133,8 +137,11 @@ function createTranscriptionProcessor(options = {}) {
     });
 
     if (!apiUrl) {
-      sendTranscript(createSimulatedTranscript(wavAudio));
-      return { ok: true, simulated: true };
+      sendStatus({
+        state: 'warning',
+        message: 'No transcription endpoint configured; skipping audio transcription.'
+      });
+      return { ok: true, skipped: 'missing-transcription-endpoint' };
     }
 
     inFlight = true;
@@ -149,6 +156,9 @@ function createTranscriptionProcessor(options = {}) {
       const headers = {};
       if (provider === 'openai') {
           headers['Authorization'] = `Bearer ${apiKey}`;
+      } else if (provider === 'clyde-cloud-whisper') {
+          const accessToken = await getFreshAccessToken();
+          headers['Authorization'] = `Bearer ${accessToken}`;
       }
 
       const response = await axiosClient.post(apiUrl, formData, { headers, timeout });
@@ -782,6 +792,52 @@ function resamplePcm16Mono(pcmAudio, fromSampleRate = DEFAULT_SAMPLE_RATE, toSam
   }
 
   return output;
+}
+
+async function getFreshAccessToken() {
+  let Store;
+  try {
+    Store = require('electron-store').default || require('electron-store');
+  } catch (e) {
+    return '';
+  }
+  const store = new Store({ projectName: 'clyde' });
+  const userId = store.get('userId', '');
+  const accessToken = store.get('authAccessToken', '');
+  const refreshToken = store.get('authRefreshToken', '');
+  const expiresAt = Number(store.get('authExpiresAt', 0));
+
+  if (!userId || !accessToken) {
+    return '';
+  }
+
+  // If still valid (with 2 minutes buffer), return it!
+  if (expiresAt && (expiresAt - Date.now() > 120000)) {
+    return accessToken;
+  }
+
+  if (!refreshToken) {
+    return '';
+  }
+
+  try {
+    const { refreshSession } = require('./authClient');
+    const refreshed = await refreshSession({ refreshToken });
+    if (refreshed && refreshed.accessToken) {
+      store.set({
+        userId: refreshed.userId || '',
+        authEmail: refreshed.email || '',
+        authAccessToken: refreshed.accessToken || '',
+        authRefreshToken: refreshed.refreshToken || '',
+        authExpiresAt: refreshed.expiresAt || null
+      });
+      return refreshed.accessToken;
+    }
+  } catch (e) {
+    console.error('Failed to refresh Supabase session token in transcription client:', e);
+  }
+
+  return accessToken;
 }
 
 module.exports = {

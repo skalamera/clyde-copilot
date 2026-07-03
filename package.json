@@ -1,25 +1,27 @@
 {
   "name": "clyde",
-  "version": "1.0.0",
+  "version": "1.0.0-beta.27",
   "description": "Electron app for real-time meeting transcription.",
   "main": "main.js",
   "scripts": {
-    "prestart": "node ./scripts/generate-icon.js && node ./scripts/cleanup-electron-cache.js && npm run electron:rebuild",
+    "prestart": "node ./scripts/generate-icon.js && node ./scripts/cleanup-electron-cache.js && electron-builder install-app-deps && (electron-rebuild -f -w better-sqlite3 || echo Rebuild skipped)",
     "start": "npm run renderer:build && node ./scripts/start-electron.js",
-    "electron:rebuild": "electron-rebuild -f -w better-sqlite3",
     "renderer:build": "vite build",
     "renderer:dev": "vite --host 127.0.0.1",
     "audio-engine:build": "node ./scripts/build-audio-engine.js",
     "audio-engine:test": "cargo test --manifest-path ./native/audio-engine/Cargo.toml",
-    "prepack": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build",
+    "electron:native:rebuild": "electron-rebuild -f -w better-sqlite3",
+    "release:check": "npm test && npm run renderer:build && npm run audio-engine:build && npm run pack",
+    "prepack": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build && npm run electron:native:rebuild",
     "whisper": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1",
     "whisper:cpu": "powershell -ExecutionPolicy Bypass -File ./scripts/start-whisper-server.ps1 -Runtime cpu",
     "audio:check": "node ./scripts/check-audio-sources.js",
     "pretest": "npm rebuild better-sqlite3",
     "test": "node --test",
-    "pack": "electron-builder --dir",
-    "predist": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build",
-    "dist": "electron-builder"
+    "pack": "node ./scripts/build-outside-onedrive.js --dir",
+    "predist": "node ./scripts/generate-icon.js && npm run audio-engine:build && npm run renderer:build && npm run electron:native:rebuild",
+    "dist": "node ./scripts/build-outside-onedrive.js",
+    "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +29,7 @@
   "type": "commonjs",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@heygen/liveavatar-web-sdk": "^0.0.18",
     "@pinecone-database/pinecone": "^7.2.0",
     "@playwright/mcp": "^0.0.75",
     "axios": "^1.16.0",
@@ -46,7 +49,6 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.4",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^41.6.1",
     "electron-builder": "^26.8.1",
@@ -55,23 +57,68 @@
   "build": {
     "appId": "com.clyde.app",
     "productName": "Clyde",
-    "icon": "icon.png",
+    "icon": "build/icon.png",
     "directories": {
       "output": "dist"
     },
+    "artifactName": "${productName} Setup v${version}.${ext}",
     "asar": true,
+    "files": [
+      "main.js",
+      "package.json",
+      "src/**/*.js",
+      "src/renderer-dist/**/*",
+      "clyde*.svg",
+      "clyde_*.svg",
+      "!src/renderer{,/**/*}",
+      "!test{,/**/*}",
+      "!website{,/**/*}",
+      "!dist{,/**/*}",
+      "!dist-pack{,/**/*}",
+      "!native{,/**/*}",
+      "!logs{,/**/*}",
+      "!tmp{,/**/*}",
+      "!run-slate{,/**/*}",
+      "!liveavatar-agent-skills{,/**/*}",
+      "!output*.wav",
+      "!output.html"
+    ],
     "win": {
-      "target": "nsis",
-      "icon": "icon.png"
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "azureSignOptions": {
+        "publisherName": "Stephen Skalamera",
+        "endpoint": "https://eus.codesigning.azure.net/",
+        "certificateProfileName": "ClydeDesktop",
+        "codeSigningAccountName": "Clyde-Desktop"
+      }
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "appx": {
+      "publisher": "CN=Stephen Skalamera",
+      "publisherDisplayName": "Stephen Skalamera",
+      "identityName": "Clyde",
+      "applicationId": "Clyde",
+      "displayName": "Clyde",
+      "languages": [
+        "en-US"
+      ],
+      "showNameOnTiles": true
     },
     "extraResources": [
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
       },
       {
         "from": "native/audio-engine/target/release/clyde-audio-engine.exe",
@@ -81,7 +128,10 @@
       "voicemeeter_banana_settings.xml"
     ],
     "publish": [
-      "github"
+      {
+        "provider": "generic",
+        "url": "https://storage.googleapis.com/clydeai-live-downloads"
+      }
     ]
   }
 }

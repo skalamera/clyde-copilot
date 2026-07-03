@@ -16,159 +16,617 @@ function createProRealtimeAgent(options = {}) {
   const pineconeClient = options.pineconeClient || defaultPineconeClient;
   const logger = options.logger || console;
   const sendStatus = options.sendStatus || (() => {});
+  const sendUpdate = options.sendUpdate || (() => {});
+  const debugTrace = typeof options.debugTrace === 'function' ? options.debugTrace : () => {};
   const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const eagerToolOutputs = Boolean(options.eagerToolOutputs || WebSocketImpl !== WebSocket);
+  const openReadyState = WebSocketImpl.OPEN ?? WebSocket.OPEN ?? 1;
+  let socket = null;
+  let connectPromise = null;
+  let activeRun = null;
+  let intentionallyClosing = false;
+  let nextRunId = 1;
+  let responseActive = false;
+  let responseDoneResolve = null;
+  let activeContext = {};
+  let lastConnectAttemptAt = 0;
+  const CONNECT_COOLDOWN_MS = 5000;
+  let lastSentCardSignature = '';
+
+  function getCardSignature(cards) {
+    if (!Array.isArray(cards) || !cards.length) {
+      return 'empty';
+    }
+    return cards.map((c) => `${c.title}|${c.question}|${c.body}|${c.bullets?.join(',')}`).join(';;');
+  }
+
+  function setContext(context) {
+    activeContext = context || {};
+  }
+
+  async function fetchRealtimeToken(provider, model) {
+    const { getFreshAccessToken } = require('./llmClient');
+    const accessToken = await getFreshAccessToken();
+    const axios = require('axios');
+
+    const baseUrl = process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api';
+    const url = `${baseUrl.replace(/\/$/, '')}/proxy?type=realtime-token`;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`
+    };
+
+    const response = await axios.post(url, { provider, model }, { headers, timeout: 15000 });
+    if (!response.data || !response.data.token) {
+      throw new Error('Failed to retrieve ephemeral session token from Clyde Managed Cloud.');
+    }
+    return response.data.token;
+  }
 
   async function run(payload = {}) {
-    const apiKey = settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY || '';
+    activeContext = payload.context || activeContext;
+    let apiKey = getApiKey();
+
     if (!apiKey) {
-      throw new Error('OpenAI API key is required for Clyde Pro.');
+      if (settings.userTier === 'pro') {
+        sendStatus({ state: 'processing', message: 'Fetching secure Realtime session token...' });
+        apiKey = await fetchRealtimeToken('openai', settings.proRealtimeModel || 'gpt-realtime-2');
+      } else {
+        throw new Error('OpenAI API key is required for Clyde Pro.');
+      }
     }
 
-    const model = encodeURIComponent(settings.proRealtimeModel || DEFAULT_MODEL);
-    const ws = new WebSocketImpl(`wss://api.openai.com/v1/realtime?model=${model}`, {
+    const model = getModel();
+    const ws = await ensureSocket(apiKey, model, true);
+    trace('pro.run.start', {
+      model,
+      mode: payload.mode,
+      command: payload.command,
+      digest: payload.digest || '',
+      targetQuestion: payload.targetQuestion || '',
+      manualPrompt: payload.manualPrompt || '',
+      groupId: payload.groupId || '',
+      draftCardId: payload.draftCardId || '',
+      toolsEnabled: payload.toolsEnabled !== false
+    });
+
+    if (activeRun) {
+      const prevRun = activeRun;
+      activeRun = null;
+      clearTimeout(prevRun.timeout);
+      prevRun.resolve({ ok: false, skipped: 'interrupted' });
+    }
+
+    // Proactively cancel any active response on the server to prevent "active response in progress" conflicts
+    if (responseActive) {
+      sendJson(ws, { type: 'response.cancel' });
+      await new Promise((resolve) => {
+        responseDoneResolve = resolve;
+        setTimeout(() => {
+          if (responseDoneResolve === resolve) {
+            responseDoneResolve = null;
+            resolve();
+          }
+        }, 800); // 800ms max wait
+      });
+      responseActive = false;
+    }
+
+    return new Promise((resolve, reject) => {
+      const runId = `pro-${Date.now()}-${nextRunId++}`;
+      const draftCardId = payload.draftCardId || `${runId}-draft`;
+      const groupId = payload.groupId || runId;
+
+      const userMsgId = `${runId}-user-msg`;
+      activeRun = {
+        payload,
+        resolve,
+        reject,
+        toolCalls: 0,
+        text: '',
+        lastDraftSignature: '',
+        lastDraftAt: 0,
+        draftCardId,
+        groupId,
+        userMsgId,
+        timeout: setTimeout(() => {
+          finishActiveRunWithError(new Error('Clyde Pro realtime agent timed out.'));
+        }, timeoutMs)
+      };
+
+      sendJson(ws, {
+        type: 'session.update',
+        session: buildRealtimeSessionConfig(payload)
+      });
+
+      const userMessage = buildProAgentUserMessage(payload);
+      trace('pro.user_message', {
+        runId,
+        groupId,
+        draftCardId,
+        userMessage
+      });
+      sendJson(ws, {
+        type: 'conversation.item.create',
+        item: {
+          id: userMsgId,
+          type: 'message',
+          role: 'user',
+          content: [{
+            type: 'input_text',
+            text: userMessage
+          }]
+        }
+      });
+
+      sendJson(ws, {
+        type: 'response.create',
+        response: {
+          output_modalities: ['text']
+        }
+      });
+    });
+  }
+
+  async function warmup(payload = {}) {
+    let apiKey = getApiKey();
+    if (!apiKey) {
+      if (settings.userTier === 'pro') {
+        apiKey = await fetchRealtimeToken('openai', settings.proRealtimeModel || 'gpt-realtime-2');
+      } else {
+        return false;
+      }
+    }
+    if (activeRun) {
+      return false;
+    }
+
+    const ws = await ensureSocket(apiKey, getModel(), false);
+    return true;
+  }
+
+  async function searchMemoryCards(payload = {}) {
+    if (payload.allowMemorySearch === false) {
+      return { cards: [], results: [], contextText: '', throttled: true };
+    }
+
+    sendStatus({ state: 'processing', message: 'Searching memory...' });
+    const query = clean(payload.query || payload.targetQuestion || payload.manualPrompt || payload.digest || '');
+    const results = await searchMemory(query, payload.context || {}, payload.mode);
+    const cards = memoryCardsFromResults(results);
+
+    return {
+      cards,
+      results,
+      contextText: memoryContextFromResults(results)
+    };
+  }
+
+  function buildRealtimeSessionConfig(payload = {}) {
+    const toolsEnabled = payload.toolsEnabled !== false;
+
+    return {
+      type: 'realtime',
+      instructions: buildProAgentInstructions({
+        mode: payload.mode,
+        context: payload.context,
+        command: payload.command,
+        toolsEnabled
+      }),
+      output_modalities: ['text'],
+      reasoning: { effort: payload.reasoningEffort || 'low' },
+      tool_choice: toolsEnabled ? 'auto' : 'none',
+      tools: toolsEnabled ? getProAgentTools() : []
+    };
+  }
+
+  function appendAudioChunk(base64Data) {
+    if (settings.appMode === 'interview') {
+      return;
+    }
+
+    if (socket && socket.readyState === openReadyState) {
+      sendJson(socket, {
+        type: 'input_audio_buffer.append',
+        audio: base64Data
+      });
+      return;
+    }
+
+    const apiKey = getApiKey();
+    if (!apiKey && settings.userTier !== 'pro') {
+      return;
+    }
+
+    const getSocketPromise = apiKey
+      ? ensureSocket(apiKey, getModel(), false)
+      : fetchRealtimeToken('openai', settings.proRealtimeModel || 'gpt-realtime-2').then((token) => ensureSocket(token, getModel(), false));
+
+    getSocketPromise
+      .then((ws) => {
+        if (ws && ws.readyState === openReadyState) {
+          sendJson(ws, {
+            type: 'input_audio_buffer.append',
+            audio: base64Data
+          });
+        }
+      })
+      .catch(() => {
+        // Silently catch to avoid log flooding on every chunk
+      });
+  }
+
+  function close() {
+    intentionallyClosing = true;
+    lastSentCardSignature = '';
+    if (responseDoneResolve) {
+      responseDoneResolve();
+      responseDoneResolve = null;
+    }
+    if (activeRun) {
+      finishActiveRunWithError(new Error('Clyde Pro realtime agent was closed.'));
+    }
+    if (socket) {
+      safeClose(socket);
+    }
+    socket = null;
+    connectPromise = null;
+    intentionallyClosing = false;
+  }
+
+  function ensureSocket(apiKey, model, isRun = false) {
+    if (socket && socket.readyState === openReadyState) {
+      return Promise.resolve(socket);
+    }
+
+    if (connectPromise) {
+      return connectPromise;
+    }
+
+    const now = Date.now();
+    if (now - lastConnectAttemptAt < CONNECT_COOLDOWN_MS) {
+      return Promise.reject(new Error('Connection attempt in cooldown.'));
+    }
+    lastConnectAttemptAt = now;
+
+    intentionallyClosing = false;
+    logger.info?.(`Clyde Pro realtime agent connecting to model: ${model}...`);
+    trace('pro.socket.connecting', { model });
+    socket = new WebSocketImpl(`wss://api.openai.com/v1/realtime?model=${model}`, {
       headers: {
         Authorization: `Bearer ${apiKey}`
       }
     });
 
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      let toolCalls = 0;
-      const timeout = setTimeout(() => {
-        finishWithError(new Error('Clyde Pro realtime agent timed out.'));
-      }, timeoutMs);
+    connectPromise = new Promise((resolve, reject) => {
+      let opened = false;
 
-      function finish(result) {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timeout);
-        safeClose(ws);
-        resolve(result);
-      }
-
-      function finishWithError(error) {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timeout);
-        safeClose(ws);
-        reject(error);
-      }
-
-      ws.on('open', () => {
-        sendJson(ws, {
-          type: 'session.update',
-          session: {
-            type: 'realtime',
-            instructions: buildProAgentInstructions({
-              mode: payload.mode,
-              context: payload.context,
-              command: payload.command
-            }),
-              output_modalities: ['text'],
-            tool_choice: 'auto',
-            tools: getProAgentTools()
-          }
-        });
-
-        sendJson(ws, {
-          type: 'conversation.item.create',
-          item: {
-            type: 'message',
-            role: 'user',
-            content: [{
-              type: 'input_text',
-              text: buildProAgentUserMessage(payload)
-            }]
-          }
-        });
-
-        sendJson(ws, {
-          type: 'response.create',
-            response: {
-              output_modalities: ['text']
-            }
-        });
-      });
-
-      ws.on('message', (raw) => {
-        let event;
-        try {
-          event = JSON.parse(String(raw));
-        } catch (error) {
-          logger.warn?.('Ignored non-JSON realtime event:', error);
-          return;
-        }
-
-        if (event.type === 'error') {
-          finishWithError(new Error(event.error?.message || 'Clyde Pro realtime agent returned an error.'));
-          return;
-        }
-
-        if (event.type === 'response.done') {
-          handleResponseDone(event).catch(finishWithError);
-        }
-      });
-
-      ws.on('error', (error) => {
-        finishWithError(error);
-      });
-
-      async function handleResponseDone(event) {
-        const output = Array.isArray(event.response?.output) ? event.response.output : [];
-        const functionCalls = output.filter((item) => item?.type === 'function_call' && item.name);
-
-        if (functionCalls.length) {
-          for (const call of functionCalls) {
-            toolCalls += 1;
-            if (eagerToolOutputs) {
-              executeToolCall(call, payload).catch(finishWithError);
-              sendJson(ws, {
-                type: 'conversation.item.create',
-                item: {
-                  type: 'function_call_output',
-                  call_id: call.call_id || call.id,
-                  output: JSON.stringify({ pending: true })
-                }
-              });
-              continue;
-            }
-
-            const result = await executeToolCall(call, payload);
-            sendJson(ws, {
-              type: 'conversation.item.create',
-              item: {
-                type: 'function_call_output',
-                call_id: call.call_id || call.id,
-                output: JSON.stringify(result)
+      socket.on('open', () => {
+        opened = true;
+        logger.info?.('Clyde Pro realtime agent socket successfully connected.');
+        trace('pro.socket.open', { model });
+        if (!isRun) {
+          setTimeout(() => {
+            if (socket && socket.readyState === openReadyState) {
+              try {
+                sendJson(socket, {
+                  type: 'session.update',
+                  session: buildRealtimeSessionConfig({
+                    mode: settings.appMode || 'interview',
+                    context: activeContext,
+                    command: 'assist'
+                  })
+                });
+              } catch (err) {
+                logger.error?.('Failed to send initial session.update on socket open:', err);
               }
-            });
-          }
+            }
+          }, 100);
+        }
+        resolve(socket);
+      });
 
-          sendJson(ws, {
-            type: 'response.create',
-            response: {
-              output_modalities: ['text']
+      socket.on('message', handleSocketMessage);
+
+      socket.on('error', (error) => {
+        logger.error?.('Clyde Pro realtime agent socket error:', error);
+        trace('pro.socket.error', { message: error.message || String(error) });
+        if (!opened) {
+          reject(error);
+        }
+        finishActiveRunWithError(error);
+      });
+
+      socket.on('close', (code, reason) => {
+        logger.info?.(`Clyde Pro realtime agent socket closed. Code: ${code}, Reason: ${reason}`);
+        trace('pro.socket.close', { code, reason: String(reason || '') });
+        if (!opened && !intentionallyClosing) {
+          reject(new Error(`Clyde Pro realtime agent disconnected before it was ready. Code: ${code}`));
+        }
+        socket = null;
+        connectPromise = null;
+        if (!intentionallyClosing) {
+          finishActiveRunWithError(new Error(`Clyde Pro realtime agent disconnected. Code: ${code}`));
+        }
+      });
+    });
+
+    return connectPromise;
+  }
+
+  function getApiKey() {
+    return settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || settings.openAiApiKey || process.env.OPENAI_API_KEY || '';
+  }
+
+  function getModel() {
+    const rawModel = settings.proRealtimeModel || DEFAULT_MODEL;
+    return encodeURIComponent(rawModel);
+  }
+
+  function handleSocketMessage(raw) {
+    let event;
+    try {
+      event = JSON.parse(String(raw));
+    } catch (error) {
+      logger.warn?.('Ignored non-JSON realtime event:', error);
+      return;
+    }
+
+    if (event.type === 'response.created') {
+      responseActive = true;
+      trace('pro.response.created', { activeRun: Boolean(activeRun) });
+    }
+
+    if (event.type === 'response.done') {
+      responseActive = false;
+      if (responseDoneResolve) {
+        responseDoneResolve();
+        responseDoneResolve = null;
+      }
+    }
+
+    if (event.type === 'error') {
+      const errMsg = event.error?.message || '';
+      trace('pro.response.error', { message: errMsg, code: event.error?.code || '' });
+      if (errMsg.includes('Cancellation failed') || event.error?.code === 'cancellation_failed') {
+        logger.log?.('Safe to ignore cancellation error:', errMsg);
+        return;
+      }
+      responseActive = false;
+      if (responseDoneResolve) {
+        responseDoneResolve();
+        responseDoneResolve = null;
+      }
+      finishActiveRunWithError(new Error(errMsg || 'Clyde Pro realtime agent returned an error.'));
+      return;
+    }
+
+    if (event.type === 'input_audio_buffer.speech_started') {
+      if (activeRun) {
+        if (settings.appMode === 'interview') {
+          logger.info?.('[Pro] Ignoring speech started VAD interruption in interview card mode.');
+          return;
+        }
+        activeRun.text = '';
+        if (typeof activeRun.payload.onInterruption === 'function') {
+          activeRun.payload.onInterruption();
+        } else {
+          sendUpdate({
+            title: 'Draft answer',
+            text: '',
+            cards: [],
+            replaceCardId: activeRun.draftCardId,
+            groupId: activeRun.groupId
+          });
+        }
+      }
+    }
+
+    const delta = extractRealtimeDelta(event);
+    if (delta && activeRun) {
+      activeRun.text += delta;
+      trace('pro.response.delta', {
+        groupId: activeRun.groupId,
+        draftCardId: activeRun.draftCardId,
+        delta
+      });
+      emitDraft(activeRun);
+      return;
+    }
+
+    if (event.type === 'response.done') {
+      handleResponseDone(event).catch(finishActiveRunWithError);
+    }
+  }
+
+  async function handleResponseDone(event) {
+    if (!activeRun || !socket) {
+      return;
+    }
+
+    const run = activeRun;
+    const output = Array.isArray(event.response?.output) ? event.response.output : [];
+    const functionCalls = output.filter((item) => item?.type === 'function_call' && item.name);
+
+    if (functionCalls.length) {
+      for (const call of functionCalls) {
+        run.toolCalls += 1;
+        if (eagerToolOutputs) {
+          executeToolCall(call, run.payload).catch(finishActiveRunWithError);
+          sendJson(socket, {
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: call.call_id || call.id,
+              output: JSON.stringify({ pending: true })
             }
           });
-          return;
+          continue;
         }
 
-        const text = extractRealtimeText(output);
-        const cards = parseAgentCards(text);
-        finish({
-          ok: true,
-          text,
-          cards,
-          toolCalls
+        const result = await executeToolCall(call, run.payload);
+        sendJson(socket, {
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: call.call_id || call.id,
+            output: JSON.stringify(result)
+          }
         });
       }
+
+      run.text = '';
+      sendJson(socket, {
+        type: 'response.create',
+        response: {
+          output_modalities: ['text']
+        }
+      });
+      return;
+    }
+
+    // Clean up manual run items from the conversation history to prevent VAD from responding to them repeatedly
+    if (run.userMsgId && socket && socket.readyState === openReadyState) {
+      sendJson(socket, {
+        type: 'conversation.item.delete',
+        item_id: run.userMsgId
+      });
+      for (const item of output) {
+        if (item && item.id) {
+          sendJson(socket, {
+            type: 'conversation.item.delete',
+            item_id: item.id
+          });
+        }
+      }
+    }
+
+    const text = extractRealtimeText(output) || run.text;
+    const cards = parseAgentCards(text);
+    const filteredCards = cards.filter((card) => card.type !== 'memory');
+    trace('pro.response.done', {
+      groupId: run.groupId,
+      draftCardId: run.draftCardId,
+      text,
+      parsedCards: cards,
+      filteredCards
+    });
+
+    const payloadMode = run.payload.mode || settings.appMode || 'interview';
+    const processedFiltered = payloadMode === 'interview'
+      ? condenseProInterviewCards(filteredCards)
+      : filteredCards;
+    trace('pro.cards.processed', {
+      groupId: run.groupId,
+      mode: payloadMode,
+      processedCards: processedFiltered,
+      rejectedByFormat: filteredCards.length > 0 && processedFiltered.length === 0
+    });
+
+    const signature = getCardSignature(processedFiltered);
+
+    if (run.groupId.startsWith('pro-vad-')) {
+      if (signature !== 'empty' && signature === lastSentCardSignature) {
+        logger.info?.('Ignoring duplicate VAD suggestion card.');
+        finishActiveRun({
+          ok: true,
+          text,
+          cards: [
+            ...processedFiltered,
+            ...cards.filter((card) => card.type === 'memory')
+          ],
+          toolCalls: run.toolCalls,
+          draftCardId: run.draftCardId,
+          groupId: run.groupId
+        });
+        return;
+      }
+      if (signature !== 'empty') {
+        lastSentCardSignature = signature;
+      }
+
+      sendUpdate({
+        title: 'Live help',
+        text,
+        cards: processedFiltered,
+        replaceCardId: run.draftCardId,
+        groupId: run.groupId
+      });
+    }
+    finishActiveRun({
+      ok: true,
+      text,
+      cards: [
+        ...processedFiltered,
+        ...cards.filter((card) => card.type === 'memory')
+      ],
+      toolCalls: run.toolCalls,
+      draftCardId: run.draftCardId,
+      groupId: run.groupId
+    });
+  }
+
+  function finishActiveRun(result) {
+    if (!activeRun) {
+      return;
+    }
+
+    const run = activeRun;
+    activeRun = null;
+    clearTimeout(run.timeout);
+    run.resolve(result);
+  }
+
+  function finishActiveRunWithError(error) {
+    if (!activeRun) {
+      return;
+    }
+
+    const run = activeRun;
+    activeRun = null;
+    clearTimeout(run.timeout);
+    run.reject(error);
+  }
+
+  function emitDraft(run) {
+    if (typeof run.payload.onDraft !== 'function') {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - run.lastDraftAt < 180) {
+      return;
+    }
+
+    const card = parseDraftAgentCard(run.text, run.payload, run.draftCardId);
+    if (!card) {
+      trace('pro.draft.rejected', {
+        groupId: run.groupId,
+        draftCardId: run.draftCardId,
+        text: run.text
+      });
+      return;
+    }
+
+    const signature = assistantDraftSignature(card);
+    if (signature === run.lastDraftSignature) {
+      return;
+    }
+
+    run.lastDraftAt = now;
+    run.lastDraftSignature = signature;
+    trace('pro.draft.emit', {
+      groupId: run.groupId,
+      draftCardId: run.draftCardId,
+      card
+    });
+    run.payload.onDraft({
+      text: run.text,
+      cards: [card],
+      replaceCardId: run.draftCardId,
+      groupId: run.groupId,
+      draftCardId: run.draftCardId
     });
   }
 
@@ -187,13 +645,18 @@ function createProRealtimeAgent(options = {}) {
 
       sendStatus({ state: 'processing', message: 'Searching memory...' });
       const query = clean(args.query || payload.digest || '');
-      const results = await searchMemory(query);
+      trace('pro.tool.searchPastMeetings', { query, mode: payload.mode });
+      const results = await searchMemory(query, payload.context || {}, payload.mode);
+      trace('pro.tool.searchPastMeetings.result', { query, count: results.length, results });
       return { results };
     }
 
     if (call.name === 'retrievePinnedDocument') {
       const docName = clean(args.docName).toLowerCase();
-      const pinned = getPinnedKnowledge();
+      const pinned = [
+        ...getPinnedKnowledge(),
+        ...entityFilesFromContext(payload.context)
+      ];
       const match = pinned.find((item) => {
         const filename = clean(item.filename).toLowerCase();
         const title = clean(item.metadata?.title).toLowerCase();
@@ -212,7 +675,7 @@ function createProRealtimeAgent(options = {}) {
     throw new Error(`Unknown Clyde Pro tool: ${call.name}`);
   }
 
-  async function searchMemory(query) {
+  async function searchMemory(query, context = {}, mode = 'interview') {
     if (!query) {
       return [];
     }
@@ -223,7 +686,11 @@ function createProRealtimeAgent(options = {}) {
       && (settings.pineconeApiKey || process.env.PINECONE_API_KEY)
       && (settings.pineconeHost || process.env.PINECONE_HOST)
     ) {
-      const matches = await pineconeClient.searchKnowledgeVectors(query, settings, { topK: 5 });
+      const filter = buildContextFilter(context, mode);
+      const matches = await pineconeClient.searchKnowledgeVectors(query, settings, {
+        topK: 5,
+        ...(filter ? { filter } : {})
+      });
       return matches.map((match) => ({
         text: match.text,
         source: match.source,
@@ -251,8 +718,46 @@ function createProRealtimeAgent(options = {}) {
     return knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []);
   }
 
+  function entityFilesFromContext(context = {}) {
+    return (Array.isArray(context.entityFiles) ? context.entityFiles : []).map((item) => ({
+      id: item.id,
+      filename: item.filename,
+      content: item.content,
+      metadata: item.metadata || {}
+    }));
+  }
+
+  function buildContextFilter(context = {}, mode = 'interview') {
+    const entityId = clean(context.entityId || context.activeEntityId || context.company || context.meetingTitle || '');
+    if (!entityId) {
+      return null;
+    }
+
+    const activeMode = mode === 'meeting' ? 'meeting' : 'interview';
+    return {
+      $or: [
+        {
+          mode: { $eq: activeMode },
+          entityId: { $eq: entityId }
+        },
+        {
+          entityId: { $in: ['', 'general'] }
+        }
+      ]
+    };
+  }
+
+  function trace(event, data = {}) {
+    debugTrace(event, data);
+  }
+
   return {
-    run
+    run,
+    warmup,
+    searchMemoryCards,
+    appendAudioChunk,
+    setContext,
+    close
   };
 }
 
@@ -287,9 +792,254 @@ function extractRealtimeText(output = []) {
   return '';
 }
 
+function extractRealtimeDelta(event = {}) {
+  if (
+    event.type === 'response.output_text.delta'
+    || event.type === 'response.text.delta'
+    || event.type === 'response.audio_transcript.delta'
+  ) {
+    return String(event.delta || '');
+  }
+
+  if (event.type === 'response.content_part.delta') {
+    return String(event.delta?.text || event.delta?.transcript || event.part?.text || '');
+  }
+
+  return '';
+}
+
+function parseDraftAgentCard(text, payload = {}, draftCardId = '') {
+  const parsedCards = parseAgentCards(text).filter((card) => card.type === 'answer' || card.type === 'suggestion');
+  if (parsedCards.length) {
+    const normalized = (payload.mode || 'interview') === 'interview'
+      ? condenseProInterviewCards(parsedCards)[0]
+      : parsedCards[0];
+    if (!normalized) {
+      return null;
+    }
+
+    return {
+      ...normalized,
+      id: draftCardId,
+      title: 'Draft answer',
+      draft: true,
+      agentic: true
+    };
+  }
+
+  const question = extractJsonStringValue(text, 'question') || clean(payload.targetQuestion);
+  const bullets = extractJsonArrayStrings(text, 'bullets').slice(0, 3);
+  const body = extractJsonStringValue(text, 'answer') || extractJsonStringValue(text, 'text') || extractJsonStringValue(text, 'body');
+
+  if ((payload.mode || 'interview') === 'interview' && (!question || bullets.length !== 3)) {
+    return null;
+  }
+
+  if (!body && !bullets.length) {
+    return null;
+  }
+
+  return {
+    id: draftCardId,
+    type: 'answer',
+    title: 'Draft answer',
+    question,
+    body,
+    bullets,
+    draft: true,
+    agentic: true
+  };
+}
+
+function extractJsonStringValue(text = '', key = '') {
+  const pattern = new RegExp(`"${escapeRegExp(key)}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
+  const match = String(text || '').match(pattern);
+  return match ? clean(unescapeJsonString(match[1])) : '';
+}
+
+function extractJsonArrayStrings(text = '', key = '') {
+  const pattern = new RegExp(`"${escapeRegExp(key)}"\\s*:\\s*\\[([\\s\\S]*)`);
+  const match = String(text || '').match(pattern);
+  if (!match) {
+    return [];
+  }
+
+  const arrayText = match[1].split(']')[0] || '';
+  const values = [];
+  const valuePattern = /"((?:\\.|[^"\\])*)"/g;
+  let valueMatch;
+  while ((valueMatch = valuePattern.exec(arrayText))) {
+    const value = clean(unescapeJsonString(valueMatch[1]));
+    if (value) {
+      values.push(value);
+    }
+  }
+  return values;
+}
+
+function unescapeJsonString(value = '') {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch (_error) {
+    return value.replace(/\\"/g, '"').replace(/\\n/g, '\n');
+  }
+}
+
+function assistantDraftSignature(card = {}) {
+  return [
+    card.question || '',
+    card.body || '',
+    Array.isArray(card.bullets) ? card.bullets.join('|') : ''
+  ].join('::');
+}
+
+function memoryCardsFromResults(results = []) {
+  const seen = new Set();
+  const cards = [];
+
+  for (const result of Array.isArray(results) ? results : []) {
+    const body = clean(result.text || result.content || '');
+    const bullets = summarizeMemoryBullets(body);
+    if (!body || !bullets.length) {
+      continue;
+    }
+
+    const detail = clean(result.source || result.filename || result.knowledgeId || '');
+    const key = `${body.toLowerCase()}::${detail.toLowerCase()}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    cards.push({
+      type: 'memory',
+      title: 'Memory',
+      body: '',
+      bullets,
+      detail,
+      agentic: true,
+      score: result.score
+    });
+
+    if (cards.length >= 3) {
+      break;
+    }
+  }
+
+  return cards;
+}
+
+function summarizeMemoryBullets(text = '') {
+  const value = clean(text);
+  const bullets = value
+    .replace(/\b(?:Interviewer|Candidate)\s*\([^)]*\):/gi, '. ')
+    .replace(/\b(?:Interviewer|Candidate):/gi, '. ')
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => clean(sentence.replace(/^[-*•\s]+/, '')))
+    .filter((sentence) => sentence.length >= 24)
+    .filter((sentence) => !/^yes[,.]?\s*$/i.test(sentence))
+    .slice(0, 3)
+    .map((sentence) => shortenSentence(sentence, 150));
+
+  return bullets.length ? bullets : [shortenSentence(value, 150)].filter(Boolean);
+}
+
+function shortenSentence(sentence = '', maxLength = 150) {
+  const value = clean(sentence);
+  if (value.length <= maxLength) {
+    return value;
+  }
+  const truncated = value.slice(0, maxLength + 1);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return `${clean(truncated.slice(0, lastSpace > 80 ? lastSpace : maxLength))}...`;
+}
+
+function memoryContextFromResults(results = []) {
+  return (Array.isArray(results) ? results : [])
+    .slice(0, 4)
+    .map((result, index) => {
+      const text = clean(result.text || result.content || '');
+      const source = clean(result.source || result.filename || result.knowledgeId || '');
+      return text ? `${index + 1}. ${text}${source ? ` (Source: ${source})` : ''}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function escapeRegExp(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function parseAgentCards(text) {
   const parsed = parseJsonObject(text);
   if (!parsed) {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      return [];
+    }
+    // Fallback: Parse natural text bullet points (e.g. from conversational speech transcription)
+    let cleanText = text
+      .replace(/\*\*Analyzing[^*]+\*\*/gi, '')
+      .replace(/\*\*Constructing[^*]+\*\*/gi, '')
+      .replace(/\*\*Formulating[^*]+\*\*/gi, '')
+      .replace(/\*\*Crafting[^*]+\*\*/gi, '')
+      .replace(/\*\*Refining[^*]+\*\*/gi, '')
+      .replace(/I'm now focusing on[\s\S]*?frame them to answer the interview question\./gi, '')
+      .replace(/I'm now building[\s\S]*?bullet points\./gi, '')
+      .replace(/I'm now formulating[\s\S]*?three bullets\./gi, '')
+      .replace(/I'm now structuring[\s\S]*?quantifiable results\./gi, '')
+      .replace(/I'm currently structuring[\s\S]*?address\./gi, '')
+      .replace(/I'm now zeroing in[\s\S]*?actual results\./gi, '')
+      .replace(/I'm solidifying[\s\S]*?critical support\./gi, '')
+      .replace(/I'm now structuring my STAR response[\s\S]*?core of my response\./gi, '')
+      .replace(/I am finalizing the answer[\s\S]*?presentation\./gi, '')
+      .trim();
+
+    if (!cleanText) {
+      return [];
+    }
+
+    const lines = cleanText.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+
+    const bullets = [];
+    let currentParagraph = '';
+
+    for (const line of lines) {
+      if (line.startsWith('*') || line.startsWith('-') || /^\d+\./.test(line)) {
+        const bulletContent = line.replace(/^[*-\s]+|^\d+\.\s*/, '').trim();
+        if (bulletContent) {
+          bullets.push(bulletContent);
+        }
+      } else {
+        if (bullets.length === 0) {
+          if (currentParagraph) {
+            currentParagraph += '\n' + line;
+          } else {
+            currentParagraph = line;
+          }
+        } else {
+          bullets.push(line);
+        }
+      }
+    }
+
+    if (bullets.length === 0 && currentParagraph) {
+      bullets.push(currentParagraph);
+    }
+
+    if (bullets.length > 0) {
+      return [{
+        type: 'answer',
+        title: 'Suggested response',
+        question: 'Suggested response',
+        body: currentParagraph || '',
+        bullets: bullets.map(clean).filter(Boolean),
+        id: Buffer.from(bullets.join(' ')).toString('base64')
+      }];
+    }
+
     return [];
   }
 
@@ -314,12 +1064,15 @@ function parseAgentCards(text) {
 
   for (const item of toArray(parsed.suggestions)) {
     const body = clean(item.text || item.suggestion || item.body);
-    if (body) {
+    const context = clean(item.question || item.context || item.referenced_transcript || '');
+    const bullets = Array.isArray(item.bullets) ? item.bullets.map(clean).filter(Boolean) : [body].filter(Boolean);
+    if (context || bullets.length) {
       cards.push({
         type: 'suggestion',
         title: 'Say next',
-        body,
-        detail: clean(item.why)
+        question: context,
+        bullets,
+        id: Buffer.from(context || bullets.join(' ')).toString('base64')
       });
     }
   }
@@ -380,6 +1133,41 @@ function toArray(value) {
 
 function clean(value) {
   return String(value || '').trim();
+}
+
+function condenseProInterviewCards(cards) {
+  if (!cards.length) {
+    return [];
+  }
+
+  const firstWithQuestion = cards.find((c) => c.question) || cards[0];
+  const question = firstWithQuestion.question || '';
+
+  const bullets = cards
+    .flatMap((card) => {
+      if (Array.isArray(card.bullets) && card.bullets.length) {
+        return card.bullets;
+      }
+      return [card.body, card.detail];
+    })
+    .map((b) => String(b || '').trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (!question || (bullets.length !== 3 && bullets.length !== 4)) {
+    return [];
+  }
+
+  return [{
+    id: Buffer.from(question || bullets.join(' ')).toString('base64'),
+    type: 'answer',
+    title: 'Say next',
+    question,
+    body: '',
+    detail: '',
+    bullets,
+    agentic: true
+  }];
 }
 
 module.exports = {

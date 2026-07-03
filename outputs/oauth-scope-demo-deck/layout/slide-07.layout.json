@@ -1,0 +1,891 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/ju8xd2",
+    "id": "ju8xd2",
+    "slide": 7,
+    "layoutId": "ad461daf-480b-4a53-8b14-f60f3e933a7e",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "c0e84477-9afd-4698-9cf5-c2be0e0cbe9c",
+    "masterLayoutName": "Master",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Aptos",
+      "Aptos Display"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ad461daf-480b-4a53-8b14-f60f3e933a7e",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "c0e84477-9afd-4698-9cf5-c2be0e0cbe9c",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "c0e84477-9afd-4698-9cf5-c2be0e0cbe9c",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/rmhk3q5o",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#071012",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/g7adsji5",
+      "id": "2",
+      "bbox": [
+        52,
+        44,
+        44,
+        4
+      ],
+      "geometry": "rect",
+      "fillColor": "#2DE0C2",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/9s36hcrm",
+      "id": "3",
+      "bbox": [
+        108,
+        33,
+        360,
+        28
+      ],
+      "geometry": "rect",
+      "text": "SCOPE LIMITS",
+      "textPreview": "SCOPE LIMITS",
+      "resolvedFontSize": 14,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 14,
+        "typeface": "Aptos",
+        "color": "#2DE0C2",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "SCOPE LIMITS"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "SCOPE LIMITS",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Aptos",
+            "color": "#2DE0C2",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "SCOPE LIMITS",
+              "fontSize": 14,
+              "typeface": "Aptos",
+              "color": "#2DE0C2",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/yd0z6103",
+      "id": "4",
+      "bbox": [
+        52,
+        80,
+        860,
+        92
+      ],
+      "geometry": "rect",
+      "text": "Clyde requests the minimum Google access needed",
+      "textPreview": "Clyde requests the minimum Google access needed",
+      "resolvedFontSize": 44,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 44,
+        "typeface": "Aptos Display",
+        "color": "#F4F7F7",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Clyde requests the minimum Google access"
+          },
+          {
+            "index": 2,
+            "text": "needed"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Clyde requests the minimum Google access needed",
+          "resolvedTextStyle": {
+            "fontSize": 44,
+            "typeface": "Aptos Display",
+            "color": "#F4F7F7",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Clyde requests the minimum Google access needed",
+              "fontSize": 44,
+              "typeface": "Aptos Display",
+              "color": "#F4F7F7",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/rytsvu9k",
+      "id": "5",
+      "bbox": [
+        52,
+        172,
+        860,
+        44
+      ],
+      "geometry": "rect",
+      "text": "The requested scopes match the demonstrated product behavior.",
+      "textPreview": "The requested scopes match the demonstrated product behavior.",
+      "resolvedFontSize": 20,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 20,
+        "typeface": "Aptos",
+        "color": "#9FB4BD",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "The requested scopes match the demonstrated product behavior."
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "The requested scopes match the demonstrated product behavior.",
+          "resolvedTextStyle": {
+            "fontSize": 20,
+            "typeface": "Aptos",
+            "color": "#9FB4BD",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "The requested scopes match the demonstrated product behavior.",
+              "fontSize": 20,
+              "typeface": "Aptos",
+              "color": "#9FB4BD"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/gfmlkjm1",
+      "id": "6",
+      "bbox": [
+        52,
+        674,
+        320,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Clyde OAuth scope demo",
+      "textPreview": "Clyde OAuth scope demo",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 12,
+        "typeface": "Aptos",
+        "color": "#6F858E",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Clyde OAuth scope demo"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Clyde OAuth scope demo",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Aptos",
+            "color": "#6F858E",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Clyde OAuth scope demo",
+              "fontSize": 12,
+              "typeface": "Aptos",
+              "color": "#6F858E"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/90je9cvi",
+      "id": "7",
+      "bbox": [
+        82,
+        234,
+        520,
+        268
+      ],
+      "geometry": "rect",
+      "fillColor": "#0E1A1D",
+      "lineColor": "#234047",
+      "lineWidth": 1
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ylc7u54z",
+      "id": "8",
+      "bbox": [
+        82,
+        234,
+        5,
+        268
+      ],
+      "geometry": "rect",
+      "fillColor": "#86EFAC",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/r65wjudg",
+      "id": "9",
+      "bbox": [
+        106,
+        256,
+        472,
+        34
+      ],
+      "geometry": "rect",
+      "text": "Allowed by requested scopes",
+      "textPreview": "Allowed by requested scopes",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Aptos Display",
+        "color": "#F4F7F7",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Allowed by requested scopes"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Allowed by requested scopes",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Aptos Display",
+            "color": "#F4F7F7",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Allowed by requested scopes",
+              "fontSize": 24,
+              "typeface": "Aptos Display",
+              "color": "#F4F7F7",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 10,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/vahoza1g",
+      "id": "10",
+      "bbox": [
+        106,
+        302,
+        472,
+        184
+      ],
+      "geometry": "rect",
+      "text": "Read Gmail messages relevant to Clyde suggestions.\n\nRead upcoming Google Calendar events for interview and meeting context.\n\nUse the data to create Clyde-side suggested actions and context.",
+      "textPreview": "Read Gmail messages relevant to Clyde suggestions. |  | Read upcoming Google Calendar events for interview and meeting context. |  | Use ...",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 18,
+        "typeface": "Aptos",
+        "color": "#9FB4BD",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 6,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Read Gmail messages relevant to Clyde suggestions."
+          },
+          {
+            "index": 2,
+            "text": ""
+          },
+          {
+            "index": 3,
+            "text": "Read upcoming Google Calendar events for interview and"
+          },
+          {
+            "index": 4,
+            "text": "meeting context."
+          },
+          {
+            "index": 5,
+            "text": ""
+          },
+          {
+            "index": 6,
+            "text": "Use the data to create Clyde-side suggested actions and context."
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Read Gmail messages relevant to Clyde suggestions.",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Aptos",
+            "color": "#9FB4BD",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Read Gmail messages relevant to Clyde suggestions.",
+              "fontSize": 18,
+              "typeface": "Aptos",
+              "color": "#9FB4BD"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "Read upcoming Google Calendar events for interview and meeting context.",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Aptos",
+            "color": "#9FB4BD",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Read upcoming Google Calendar events for interview and meeting context.",
+              "fontSize": 18,
+              "typeface": "Aptos",
+              "color": "#9FB4BD"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "Use the data to create Clyde-side suggested actions and context.",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Aptos",
+            "color": "#9FB4BD",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Use the data to create Clyde-side suggested actions and context.",
+              "fontSize": 18,
+              "typeface": "Aptos",
+              "color": "#9FB4BD"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 11,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/6tovahoz",
+      "id": "11",
+      "bbox": [
+        678,
+        234,
+        520,
+        268
+      ],
+      "geometry": "rect",
+      "fillColor": "#0E1A1D",
+      "lineColor": "#234047",
+      "lineWidth": 1
+    },
+    {
+      "order": 12,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/dg7adsji",
+      "id": "12",
+      "bbox": [
+        678,
+        234,
+        5,
+        268
+      ],
+      "geometry": "rect",
+      "fillColor": "#F87171",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 13,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ovahoza1",
+      "id": "13",
+      "bbox": [
+        702,
+        256,
+        472,
+        34
+      ],
+      "geometry": "rect",
+      "text": "Outside requested scopes",
+      "textPreview": "Outside requested scopes",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Aptos Display",
+        "color": "#F4F7F7",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Outside requested scopes"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Outside requested scopes",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Aptos Display",
+            "color": "#F4F7F7",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Outside requested scopes",
+              "fontSize": 24,
+              "typeface": "Aptos Display",
+              "color": "#F4F7F7",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 14,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/z25kb6xk",
+      "id": "14",
+      "bbox": [
+        702,
+        302,
+        472,
+        184
+      ],
+      "geometry": "rect",
+      "text": "Clyde does not send, modify, delete, or label Gmail messages.\n\nClyde does not create, edit, or delete Google Calendar events.\n\nClyde does not sell Google user data or use it for advertising.",
+      "textPreview": "Clyde does not send, modify, delete, or label Gmail messages. |  | Clyde does not create, edit, or delete Google Calendar events. |  | Cl...",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 18,
+        "typeface": "Aptos",
+        "color": "#9FB4BD",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 5,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Clyde does not send, modify, delete, or label Gmail messages."
+          },
+          {
+            "index": 2,
+            "text": ""
+          },
+          {
+            "index": 3,
+            "text": "Clyde does not create, edit, or delete Google Calendar events."
+          },
+          {
+            "index": 4,
+            "text": ""
+          },
+          {
+            "index": 5,
+            "text": "Clyde does not sell Google user data or use it for advertising."
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Clyde does not send, modify, delete, or label Gmail messages.",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Aptos",
+            "color": "#9FB4BD",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Clyde does not send, modify, delete, or label Gmail messages.",
+              "fontSize": 18,
+              "typeface": "Aptos",
+              "color": "#9FB4BD"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "Clyde does not create, edit, or delete Google Calendar events.",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Aptos",
+            "color": "#9FB4BD",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Clyde does not create, edit, or delete Google Calendar events.",
+              "fontSize": 18,
+              "typeface": "Aptos",
+              "color": "#9FB4BD"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "Clyde does not sell Google user data or use it for advertising.",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Aptos",
+            "color": "#9FB4BD",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Clyde does not sell Google user data or use it for advertising.",
+              "fontSize": 18,
+              "typeface": "Aptos",
+              "color": "#9FB4BD"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    },
+    {
+      "order": 15,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/6hcrmhk3",
+      "id": "15",
+      "bbox": [
+        178,
+        560,
+        924,
+        56
+      ],
+      "geometry": "rect",
+      "text": "Reviewer takeaway: Gmail and Calendar data are used only to help the user review scheduling and opportunity actions inside Clyde.",
+      "textPreview": "Reviewer takeaway: Gmail and Calendar data are used only to help the user review scheduling and opportunity actions inside Clyde.",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Aptos Display",
+        "color": "#F4F7F7",
+        "bold": true,
+        "alignment": "center",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Reviewer takeaway: Gmail and Calendar data are used only to help the user review"
+          },
+          {
+            "index": 2,
+            "text": "scheduling and opportunity actions inside Clyde."
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Reviewer takeaway: Gmail and Calendar data are used only to help the user review scheduling and opportunity actions inside Clyde.",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Aptos Display",
+            "color": "#F4F7F7",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Reviewer takeaway: Gmail and Calendar data are used only to help the user review scheduling and opportunity actions inside Clyde.",
+              "fontSize": 24,
+              "typeface": "Aptos Display",
+              "color": "#F4F7F7",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "rgba(0, 0, 0, 0)",
+      "lineColor": "rgba(0, 0, 0, 0)",
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

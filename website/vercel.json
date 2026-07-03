@@ -5,15 +5,72 @@
   "trailingSlash": false,
   "rewrites": [
     {
-      "source": "/how-it-works",
-      "destination": "/index.html"
+      "source": "/api/delete-account",
+      "destination": "/api/billing?action=delete-account"
     },
     {
-      "source": "/((?!assets|downloads|clyde_ghost.svg|favicon.svg|og.svg|robots.txt|sitemap.xml).*)",
-      "destination": "/index.html"
+      "source": "/api/create-checkout-session",
+      "destination": "/api/billing?action=create-checkout-session"
+    },
+    {
+      "source": "/api/create-billing-portal-session",
+      "destination": "/api/billing?action=create-billing-portal-session"
+    },
+    {
+      "source": "/api/create-pro-signup-checkout",
+      "destination": "/api/billing?action=create-pro-signup-checkout"
+    },
+    {
+      "source": "/api/check-email-existence",
+      "destination": "/api/billing?action=check-email-existence"
+    },
+    {
+      "source": "/api/create-credits-checkout",
+      "destination": "/api/billing?action=create-credits-checkout"
+    },
+    {
+      "source": "/api/create-byok-checkout",
+      "destination": "/api/billing?action=create-byok-checkout"
+    },
+    {
+      "source": "/api/activate-pro-checkout",
+      "destination": "/api/billing?action=activate-pro-checkout"
+    },
+    {
+      "source": "/api/entitlements",
+      "destination": "/api/billing?action=entitlements"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/"
     }
   ],
   "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains; preload"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(self), geolocation=()"
+        }
+      ]
+    },
     {
       "source": "/assets/(.*)",
       "headers": [

@@ -13,24 +13,70 @@ contextBridge.exposeInMainWorld('electronAPI', {
     requestSuggestion: (payload) => ipcRenderer.invoke('request-suggestion', payload),
     saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
     loadSettings: () => ipcRenderer.invoke('load-settings'),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    saveSoul: (soulMarkdown) => ipcRenderer.invoke('save-soul', soulMarkdown),
+    loadSoul: () => ipcRenderer.invoke('load-soul'),
     getTierStatus: () => ipcRenderer.invoke('get-tier-status'),
+    getAuthSession: () => ipcRenderer.invoke('get-auth-session'),
+    signUp: (payload) => ipcRenderer.invoke('sign-up', payload),
+    signIn: (payload) => ipcRenderer.invoke('sign-in', payload),
+    signOut: () => ipcRenderer.invoke('sign-out'),
+    refreshAuthSession: () => ipcRenderer.invoke('refresh-auth-session'),
+    refreshEntitlements: () => ipcRenderer.invoke('refresh-entitlements'),
+    openUpgradePage: () => ipcRenderer.invoke('open-upgrade-page'),
+    openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
+    startCheckoutSession: () => ipcRenderer.invoke('start-checkout-session'),
+    startProSignupCheckout: (payload) => ipcRenderer.invoke('start-pro-signup-checkout', payload),
+    openBillingPortal: () => ipcRenderer.invoke('open-billing-portal'),
+    getLicenseToken: () => ipcRenderer.invoke('get-license-token'),
+    getRealtimeToken: () => ipcRenderer.invoke('get-realtime-token'),
     startAgentChat: (payload) => ipcRenderer.invoke('start-agent-chat', payload),
     sendAgentChatMessage: (payload) => ipcRenderer.invoke('send-agent-chat-message', payload),
     confirmAgentAction: (payload) => ipcRenderer.invoke('confirm-agent-action', payload),
     listAgentSources: (filters) => ipcRenderer.invoke('list-agent-sources', filters),
     loadFloatingAgentPrefs: () => ipcRenderer.invoke('load-floating-agent-prefs'),
     saveFloatingAgentPrefs: (prefs) => ipcRenderer.invoke('save-floating-agent-prefs', prefs),
+    connectGoogleSync: () => ipcRenderer.invoke('connect-google-sync'),
+    disconnectGoogleSync: () => ipcRenderer.invoke('disconnect-google-sync'),
+    getGoogleSyncStatus: () => ipcRenderer.invoke('get-google-sync-status'),
+    getExtensionSyncStatus: () => ipcRenderer.invoke('get-extension-sync-status'),
+    scanGoogleSync: () => ipcRenderer.invoke('scan-google-sync'),
+    listSyncProposals: (filters) => ipcRenderer.invoke('list-sync-proposals', filters),
+    approveSyncProposal: (payload) => ipcRenderer.invoke('approve-sync-proposal', payload),
+    dismissSyncProposal: (proposalId) => ipcRenderer.invoke('dismiss-sync-proposal', proposalId),
+    listSyncAuditLog: (limit) => ipcRenderer.invoke('list-sync-audit-log', limit),
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    markSyncAuditRead: (ids) => ipcRenderer.invoke('mark-sync-audit-read', ids),
     listCalendarEvents: () => ipcRenderer.invoke('list-calendar-events'),
     saveCalendarEvent: (event) => ipcRenderer.invoke('save-calendar-event', event),
     deleteCalendarEvent: (id) => ipcRenderer.invoke('delete-calendar-event', id),
     importCalendarEvents: (events) => ipcRenderer.invoke('import-calendar-events', events),
+    previewMeetingSession: (payload) => ipcRenderer.invoke('preview-meeting-session', payload),
+    listQuestionBank: (filters) => ipcRenderer.invoke('list-question-bank', filters),
+    getQuestionBankDashboard: (filters) => ipcRenderer.invoke('get-question-bank-dashboard', filters),
+    saveQuestionBankEntry: (entry) => ipcRenderer.invoke('save-question-bank-entry', entry),
+    deleteQuestionBankEntry: (id) => ipcRenderer.invoke('delete-question-bank-entry', id),
+    deleteQuestionBankEntries: (ids) => ipcRenderer.invoke('delete-question-bank-entries', ids),
+    bulkUpdateQuestionBankEntries: (payload) => ipcRenderer.invoke('bulk-update-question-bank-entries', payload),
+    openQuestionBankCsvDialog: (filters) => ipcRenderer.invoke('open-question-bank-csv-dialog', filters),
     listKnowledge: (filters) => ipcRenderer.invoke('list-knowledge', filters),
       ingestKnowledgeFile: (filePath) => ipcRenderer.invoke('ingest-knowledge-file', filePath),
       uploadKnowledgeToPinecone: (id) => ipcRenderer.invoke('upload-knowledge-to-pinecone', id),
       deleteKnowledgeItem: (id) => ipcRenderer.invoke('delete-knowledge-item', id),
+    generateMockInterviewSessionToken: (payload) => ipcRenderer.invoke('generate-mock-interview-session-token', payload),
+    generateMockInterviewAssessment: (payload) => ipcRenderer.invoke('generate-mock-interview-assessment', payload),
+    saveMockInterview: (payload) => ipcRenderer.invoke('save-mock-interview', payload),
+    listMockInterviews: () => ipcRenderer.invoke('list-mock-interviews'),
+    deleteMockInterview: (id) => ipcRenderer.invoke('delete-mock-interview', id),
     setPinnedKnowledge: (ids) => ipcRenderer.invoke('set-pinned-knowledge', ids),
     getPinnedKnowledge: () => ipcRenderer.invoke('get-pinned-knowledge'),
     openKnowledgeFileDialog: () => ipcRenderer.invoke('open-knowledge-file-dialog'),
+    openResumeFileDialog: () => ipcRenderer.invoke('open-resume-file-dialog'),
+    getCallPreflightContext: (context) => ipcRenderer.invoke('get-call-preflight-context', context),
+    ingestActiveContextFiles: (payload) => ipcRenderer.invoke('ingest-active-context-files', payload),
+    openEntityFileDialog: (context) => ipcRenderer.invoke('open-entity-file-dialog', context),
+    listEntityFiles: (context) => ipcRenderer.invoke('list-entity-files', context),
+    removeEntityFile: (id) => ipcRenderer.invoke('remove-entity-file', id),
     listAudioDevices: () => ipcRenderer.invoke('list-audio-devices'),
     setAudioDevices: (devices) => ipcRenderer.invoke('set-audio-devices', devices),
     getCompanies: () => ipcRenderer.invoke('get-companies'),
@@ -59,6 +105,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     closeApp: () => ipcRenderer.invoke('close-app'),
     minimizeAppWindow: () => ipcRenderer.invoke('minimize-app-window'),
     maximizeAppWindow: () => ipcRenderer.invoke('maximize-app-window'),
+    isAppWindowMaximized: () => ipcRenderer.invoke('is-app-window-maximized'),
     hideApp: () => ipcRenderer.invoke('hide-app'),
     showApp: () => ipcRenderer.invoke('show-app'),
     getAppWindowBounds: () => ipcRenderer.invoke('get-app-window-bounds'),
@@ -72,8 +119,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onAudioLevelUpdate: (callback) => ipcRenderer.on('audio-level-update', callback),
     onSessionReset: (callback) => ipcRenderer.on('session-reset', callback),
     onAudioStatus: (callback) => ipcRenderer.on('audio-status', callback),
+    onAppWindowMaximizedStateChange: (callback) => {
+        ipcRenderer.on('app-window-maximized-state-change', callback);
+        return () => ipcRenderer.off('app-window-maximized-state-change', callback);
+    },
     onSessionDataChanged: (callback) => {
         ipcRenderer.on('session-data-changed', callback);
         return () => ipcRenderer.off('session-data-changed', callback);
+    },
+    onZoomDetected: (callback) => {
+        ipcRenderer.on('zoom-detected', callback);
+        return () => ipcRenderer.off('zoom-detected', callback);
+    },
+    onTriggerNudge: (callback) => {
+        ipcRenderer.on('trigger-nudge', callback);
+        return () => ipcRenderer.off('trigger-nudge', callback);
+    },
+    onTriggerScreenshotAsk: (callback) => {
+        ipcRenderer.on('trigger-screenshot-ask', callback);
+        return () => ipcRenderer.off('trigger-screenshot-ask', callback);
+    },
+    onTriggerSuggestedQuestions: (callback) => {
+        ipcRenderer.on('trigger-suggested-questions', callback);
+        return () => ipcRenderer.off('trigger-suggested-questions', callback);
+    },
+    onTriggerEndCall: (callback) => {
+        ipcRenderer.on('trigger-end-call', callback);
+        return () => ipcRenderer.off('trigger-end-call', callback);
+    },
+    onSettingsUpdated: (callback) => {
+        ipcRenderer.on('settings-updated', callback);
+        return () => ipcRenderer.off('settings-updated', callback);
+    },
+    onAppWindowMinimizedStateChange: (callback) => {
+        ipcRenderer.on('app-window-minimized-state-change', callback);
+        return () => ipcRenderer.off('app-window-minimized-state-change', callback);
     }
 });

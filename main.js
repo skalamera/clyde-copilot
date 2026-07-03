@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog, shell, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const axios = require('axios');
 const log = require('electron-log');
+const { exec } = require('child_process');
 
 // Configure electron-log
 log.transports.file.level = 'info';
@@ -10,7 +11,119 @@ console.log = log.info;
 console.error = log.error;
 console.warn = log.warn;
 
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+const os = require('node:os');
+const userSecretsPath = path.join(os.homedir(), '.secrets', 'clyde-dev.env');
+if (fs.existsSync(userSecretsPath)) {
+  require('dotenv').config({ path: userSecretsPath });
+} else {
+  require('dotenv').config({ path: path.join(__dirname, '.env') });
+}
+
+// ---------------------------------------------------------------------------
+// Electron safeStorage Encryption Helpers
+// ---------------------------------------------------------------------------
+let isAppReadyForEncryption = false;
+const ENCRYPTED_KEYS = [
+    'openAiApiKey',
+    'llmApiKey',
+    'transcriptionApiKey',
+    'geminiApiKey',
+    'pineconeApiKey',
+    'embeddingApiKey',
+    'authAccessToken',
+    'authRefreshToken'
+];
+
+function encryptSecret(text) {
+    if (!text) return '';
+    if (text.startsWith('encrypted:')) return text; // already encrypted
+    try {
+        const { safeStorage } = require('electron');
+        if (isAppReadyForEncryption && safeStorage && safeStorage.isEncryptionAvailable()) {
+            const buf = safeStorage.encryptString(text);
+            return 'encrypted:' + buf.toString('base64');
+        }
+    } catch (e) {
+        console.error('[encryption] safeStorage encryption failed:', e.message);
+    }
+    return text; // fallback to plaintext if safeStorage is not ready or available
+}
+
+function decryptSecret(text) {
+    if (!text) return '';
+    if (!text.startsWith('encrypted:')) return text; // already plaintext
+    try {
+        const { safeStorage } = require('electron');
+        if (isAppReadyForEncryption && safeStorage && safeStorage.isEncryptionAvailable()) {
+            const encryptedStr = text.slice('encrypted:'.length);
+            const buf = Buffer.from(encryptedStr, 'base64');
+            return safeStorage.decryptString(buf);
+        }
+    } catch (e) {
+        console.error('[encryption] safeStorage decryption failed:', e.message);
+    }
+    return ''; // return empty if ready but decryption fails (corruption/re-install)
+}
+
+function syncAndMigrateSecrets() {
+    isAppReadyForEncryption = true;
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store({ projectName: 'clyde' });
+
+    let hasUpdates = false;
+    for (const key of ENCRYPTED_KEYS) {
+        const val = store.get(key, '');
+        if (val && !val.startsWith('encrypted:')) {
+            const encrypted = encryptSecret(val);
+            store.set(key, encrypted);
+            hasUpdates = true;
+        }
+    }
+
+    // Load decrypted settings to sync process.env
+    const settings = loadSettings();
+    if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
+    if (settings.openAiApiKey) process.env.OPENAI_API_KEY = settings.openAiApiKey;
+    if (settings.pineconeApiKey) process.env.PINECONE_API_KEY = settings.pineconeApiKey;
+    if (settings.pineconeHost) process.env.PINECONE_HOST = settings.pineconeHost;
+
+    if (hasUpdates) {
+        console.log('[encryption] Successfully migrated plaintext secrets to safeStorage.');
+    }
+}
+
+// Globally monkey-patch electron-store to handle automatic encryption/decryption
+// of sensitive API keys and tokens across all modules.
+try {
+    const Store = require('electron-store').default || require('electron-store');
+    
+    const originalGet = Store.prototype.get;
+    Store.prototype.get = function (key, defaultValue) {
+        const val = originalGet.call(this, key, defaultValue);
+        if (ENCRYPTED_KEYS.includes(key) && typeof val === 'string') {
+            return decryptSecret(val);
+        }
+        return val;
+    };
+
+    const originalSet = Store.prototype.set;
+    Store.prototype.set = function (key, value) {
+        if (typeof key === 'string' && ENCRYPTED_KEYS.includes(key) && typeof value === 'string') {
+            return originalSet.call(this, key, encryptSecret(value));
+        } else if (typeof key === 'object' && key !== null) {
+            const encrypted = { ...key };
+            for (const k of ENCRYPTED_KEYS) {
+                if (encrypted[k] && typeof encrypted[k] === 'string') {
+                    encrypted[k] = encryptSecret(encrypted[k]);
+                }
+            }
+            return originalSet.call(this, encrypted);
+        }
+        return originalSet.call(this, key, value);
+    };
+} catch (e) {
+    console.error('[encryption] Failed to monkey-patch electron-store:', e.message);
+}
 
 const { createAudioCapture } = require('./src/audioCapture');
 const { createAudioEngineSidecar, resolveAudioEnginePath } = require('./src/audioEngineSidecar');
@@ -19,9 +132,15 @@ const { createMeetingAssistant } = require('./src/meetingAssistant');
 const { createInterviewManager } = require('./src/interviewManager');
 const { createSessionManager } = require('./src/sessionManager');
 const { createKnowledgeManager } = require('./src/knowledgeManager');
+const { createMockInterviewManager } = require('./src/mockInterviewManager');
 const { createCalendarStore } = require('./src/calendarStore');
 const { createAgentChat } = require('./src/agentChat');
 const { createAgentActionRegistry } = require('./src/agentActionRegistry');
+const { createGoogleClient } = require('./src/googleClient');
+const { createGoogleSyncService } = require('./src/googleSyncService');
+const { createSyncStore } = require('./src/syncStore');
+const { refreshSystemKnowledge } = require('./src/systemKnowledge');
+const { createSessionDebugTrace } = require('./src/sessionDebugTrace');
 const { generateChat } = require('./src/llmClient');
 const {
     buildTranscriptCleanupPrompt,
@@ -32,21 +151,43 @@ const {
     buildMeetingPostProcessPrompt,
     normalizeMeetingPostProcessResponse
 } = require('./src/meetingPostProcessing');
+const {
+    buildMeetingPreviewFallback,
+    buildMeetingPreviewPrompt,
+    normalizeMeetingPreviewResponse
+} = require('./src/meetingSessionPreview');
+const { createQuestionBankManager } = require('./src/questionBankManager');
+const {
+    buildQuestionBankExtractionPrompt,
+    normalizeQuestionBankExtractionResponse,
+    questionBankExtractionSchema
+} = require('./src/questionBankExtraction');
 const { startAutoUpdater } = require('./src/autoUpdater');
 const { resolveElectronStoragePaths } = require('./src/electronStoragePaths');
-const { buildTrendAnalysisSessionSignature, directAddressFeedback, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
+const { buildTrendAnalysisSessionSignature, directAddressFeedback, isMaterialPreCallPrepComplete, isTrendAnalysisComplete, normalizeTranscriptRating, normalizeTrendAnalysisResult } = require('./src/trendAnalysis');
 const { deleteTrendAnalysis, loadTrendAnalysis, renameTrendAnalysis, saveTrendAnalysis } = require('./src/trendAnalysisStore');
 const { calculateEntityConfidence } = require('./src/confidenceScoring');
+const { createBillingPortalSession, createCheckoutSession, createProSignupCheckout, fetchEntitlements } = require('./src/billingClient');
+const { refreshSession, signIn, signUp } = require('./src/authClient');
+const {
+    applyEntitlementsToSettings,
+    entitlementsFromSettings,
+    requireFeature
+} = require('./src/entitlements');
 const {
     buildOutcomeCalibrationExamples,
     formatOutcomeCalibrationExamples,
     summarizeOutcomeCalibrationExamples
 } = require('./src/outcomeLearning');
+const demoData = require('./src/demoData');
+const { startExtensionServer, stopExtensionServer, isExtensionServerRunning, getLastExtensionSyncTime } = require('./src/extensionServer');
 
 let mainWindow;
 let normalBounds = null;
 let appWindowMinimized = false;
 let appWindowNormalBounds = null;
+let appWindowPreMaximizedBounds = null;
+let isMaximizedState = false;
 let activeCaptureWindow = false;
 let activeCaptureMinimized = false;
 let suppressActiveBoundsSave = false;
@@ -60,18 +201,25 @@ let meetingAssistant;
 let interviewManager;
 let sessionManager;
 let knowledgeManager;
+let questionBankManager;
+let mockInterviewManager;
 let calendarStore;
 let agentChat;
+let syncStore;
+let googleClient;
+let googleSyncService;
+let googleSyncTimer;
 let audioLevelTimer;
 let liveAudioLevelTimer;
 let liveAudioLevels;
 let audioEngineSidecar;
 let rustAudioLevelTestLevels;
 let healthCheckTimer;
+let sessionDebugTrace;
 
 let fullSessionTranscript = [];
 
-const ACTIVE_CAPTURE_DEFAULT_WIDTH = 460;
+const ACTIVE_CAPTURE_DEFAULT_WIDTH = 800;
 const ACTIVE_CAPTURE_MAX_HEIGHT = 760;
 const ACTIVE_CAPTURE_MARGIN = 20;
 const ACTIVE_CAPTURE_MIN_WIDTH = 72;
@@ -82,6 +230,20 @@ const ACTIVE_CAPTURE_MINIMIZED_SIZE = 112;
 const ACTIVE_CAPTURE_MINIMIZED_MARGIN = 10;
 const APP_WINDOW_MINIMIZED_SIZE = 96;
 const APP_WINDOW_MINIMIZED_MARGIN = 12;
+const CLYDE_UPGRADE_URL = process.env.CLYDE_UPGRADE_URL || 'https://clydeai.live/#pricing';
+const CLYDE_API_BASE_URL = (process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api').replace(/\/$/, '');
+const CLYDE_CHECKOUT_URL = process.env.CLYDE_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-checkout-session`;
+const CLYDE_BILLING_PORTAL_URL = process.env.CLYDE_BILLING_PORTAL_URL || `${CLYDE_API_BASE_URL}/create-billing-portal-session`;
+const CLYDE_ENTITLEMENTS_URL = process.env.CLYDE_ENTITLEMENTS_URL || `${CLYDE_API_BASE_URL}/entitlements`;
+const CLYDE_LIVEAVATAR_TOKEN_URL = process.env.CLYDE_LIVEAVATAR_TOKEN_URL || `${CLYDE_API_BASE_URL}/liveavatar-token`;
+const CLYDE_SIGN_UP_URL = process.env.CLYDE_SIGN_UP_URL || `${CLYDE_API_BASE_URL}/sign-up`;
+const CLYDE_PRO_SIGNUP_CHECKOUT_URL = process.env.CLYDE_PRO_SIGNUP_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-pro-signup-checkout`;
+const CLYDE_CREDITS_CHECKOUT_URL = process.env.CLYDE_CREDITS_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-credits-checkout`;
+const CLYDE_BYOK_CHECKOUT_URL = process.env.CLYDE_BYOK_CHECKOUT_URL || `${CLYDE_API_BASE_URL}/create-byok-checkout`;
+const CLYDE_GOOGLE_OAUTH_TOKEN_URL = process.env.CLYDE_GOOGLE_OAUTH_TOKEN_URL || `${CLYDE_API_BASE_URL}/google-oauth-token`;
+const CLYDE_GOOGLE_OAUTH_CLIENT_ID = '186934404244-p69m7rbeie0nen66gvomufiodoeviv54.apps.googleusercontent.com';
+const CLYDE_SUPABASE_URL = 'https://ijcoheaovypykliffqwh.supabase.co';
+const CLYDE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlqY29oZWFvdnlweWtsaWZmcXdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2ODY0MjksImV4cCI6MjA5NTI2MjQyOX0.1DNtvogtMr0wVelV9eESF6t0vf7FS94LTveBTrF8by8';
 
 const healthState = {
     audio: { state: 'unknown', label: 'Audio', detail: 'Not checked yet.' },
@@ -94,8 +256,38 @@ function isOpenAiTranscriptionProvider(provider) {
     return provider === 'openai' || provider === 'openai-realtime-whisper';
 }
 
+function isCloudTranscriptionProvider(provider) {
+    return provider === 'openai' 
+        || provider === 'openai-realtime-whisper' 
+        || provider === 'clyde-cloud-whisper';
+}
+
 function shouldUseRustAudioEngine(settings = loadSettings()) {
     return (settings.audioEngine || (process.platform === 'win32' ? 'rust' : 'legacy')) === 'rust';
+}
+
+function getGoogleOAuthClientId() {
+    const clientId = String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || CLYDE_GOOGLE_OAUTH_CLIENT_ID).trim();
+    if (!clientId) {
+        throw new Error('Clyde Google OAuth client ID is not configured.');
+    }
+    return clientId;
+}
+
+function hasGoogleOAuthClientId() {
+    return Boolean(String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || CLYDE_GOOGLE_OAUTH_CLIENT_ID).trim());
+}
+
+function getGoogleOAuthClientSecret() {
+    return String(process.env.CLYDE_GOOGLE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
+}
+
+function getSupabaseAuthConfig() {
+    return {
+        url: String(process.env.CLYDE_SUPABASE_URL || CLYDE_SUPABASE_URL).trim(),
+        apiKey: String(process.env.CLYDE_SUPABASE_ANON_KEY || process.env.CLYDE_SUPABASE_PUBLISHABLE_KEY || CLYDE_SUPABASE_ANON_KEY).trim(),
+        signUpEndpoint: String(CLYDE_SIGN_UP_URL || '').trim()
+    };
 }
 
 function configureElectronStorage() {
@@ -107,16 +299,23 @@ function configureElectronStorage() {
 
 function loadSettings() {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     
+    let extensionPairingToken = store.get('extensionPairingToken', '');
+    if (!extensionPairingToken) {
+        extensionPairingToken = require('node:crypto').randomBytes(16).toString('hex');
+        store.set('extensionPairingToken', extensionPairingToken);
+    }
+
     let settings = {
-        llmProvider: store.get('llmProvider', 'local'),
+        llmProvider: store.get('llmProvider', ''),
         llmModel: store.get('llmModel', ''),
+        openAiApiKey: store.get('openAiApiKey', store.get('transcriptionApiKey', '') || store.get('llmApiKey', '')),
         llmApiKey: store.get('llmApiKey', ''),
-        localLlmUrl: store.get('localLlmUrl', 'http://localhost:1234/v1/chat/completions'),
-        transcriptionProvider: store.get('transcriptionProvider', 'local'),
+        localLlmUrl: store.get('localLlmUrl', ''),
+        transcriptionProvider: store.get('transcriptionProvider', ''),
         transcriptionApiKey: store.get('transcriptionApiKey', ''),
-        localTranscriptionUrl: store.get('localTranscriptionUrl', 'http://localhost:8000/v1/audio/transcriptions'),
+        localTranscriptionUrl: store.get('localTranscriptionUrl', ''),
         audioEngine: store.get('audioEngine', process.platform === 'win32' ? 'rust' : 'legacy'),
         microphoneDeviceId: store.get('microphoneDeviceId', ''),
         systemAudioDeviceId: store.get('systemAudioDeviceId', ''),
@@ -128,57 +327,143 @@ function loadSettings() {
         pineconeApiKey: store.get('pineconeApiKey', ''),
         pineconeHost: store.get('pineconeHost', ''),
         ragEnabled: store.get('ragEnabled', false),
-        userTier: process.env.CLYDE_USER_TIER || store.get('userTier', 'free'),
+        userId: store.get('userId', ''),
+        authEmail: store.get('authEmail', ''),
+        authAccessToken: store.get('authAccessToken', ''),
+        authRefreshToken: store.get('authRefreshToken', ''),
+        authExpiresAt: store.get('authExpiresAt', null),
+        userTier: store.get('userTier', 'free'),
+        subscriptionStatus: store.get('subscriptionStatus', 'free'),
+        subscriptionPlan: store.get('subscriptionPlan', ''),
+        subscriptionCredits: store.get('subscriptionCredits', 0),
+        entitlementFeatures: store.get('entitlementFeatures', []),
+        entitlementsExpiresAt: store.get('entitlementsExpiresAt', null),
+        entitlementsCheckedAt: store.get('entitlementsCheckedAt', null),
+        entitlementsUrl: store.get('entitlementsUrl') || CLYDE_ENTITLEMENTS_URL,
         proAgentEnabled: store.get('proAgentEnabled', false),
-        proRealtimeModel: store.get('proRealtimeModel', 'gpt-realtime-2'),
-        embeddingProvider: store.get('embeddingProvider', 'gemini'),
-        embeddingModel: store.get('embeddingModel', 'gemini-embedding-2'),
+        proRealtimeModel: store.get('proRealtimeModel', ''),
+        embeddingProvider: store.get('embeddingProvider', ''),
+        embeddingModel: store.get('embeddingModel', ''),
         embeddingApiKey: store.get('embeddingApiKey', ''),
-        pineconeNamespace: store.get('pineconeNamespace', 'clyde-pro-knowledge'),
+        pineconeNamespace: store.get('pineconeNamespace', ''),
         pinnedKnowledgeIds: store.get('pinnedKnowledgeIds', []),
+        googleSyncEnabled: store.get('googleSyncEnabled', false),
+        googleAccountEmail: store.get('googleAccountEmail', ''),
+        googleSyncAutoApprove: store.get('googleSyncAutoApprove', false),
+        googleSyncPollMinutes: store.get('googleSyncPollMinutes', 15),
+        includeGlobalQuestionBank: store.get('includeGlobalQuestionBank', false),
+        onboardingGuideDismissed: store.get('onboardingGuideDismissed', false),
+        demoMode: process.env.CLYDE_DEMO_MODE === '1',
         appMode: store.get('appMode', 'interview'),
         meetingTitle: store.get('meetingTitle', ''),
         meetingAttendees: store.get('meetingAttendees', []),
         meetingMemory: store.get('meetingMemory', ''),
         captureProtectionEnabled: store.get('captureProtectionEnabled', true),
+        hideTaskbarEnabled: store.get('hideTaskbarEnabled', false),
         uiOpacity: store.get('uiOpacity', 100),
-        activeCaptureBounds: store.get('activeCaptureBounds', null)
+        nudgeHotkey: store.get('nudgeHotkey', 'Ctrl+Shift+N'),
+        toggleCaptureProtectionHotkey: store.get('toggleCaptureProtectionHotkey', 'Ctrl+Shift+P'),
+        toggleStealthTaskbarHotkey: store.get('toggleStealthTaskbarHotkey', 'Ctrl+Shift+H'),
+        toggleMinMaxHotkey: store.get('toggleMinMaxHotkey', 'Ctrl+Shift+M'),
+        screenshotAskHotkey: store.get('screenshotAskHotkey', 'Ctrl+Shift+D'),
+        suggestedQuestionsHotkey: store.get('suggestedQuestionsHotkey', 'Ctrl+Shift+Q'),
+        endCallHotkey: store.get('endCallHotkey', 'Ctrl+Shift+E'),
+        activeCaptureBounds: store.get('activeCaptureBounds', null),
+        debugTraceEnabled: store.get('debugTraceEnabled', process.env.CLYDE_DISABLE_SESSION_TRACE !== '1'),
+        theme: store.get('theme', 'default'),
+        licenseKey: store.get('licenseKey', '')
     };
 
-    // Fallbacks from env if settings aren't populated
-    if (!settings.localLlmUrl) settings.localLlmUrl = process.env.LM_STUDIO_CHAT_URL || 'http://localhost:1234/v1/chat/completions';
-    if (!settings.localTranscriptionUrl) settings.localTranscriptionUrl = process.env.LM_STUDIO_API_URL || 'http://localhost:8000/v1/audio/transcriptions';
-    if (!settings.llmModel && settings.llmProvider === 'local') settings.llmModel = process.env.LM_STUDIO_CHAT_MODEL || '';
-    if (!settings.geminiApiKey) settings.geminiApiKey = process.env.GEMINI_API_KEY || '';
-    if (!settings.pineconeApiKey) settings.pineconeApiKey = process.env.PINECONE_API_KEY || '';
-    if (!settings.pineconeHost) settings.pineconeHost = process.env.PINECONE_HOST || '';
-    
+    settings.extensionPairingToken = extensionPairingToken;
+
+    // Decrypt any encrypted fields before using or returning them
+    for (const key of ENCRYPTED_KEYS) {
+        if (settings[key]) {
+            settings[key] = decryptSecret(settings[key]);
+        }
+    }
+
+    if (!['clyde-cloud', 'local', 'gemini', 'openai'].includes(settings.llmProvider)) {
+        settings.llmProvider = '';
+    }
+    if (settings.llmProvider === 'clyde-cloud' || settings.llmProvider === 'gemini') {
+        settings.llmModel = 'gemini-3.5-flash';
+    } else if (settings.llmProvider === 'openai') {
+        settings.llmModel = 'gpt-4o';
+    }
+
     // Inject back into process.env so existing modules (like pineconeClient.js) can read them
     if (settings.geminiApiKey) process.env.GEMINI_API_KEY = settings.geminiApiKey;
+    if (settings.openAiApiKey) process.env.OPENAI_API_KEY = settings.openAiApiKey;
     if (settings.pineconeApiKey) process.env.PINECONE_API_KEY = settings.pineconeApiKey;
     if (settings.pineconeHost) process.env.PINECONE_HOST = settings.pineconeHost;
 
-    return settings;
+    settings = applyEntitlementsToSettings(settings);
+
+    return demoData.isDemoMode(settings) ? demoData.demoSettings(settings) : settings;
 }
 
-function saveSettings(newSettings) {
+function publicSettings(settings = loadSettings()) {
+    const {
+        authAccessToken: _authAccessToken,
+        authRefreshToken: _authRefreshToken,
+        ...safeSettings
+    } = settings || {};
+    return safeSettings;
+}
+
+function saveSettings(newSettings, options = {}) {
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
+    const openAiApiKey = String(newSettings?.openAiApiKey || '').trim();
+    const normalizedLlmProvider = ['clyde-cloud', 'local', 'gemini', 'openai'].includes(newSettings?.llmProvider) ? newSettings.llmProvider : '';
+    const normalizedLlmModel = normalizedLlmProvider === 'clyde-cloud' || normalizedLlmProvider === 'gemini'
+        ? 'gemini-3.5-flash'
+        : normalizedLlmProvider === 'openai'
+            ? 'gpt-4o'
+            : (normalizedLlmProvider === 'local' ? (newSettings?.llmModel || '') : '');
+    const { validateLicenseKey } = require('./src/licenseValidator');
+    const licenseKeyChanged = newSettings?.licenseKey !== store.get('licenseKey');
+    const hasValidKeyInSettings = newSettings?.licenseKey && validateLicenseKey(newSettings.licenseKey);
+    const preserveEntitlements = options.preserveEntitlements !== false && !licenseKeyChanged && !hasValidKeyInSettings;
+    const currentEntitlements = preserveEntitlements
+        ? entitlementsFromSettings(loadSettings())
+        : entitlementsFromSettings(newSettings || {});
+    const { googleOAuthClientId: _legacyGoogleOAuthClientId, ...settingsToStore } = applyEntitlementsToSettings({
+        ...(newSettings || {}),
+        llmProvider: normalizedLlmProvider,
+        llmModel: normalizedLlmModel,
+        userTier: currentEntitlements.tier,
+        subscriptionStatus: currentEntitlements.status,
+        subscriptionPlan: currentEntitlements.plan,
+        subscriptionCredits: currentEntitlements.credits || 0,
+        entitlementFeatures: currentEntitlements.features,
+        entitlementsExpiresAt: currentEntitlements.expiresAt,
+        entitlementsCheckedAt: currentEntitlements.checkedAt,
+        openAiApiKey,
+        transcriptionApiKey: openAiApiKey,
+        llmApiKey: newSettings?.llmProvider === 'openai' ? openAiApiKey : (newSettings?.llmApiKey || '')
+    }, currentEntitlements);
     
-    store.set(newSettings);
-    applyCaptureProtection(newSettings);
+    store.delete('googleOAuthClientId');
+    store.delete('demoMode');
+
+    store.set(settingsToStore);
+
+    applyCaptureProtection(settingsToStore);
     
     // Update process.env immediately
-    if (newSettings.geminiApiKey) process.env.GEMINI_API_KEY = newSettings.geminiApiKey;
+    if (settingsToStore.geminiApiKey) process.env.GEMINI_API_KEY = settingsToStore.geminiApiKey;
+    if (settingsToStore.openAiApiKey) process.env.OPENAI_API_KEY = settingsToStore.openAiApiKey;
     
-    if ((newSettings.ragEnabled || newSettings.userTier === 'pro') && newSettings.pineconeApiKey) {
-        process.env.PINECONE_API_KEY = newSettings.pineconeApiKey;
+    if ((settingsToStore.ragEnabled || settingsToStore.userTier === 'pro') && settingsToStore.pineconeApiKey) {
+        process.env.PINECONE_API_KEY = settingsToStore.pineconeApiKey;
     } else {
         delete process.env.PINECONE_API_KEY;
     }
     
-    if ((newSettings.ragEnabled || newSettings.userTier === 'pro') && newSettings.pineconeHost) {
-        process.env.PINECONE_HOST = newSettings.pineconeHost;
+    if ((settingsToStore.ragEnabled || settingsToStore.userTier === 'pro') && settingsToStore.pineconeHost) {
+        process.env.PINECONE_HOST = settingsToStore.pineconeHost;
     } else {
         delete process.env.PINECONE_HOST;
     }
@@ -186,42 +471,34 @@ function saveSettings(newSettings) {
     // Re-initialize clients with new settings
     if (meetingAssistant) {
         meetingAssistant = createMeetingAssistant({
-            settings: newSettings,
+            settings: settingsToStore,
             intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
-            utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 700),
+            utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 650),
             maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
-            maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
+            maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 1500),
             timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
             axiosClient: axios,
             logger: console,
             knowledgeManager,
             sendStatus: sendAudioStatus,
-            sendUpdate: sendAssistantUpdate
+            sendUpdate: sendAssistantUpdate,
+            debugTrace: writeSessionTrace
         });
-        const activeJd = (interviewManager && newSettings.currentCompany) ? interviewManager.getCompanyJobDescription(newSettings.currentCompany) : '';
-        meetingAssistant.setContext({ 
-            mode: newSettings.appMode || 'interview',
-            jobDescription: activeJd,
-            resumeText: newSettings.resumeText || '',
-            company: newSettings.currentCompany || '',
-            role: newSettings.currentRole || '',
-            meetingTitle: newSettings.meetingTitle || '',
-            attendees: Array.isArray(newSettings.meetingAttendees) ? newSettings.meetingAttendees : [],
-            memory: newSettings.meetingMemory || ''
-        });
+        meetingAssistant.setContext(buildAssistantContext(settingsToStore));
     }
 
     if (interviewManager) {
         interviewManager = createInterviewManager({
             appPath: app.getPath('userData'),
             axiosClient: axios,
-            settings: newSettings,
+            settings: settingsToStore,
             onStatus: sendAudioStatus
         });
     }
 
     // Force health recheck
-    checkServiceHealth(newSettings);
+    checkServiceHealth(settingsToStore);
+    startGoogleSyncTimer(settingsToStore);
 }
 
 function applyCaptureProtection(settings = {}) {
@@ -272,7 +549,7 @@ function buildOutcomeCalibrationSummary(entity = {}) {
 
 function getSettingsStore() {
     const Store = require('electron-store').default || require('electron-store');
-    return new Store();
+    return new Store({ projectName: 'clyde' });
 }
 
 async function archiveSessionKnowledge(record, settings = loadSettings()) {
@@ -317,13 +594,115 @@ function recordHasTranscript(record) {
 
 function getTierStatus() {
     const settings = loadSettings();
-    const tier = settings.userTier === 'pro' ? 'pro' : 'free';
     return {
-        tier,
-        userTier: tier,
-        pro: tier === 'pro',
+        ...entitlementsFromSettings(settings),
         proAgentEnabled: Boolean(settings.proAgentEnabled)
     };
+}
+
+function assertFeature(feature) {
+    requireFeature(entitlementsFromSettings(loadSettings()), feature);
+}
+
+function authSessionFromSettings(settings = loadSettings()) {
+    if (!settings.userId || !settings.authAccessToken) {
+        return { signedIn: false, userId: '', email: '' };
+    }
+    return {
+        signedIn: true,
+        userId: settings.userId,
+        email: settings.authEmail || settings.googleAccountEmail || '',
+        expiresAt: settings.authExpiresAt || null
+    };
+}
+
+function saveAuthSession(session) {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store({ projectName: 'clyde' });
+    store.set({
+        userId: session.userId || '',
+        authEmail: session.email || '',
+        authAccessToken: session.accessToken || '',
+        authRefreshToken: session.refreshToken || '',
+        authExpiresAt: session.expiresAt || null
+    });
+}
+
+function clearAuthSession() {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store({ projectName: 'clyde' });
+    const currentSettings = loadSettings();
+    for (const key of ['userId', 'authEmail', 'authAccessToken', 'authRefreshToken', 'authExpiresAt', 'licenseKey']) {
+        store.delete(key);
+    }
+    // Signing out should clear the authenticated entitlement state, not destroy
+    // local user preferences. Keep Pro toggles/settings so they can re-activate
+    // after the same Pro user signs back in and entitlements refresh.
+    store.set({
+        userTier: 'free',
+        subscriptionStatus: 'free',
+        subscriptionPlan: 'clyde_assistant',
+        subscriptionCredits: currentSettings.subscriptionCredits || 0,
+        entitlementFeatures: [],
+        entitlementsExpiresAt: null,
+        entitlementsCheckedAt: null,
+        proAgentEnabled: Boolean(currentSettings.proAgentEnabled),
+        ragEnabled: Boolean(currentSettings.ragEnabled),
+        googleSyncEnabled: Boolean(currentSettings.googleSyncEnabled),
+        googleSyncAutoApprove: Boolean(currentSettings.googleSyncAutoApprove)
+    });
+    return authSessionFromSettings(loadSettings());
+}
+
+async function getFreshAuthSession() {
+    const settings = loadSettings();
+    if (!settings.userId || !settings.authAccessToken) {
+        return null;
+    }
+    const expiresAt = Number(settings.authExpiresAt || 0);
+    if (expiresAt && expiresAt - Date.now() > 60000) {
+        return {
+            userId: settings.userId,
+            email: settings.authEmail || '',
+            accessToken: settings.authAccessToken,
+            refreshToken: settings.authRefreshToken || '',
+            expiresAt
+        };
+    }
+    const refreshed = await refreshSession({
+        refreshToken: settings.authRefreshToken,
+        config: getSupabaseAuthConfig()
+    });
+    saveAuthSession(refreshed);
+    return refreshed;
+}
+
+async function refreshEntitlements() {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store({ projectName: 'clyde' });
+    // loadSettings() intentionally normalizes signed-out/free users by disabling
+    // Pro-only switches. Keep the raw locally saved preferences so signing back
+    // into a valid Pro account can restore the user's chosen toggles instead of
+    // permanently re-saving the signed-out normalized value.
+    const localPreferences = {
+        proAgentEnabled: Boolean(store.get('proAgentEnabled', false)),
+        ragEnabled: Boolean(store.get('ragEnabled', false)),
+        googleSyncEnabled: Boolean(store.get('googleSyncEnabled', false)),
+        googleSyncAutoApprove: Boolean(store.get('googleSyncAutoApprove', false))
+    };
+    const settings = loadSettings();
+    const authSession = await getFreshAuthSession();
+    const entitlements = await fetchEntitlements({
+        accessToken: authSession?.accessToken || '',
+        userId: authSession?.userId || settings.userId,
+        endpoint: settings.entitlementsUrl
+    });
+    const nextSettings = applyEntitlementsToSettings({
+        ...settings,
+        ...localPreferences
+    }, entitlements);
+    saveSettings(nextSettings, { preserveEntitlements: false });
+    return entitlementsFromSettings(nextSettings);
 }
 
 function getPinnedKnowledgeIds(settings = loadSettings()) {
@@ -358,12 +737,12 @@ function clampBoundsToDisplay(bounds, display) {
         Math.min(Math.round(bounds.height), workArea.height)
     );
     const x = Math.max(
-        workArea.x,
-        Math.min(Math.round(bounds.x), workArea.x + workArea.width - width)
+        workArea.x - width + 100,
+        Math.min(Math.round(bounds.x), workArea.x + workArea.width - 100)
     );
     const y = Math.max(
         workArea.y,
-        Math.min(Math.round(bounds.y), workArea.y + workArea.height - height)
+        Math.min(Math.round(bounds.y), workArea.y + workArea.height - 40)
     );
 
     return { x, y, width, height };
@@ -413,7 +792,22 @@ function enterActiveCaptureWindow() {
 
     const display = screen.getDisplayMatching(currentBounds);
     const savedBounds = getSavedActiveCaptureBounds();
-    const nextBounds = clampBoundsToDisplay(savedBounds || defaultActiveCaptureBounds(currentBounds), display);
+    
+    let boundsOnDisplay = null;
+    if (savedBounds) {
+        const savedDisplay = screen.getDisplayMatching(savedBounds);
+        // Only reuse the saved bounds if they are on the SAME display where the window currently is!
+        if (savedDisplay.id === display.id) {
+            boundsOnDisplay = savedBounds;
+        } else {
+            log.info('[window] Saved activeCaptureBounds are on a different display than the current window. Resetting to default bounds on the current display.');
+        }
+    }
+
+    const nextBounds = clampBoundsToDisplay(boundsOnDisplay || defaultActiveCaptureBounds(currentBounds), display);
+    // Force complete on-screen safety on launch:
+    nextBounds.x = Math.max(display.workArea.x, Math.min(nextBounds.x, display.workArea.x + display.workArea.width - nextBounds.width));
+    nextBounds.y = Math.max(display.workArea.y, Math.min(nextBounds.y, display.workArea.y + display.workArea.height - nextBounds.height));
 
     activeCaptureWindow = true;
     activeCaptureMinimized = false;
@@ -570,16 +964,23 @@ function resizeActiveCaptureWindowToContent(size = {}) {
     const nextHeight = minimized
         ? ACTIVE_CAPTURE_MINIMIZED_SIZE
         : Math.min(height, workArea.height - ACTIVE_CAPTURE_MARGIN);
-    const nextX = minimized
+    let nextX = minimized
         ? workArea.x + ACTIVE_CAPTURE_MINIMIZED_MARGIN
         : restore
             ? workArea.x + Math.round((workArea.width - nextWidth) / 2)
             : currentBounds.x;
-    const nextY = minimized
+    if (!minimized && !restore) {
+        // Guarantee that the expanded window does not spill off-screen on the right or left
+        nextX = Math.max(workArea.x, Math.min(nextX, workArea.x + workArea.width - nextWidth));
+    }
+    let nextY = minimized
         ? workArea.y + workArea.height - nextHeight - ACTIVE_CAPTURE_MINIMIZED_MARGIN
         : restore
             ? workArea.y + ACTIVE_CAPTURE_MARGIN
             : currentBounds.y;
+    if (!minimized && !restore) {
+        nextY = Math.max(workArea.y, Math.min(nextY, workArea.y + workArea.height - nextHeight));
+    }
 
     activeCaptureMinimized = minimized ? true : false;
     if (typeof mainWindow.setMinimumSize === 'function') {
@@ -830,32 +1231,500 @@ function sendSessionDataChanged(change = {}) {
     mainWindow.webContents.send('session-data-changed', change);
 }
 
-function getAgentChat() {
-    if (agentChat) {
-        return agentChat;
+function refreshSystemKnowledgeFromState(reason = 'system-refresh') {
+    if (!knowledgeManager || !sessionManager || !calendarStore) {
+        return Promise.resolve([]);
+    }
+    const settings = loadSettings();
+    return refreshSystemKnowledge({
+        settings,
+        sessionManager,
+        calendarStore,
+        knowledgeManager,
+        activeInterviewId: settings.currentCompany || ''
+    }).catch((error) => {
+        console.warn(`System knowledge refresh failed (${reason}):`, error);
+        return [];
+    });
+}
+
+function notifyDataChanged(change = {}) {
+    sendSessionDataChanged(change);
+    refreshSystemKnowledgeFromState(change.reason || 'data-changed');
+}
+
+function getCurrentAgentContext() {
+    const settings = loadSettings();
+    const mode = settings.appMode === 'meeting' ? 'meeting' : 'interview';
+    if (mode === 'meeting') {
+        return {
+            mode,
+            entityId: settings.meetingTitle || '',
+            entityName: settings.meetingTitle || ''
+        };
+    }
+    return {
+        mode,
+        entityId: settings.currentCompany || '',
+        entityName: settings.currentCompany || '',
+        role: settings.currentRole || ''
+    };
+}
+
+function getActiveEntityFiles(settings = loadSettings()) {
+    if (!knowledgeManager || typeof knowledgeManager.listEntityKnowledge !== 'function') {
+        return [];
+    }
+    const mode = settings.appMode === 'meeting' ? 'meeting' : 'interview';
+    const entityId = mode === 'meeting' ? settings.meetingTitle : settings.currentCompany;
+    if (!entityId) {
+        return [];
+    }
+    return knowledgeManager.listEntityKnowledge({ mode, entityId }).slice(0, 5);
+}
+
+function getPinnedKnowledgeBrief(settings = loadSettings()) {
+    if (!knowledgeManager || typeof knowledgeManager.getPinnedKnowledge !== 'function') {
+        return '';
     }
 
-    const actionRegistry = createAgentActionRegistry({
+    const pinnedItems = knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []);
+    const rows = pinnedItems
+        .map((item) => {
+            const label = item.filename || item.id || 'Pinned knowledge';
+            const excerpt = summarizePinnedKnowledgeContent(item.content || '');
+            return excerpt ? `${label}: ${excerpt}` : '';
+        })
+        .filter(Boolean);
+
+    return rows.length ? rows.join('\n') : '';
+}
+
+function summarizePinnedKnowledgeContent(content = '') {
+    const text = String(content || '').replace(/\s+/g, ' ').trim();
+    return text.length > 700 ? `${text.slice(0, 697)}...` : text;
+}
+
+function buildKnowledgeMaterialSection(title, items = [], limit = 1200) {
+    const rows = (Array.isArray(items) ? items : [])
+        .map((item) => {
+            const label = item.filename || item.title || item.id || 'Knowledge file';
+            const excerpt = summarizeContextText(item.content || '', limit);
+            return excerpt ? `- ${label}: ${excerpt}` : '';
+        })
+        .filter(Boolean);
+
+    return rows.length ? `\n${title}:\n${rows.join('\n')}` : '';
+}
+
+function summarizeContextText(content = '', limit = 320) {
+    const text = String(content || '').replace(/\s+/g, ' ').trim();
+    return text.length > limit ? `${text.slice(0, Math.max(0, limit - 3))}...` : text;
+}
+
+function buildMaterialFallbackPrep({ companyName = '', role = '', jd = '', resumeText = '', opportunityFiles = [], pinnedFiles = [] } = {}) {
+    const corpus = [
+        companyName,
+        role,
+        jd,
+        resumeText,
+        ...(Array.isArray(opportunityFiles) ? opportunityFiles.map((item) => `${item.filename || ''} ${item.content || ''}`) : []),
+        ...(Array.isArray(pinnedFiles) ? pinnedFiles.map((item) => `${item.filename || ''} ${item.content || ''}`) : [])
+    ].join(' ').toLowerCase();
+    const has = (regex) => regex.test(corpus);
+    const companyLabel = companyName || 'this company';
+    const roleLabel = role || 'this role';
+
+    const probableFocus = [];
+    if (has(/support|customer|ticket|escalat|incident|sla|csat|contact center|intercom/)) {
+        probableFocus.push('Expect questions about support operations: diagnosing customer pain, reducing escalations, improving response quality, and proving impact with CSAT, SLA, backlog, deflection, or quality metrics.');
+    }
+    if (has(/ai|automation|llm|agent|bot|workflow|process/)) {
+        probableFocus.push('Expect questions about AI or automation: where you would apply it, how you would evaluate quality, and how you would keep humans in the loop for high-risk customer workflows.');
+    }
+    if (has(/lead|manage|director|head|vp|team|mentor|hiring|performance/)) {
+        probableFocus.push('Prepare leadership examples around coaching, prioritization, stakeholder alignment, performance management, and raising operating standards without losing trust.');
+    }
+    if (has(/sql|data|analytics|dashboard|metric|kpi|forecast|report/)) {
+        probableFocus.push('Be ready to explain how you use data: choosing metrics, finding root causes, separating noise from signal, and turning dashboards into operating decisions.');
+    }
+    if (has(/api|system|architecture|technical|engineering|integration|saas|platform/)) {
+        probableFocus.push('Expect technical and systems questions about integrations, reliability, tradeoffs, implementation constraints, and how you partner with engineering teams.');
+    }
+    while (probableFocus.length < 3) {
+        probableFocus.push(`Prepare role-fit answers that connect your background directly to ${roleLabel}, why ${companyLabel}, and what you would prioritize in the first 30-90 days.`);
+    }
+
+    return {
+        prep_basis: 'materials',
+        pre_call_prep: {
+            cumulative_phase_summary: [
+                `Use a materials-led narrative: tie your answers to ${companyLabel}, ${roleLabel}, the job description, your resume, and any pinned opportunity files rather than prior interview transcripts.`,
+                `Open with a crisp fit statement for ${roleLabel}: the problems you have solved, the stakes, the scale, and why those examples map to this role.`,
+                'Bring five reusable stories: an operating turnaround, an AI/process improvement, a stakeholder conflict, a metrics-driven decision, and a leadership/coaching moment.'
+            ],
+            probable_focus: probableFocus.slice(0, 3),
+            interviewer_question_patterns: [
+                `Lead with the parts of your background that map directly to ${roleLabel}: operating leadership, customer/support systems, AI-enabled workflow design, and measurable process improvement where relevant.`,
+                'Anchor your strongest examples in business outcomes: faster resolution, better quality, higher adoption, revenue protection, lower operational risk, or improved customer experience.',
+                'Use your breadth as an advantage by connecting frontline customer reality, tooling, process design, stakeholder management, and executive communication into one coherent story.'
+            ],
+            gaps_and_mitigation: [
+                'If a requirement is not obvious on paper, bridge it with adjacent experience: name the similar system, user, metric, or operating constraint you have handled and explain how it transfers.',
+                'If the role asks for a tool, domain, or technical stack you have not used directly, avoid apologizing; explain how you would ramp, what comparable tools you have mastered, and what judgment already transfers.',
+                'If your resume looks broader than the role, make the through-line explicit: you solve the exact class of customer, operations, AI, tooling, and workflow problems this role owns.'
+            ],
+            questions_to_ask: [
+                `What would success look like for ${roleLabel} in the first 90 days, and which metrics would show I am moving the right things?`,
+                'Where is the team feeling the most friction today: process, tooling, quality, customer expectations, data visibility, or cross-functional alignment?',
+                'What has already been tried in this area, and what would you want the person in this role to approach differently?'
+            ]
+        }
+    };
+}
+
+function buildAssistantContext(settings = loadSettings()) {
+    const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
+    const questionBankContext = questionBankManager && (settings.appMode || 'interview') === 'interview'
+        ? questionBankManager.buildContext({
+            mode: 'interview',
+            entityId: settings.currentCompany || '',
+            tier: settings.userTier === 'pro' ? 'pro' : 'free',
+            includeGlobal: Boolean(settings.includeGlobalQuestionBank),
+            limit: 18
+        })
+        : '';
+    return {
+        mode: settings.appMode || 'interview',
+        jobDescription: activeJd,
+        resumeText: settings.resumeText || '',
+        company: settings.currentCompany || '',
+        role: settings.currentRole || '',
+        meetingTitle: settings.meetingTitle || '',
+        attendees: Array.isArray(settings.meetingAttendees) ? settings.meetingAttendees : [],
+        memory: settings.meetingMemory || '',
+        pinnedKnowledgeBrief: getPinnedKnowledgeBrief(settings),
+        entityFiles: getActiveEntityFiles(settings),
+        questionBankContext
+    };
+}
+
+function buildCallPreflightContext(settings = loadSettings()) {
+    const context = buildAssistantContext(settings);
+    const mode = context.mode === 'meeting' ? 'meeting' : 'interview';
+    const entityId = mode === 'meeting' ? context.meetingTitle : context.company;
+    const audioSources = getAudioSources(settings).map((source) => ({
+        id: source.id,
+        label: source.label,
+        device: source.device,
+        color: source.color
+    }));
+    const entityFiles = Array.isArray(context.entityFiles) ? context.entityFiles : [];
+    const pinnedKnowledgeItems = knowledgeManager
+        ? knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || [])
+        : [];
+    const questionBankActiveCount = questionBankManager && mode === 'interview' && entityId
+        ? questionBankManager.listEntries({ mode: 'interview', entityId, limit: 1000 }).length
+        : 0;
+    const questionBankGlobalCount = questionBankManager && mode === 'interview'
+        ? questionBankManager.listEntries({ mode: 'interview', scopeMode: 'global', limit: 1000 }).length
+        : 0;
+
+    const isGeminiLive = Boolean(settings.userTier === 'pro' && settings.proAgentEnabled && String(settings.proRealtimeModel || '').includes('gemini'));
+
+    return {
+        mode,
+        entityId,
+        entityName: mode === 'meeting' ? context.meetingTitle : context.company,
+        settings: {
+            userTier: settings.userTier || 'free',
+            includeGlobalQuestionBank: Boolean(settings.includeGlobalQuestionBank),
+            captureProtectionEnabled: settings.captureProtectionEnabled !== false
+        },
+        health: JSON.parse(JSON.stringify(healthState)),
+        models: {
+            transcriptionProvider: isGeminiLive ? 'gemini-live' : (settings.transcriptionProvider || 'Not selected'),
+            transcriptionModel: isGeminiLive 
+                ? 'Unified Gemini Live Audio Stream'
+                : (isCloudTranscriptionProvider(settings.transcriptionProvider)
+                    ? (settings.transcriptionProvider === 'openai-realtime-whisper' 
+                        ? 'gpt-realtime-whisper' 
+                        : settings.transcriptionProvider === 'clyde-cloud-whisper' 
+                            ? 'Clyde Managed Whisper (Pro Only)' 
+                            : 'OpenAI Cloud Transcription')
+                    : settings.localTranscriptionUrl || 'Not selected'),
+            assistantProvider: isGeminiLive ? 'gemini-live' : (settings.llmProvider || 'Not selected'),
+            assistantModel: isGeminiLive 
+                ? 'Unified Gemini Live Audio Stream'
+                : (settings.llmProvider === 'local' ? (settings.llmModel || 'Local model not selected') : (settings.llmModel || settings.llmProvider || 'Not selected')),
+            proRealtimeModel: settings.proRealtimeModel || 'Not selected',
+            proAgentEnabled: Boolean(settings.userTier === 'pro' && settings.proAgentEnabled),
+            ragEnabled: Boolean(settings.ragEnabled),
+            pineconeConfigured: Boolean(settings.pineconeApiKey || process.env.PINECONE_API_KEY) && Boolean(settings.pineconeHost || process.env.PINECONE_HOST)
+        },
+        audio: {
+            engine: settings.audioEngine || (process.platform === 'win32' ? 'rust' : 'legacy'),
+            microphoneDeviceId: settings.microphoneDeviceId || '',
+            systemAudioDeviceId: settings.systemAudioDeviceId || '',
+            sources: audioSources
+        },
+        activeContext: {
+            company: context.company,
+            role: context.role,
+            meetingTitle: context.meetingTitle,
+            attendees: context.attendees,
+            resume: {
+                chars: String(context.resumeText || '').length,
+                excerpt: summarizeContextText(context.resumeText)
+            },
+            jobDescription: {
+                chars: String(context.jobDescription || '').length,
+                excerpt: summarizeContextText(context.jobDescription)
+            },
+            meetingMemory: {
+                chars: String(context.memory || '').length,
+                excerpt: summarizeContextText(context.memory)
+            },
+            pinnedKnowledgeBrief: {
+                chars: String(context.pinnedKnowledgeBrief || '').length,
+                excerpt: summarizeContextText(context.pinnedKnowledgeBrief, 500)
+            },
+            pinnedKnowledge: pinnedKnowledgeItems.map((item) => ({
+                id: item.id,
+                filename: item.filename,
+                type: item.type,
+                chars: String(item.content || '').length,
+                proOnly: true,
+                requiresRag: true
+            })),
+            entityFiles: entityFiles.map((item) => ({
+                id: item.id,
+                filename: item.filename,
+                type: item.type,
+                chars: String(item.content || '').length,
+                excerpt: summarizeContextText(item.content, 220),
+                included: true
+            })),
+            questionBank: {
+                activeCount: questionBankActiveCount,
+                globalCount: questionBankGlobalCount,
+                includeGlobal: Boolean(settings.includeGlobalQuestionBank && settings.userTier === 'pro'),
+                includedCount: questionBankActiveCount + (settings.includeGlobalQuestionBank && settings.userTier === 'pro' ? questionBankGlobalCount : 0)
+            }
+        },
+        limits: {
+            maxUploadBytes: 25 * 1024 * 1024,
+            supportedUploadTypes: ['.txt', '.md', '.pdf'],
+            activeEntityFiles: 5,
+            pinnedKnowledge: 3
+        }
+    };
+}
+
+function createActionRegistry() {
+    return createAgentActionRegistry({
         sessionManager,
         interviewManager,
         calendarStore,
         loadSettings,
         saveSettings,
-        emitChange: sendSessionDataChanged,
-        emitCalendarChanged: (change) => sendSessionDataChanged({ ...change, reason: change.reason || 'calendar-changed' })
+        getActiveContext: getCurrentAgentContext,
+        emitChange: notifyDataChanged,
+        emitCalendarChanged: (change) => notifyDataChanged({ ...change, reason: change.reason || 'calendar-changed' })
     });
+}
+
+function getAgentChat() {
+    if (agentChat) {
+        return agentChat;
+    }
+
+    const actionRegistry = createActionRegistry();
 
     agentChat = createAgentChat({
         settings: loadSettings(),
         knowledgeManager,
+        questionBankManager,
         sessionManager,
         calendarStore,
         actionRegistry,
+        interviewManager,
         axiosClient: axios,
         generateChat
     });
 
     return agentChat;
+}
+
+function getGoogleTokens() {
+    const store = getSettingsStore();
+    return store.get('googleTokens', null);
+}
+
+function saveGoogleTokens(tokens = {}) {
+    const current = getGoogleTokens() || {};
+    getSettingsStore().set('googleTokens', {
+        ...current,
+        ...tokens,
+        refresh_token: tokens.refresh_token || current.refresh_token || ''
+    });
+}
+
+function clearGoogleTokens() {
+    getSettingsStore().delete('googleTokens');
+}
+
+async function getGoogleAccessToken(settings = loadSettings()) {
+    const tokens = getGoogleTokens();
+    if (!tokens?.refresh_token && !tokens?.access_token) {
+        throw new Error('Google is not connected.');
+    }
+    const expiresAt = tokens.expires_at ? new Date(tokens.expires_at).getTime() : 0;
+    if (tokens.access_token && expiresAt > Date.now() + 60000) {
+        return tokens.access_token;
+    }
+    const refreshAuthSession = await getFreshAuthSession().catch(() => null);
+    const refreshed = await googleClient.refreshAccessToken({
+        clientId: getGoogleOAuthClientId(),
+        clientSecret: getGoogleOAuthClientSecret(),
+        tokenEndpoint: CLYDE_GOOGLE_OAUTH_TOKEN_URL,
+        authToken: refreshAuthSession?.accessToken || '',
+        refreshToken: tokens.refresh_token
+    });
+    saveGoogleTokens(refreshed);
+    return refreshed.access_token;
+}
+
+function getGoogleSyncStatus() {
+    const settings = loadSettings();
+    const tokens = getGoogleTokens();
+    return {
+        connected: Boolean(tokens?.refresh_token || tokens?.access_token),
+        enabled: Boolean(settings.googleSyncEnabled),
+        accountEmail: settings.googleAccountEmail || '',
+        autoApprove: Boolean(settings.googleSyncAutoApprove),
+        pollMinutes: Number(settings.googleSyncPollMinutes || 15) || 15,
+        pendingCount: syncStore ? syncStore.listProposals({ status: 'pending' }).length : 0
+    };
+}
+
+async function runGoogleSyncScan({ manual = false, gmailLimit, calendarLimit } = {}) {
+    const settings = loadSettings();
+    if (!googleSyncService || !syncStore) {
+        throw new Error('Google sync is not ready.');
+    }
+    if (!manual && !settings.googleSyncEnabled) {
+        return [];
+    }
+    const accessToken = await getGoogleAccessToken(settings);
+    const scanSettings = {
+        ...settings,
+        ...(gmailLimit ? { googleSyncGmailLimit: Number(gmailLimit) } : {}),
+        ...(calendarLimit ? { googleSyncCalendarLimit: Number(calendarLimit) } : {})
+    };
+    const proposals = await googleSyncService.scan({ accessToken, settings: scanSettings });
+    if (settings.googleSyncAutoApprove) {
+        const pending = syncStore.listProposals({ status: 'pending' });
+        for (const proposal of pending) {
+            await approveSyncProposal({ proposalId: proposal.id, autoApproved: true });
+        }
+    }
+    notifyDataChanged({ reason: 'google-sync-scanned' });
+    return proposals;
+}
+
+async function approveSyncProposal({ proposalId, completedAction, autoApproved = false } = {}) {
+    const proposal = syncStore && syncStore.getProposal(proposalId);
+    if (!proposal) {
+        return { ok: false, changed: false, message: 'Sync proposal not found.' };
+    }
+    const action = completedAction || proposal.action;
+    const result = await createActionRegistry().confirmAction(action);
+    if (result?.needsInput) {
+        syncStore.addAudit({
+            type: 'sync-approval',
+            status: 'needs-input',
+            message: result.message,
+            proposalId: proposal.id,
+            source: proposal.source,
+            action,
+            result
+        });
+        return { ...result, proposal };
+    }
+    syncStore.markProposal(proposal.id, result.ok ? 'approved' : 'failed', result);
+    syncStore.addAudit({
+        type: 'sync-approval',
+        status: result.ok ? 'success' : 'failed',
+        message: result.message || proposal.summary,
+        proposalId: proposal.id,
+        source: proposal.source,
+        action,
+        result,
+        autoApproved,
+        read: !autoApproved
+    });
+    notifyDataChanged({ reason: 'google-sync-proposal-applied' });
+    return result;
+}
+
+function dismissSyncProposal(proposalId) {
+    const proposal = syncStore && syncStore.getProposal(proposalId);
+    if (!proposal) {
+        return false;
+    }
+    const updated = syncStore.markProposal(proposal.id, 'dismissed', { ok: true });
+    syncStore.addAudit({
+        type: 'sync-dismiss',
+        status: 'dismissed',
+        message: proposal.summary,
+        proposalId: proposal.id,
+        source: proposal.source,
+        action: proposal.action
+    });
+    notifyDataChanged({ reason: 'google-sync-proposal-dismissed' });
+    return Boolean(updated);
+}
+
+function startGoogleSyncTimer(settings = loadSettings()) {
+    if (googleSyncTimer) {
+        clearInterval(googleSyncTimer);
+        googleSyncTimer = null;
+    }
+    if (!settings.googleSyncEnabled || !hasGoogleOAuthClientId()) {
+        return;
+    }
+    const minutes = Math.max(1, Number(settings.googleSyncPollMinutes || 15) || 15);
+    googleSyncTimer = setInterval(() => {
+        runGoogleSyncScan().catch((error) => {
+            syncStore?.addAudit({
+                type: 'sync-scan',
+                status: 'failed',
+                message: error.message
+            });
+            console.warn('Google sync scan failed:', error);
+        });
+    }, minutes * 60 * 1000);
+}
+
+function startGoogleSyncOnLaunch(settings = loadSettings()) {
+    if (!settings.googleSyncEnabled || !hasGoogleOAuthClientId()) {
+        return;
+    }
+    const tokens = getGoogleTokens();
+    if (!tokens?.refresh_token && !tokens?.access_token) {
+        return;
+    }
+    setTimeout(() => {
+        runGoogleSyncScan({ gmailLimit: 50, calendarLimit: 50 }).catch((error) => {
+            syncStore?.addAudit({
+                type: 'sync-scan',
+                status: 'failed',
+                message: error.message
+            });
+            console.warn('Google sync startup scan failed:', error);
+        });
+    }, 1500);
 }
 
 function updateHealth(key, next) {
@@ -915,10 +1784,12 @@ function checkAudioHealth(settings = loadSettings()) {
 }
 
 async function checkWhisperHealth(settings) {
-    if (isOpenAiTranscriptionProvider(settings.transcriptionProvider)) {
+    if (isCloudTranscriptionProvider(settings.transcriptionProvider)) {
         const detail = settings.transcriptionProvider === 'openai-realtime-whisper'
             ? 'Using OpenAI Realtime Whisper.'
-            : 'Using OpenAI Cloud Transcription API.';
+            : settings.transcriptionProvider === 'clyde-cloud-whisper'
+                ? 'Using Clyde Managed Cloud Whisper (Pro).'
+                : 'Using OpenAI Cloud Transcription API.';
         updateHealth('whisper', { state: 'ready', detail });
         return;
     }
@@ -1005,7 +1876,9 @@ function sendTranscriptUpdate(transcript) {
     }
 
     if (transcript && transcript.partial) {
+        writeSessionTrace('transcript.partial', transcript);
         mainWindow.webContents.send('transcript-update', transcript);
+        getMeetingAssistant().addPartialTranscript?.(transcript);
         return;
     }
 
@@ -1024,6 +1897,7 @@ function sendTranscriptUpdate(transcript) {
         }
     }
 
+    writeSessionTrace('transcript.final', transcript);
     mainWindow.webContents.send('transcript-update', transcript);
     getMeetingAssistant().addTranscript(transcript);
 }
@@ -1035,7 +1909,51 @@ function sendAssistantUpdate(update) {
 
     const cards = Array.isArray(update?.cards) ? update.cards : [];
     log.info(`Assistant update: ${cards.length} cards`);
+    writeSessionTrace('assistant.update', {
+        title: update?.title,
+        text: update?.text,
+        replaceCardId: update?.replaceCardId,
+        groupId: update?.groupId,
+        cards
+    });
     mainWindow.webContents.send('assistant-update', update);
+}
+
+function writeSessionTrace(event, data = {}) {
+    sessionDebugTrace?.write?.(event, data);
+}
+
+function startSessionTrace(settings = loadSettings()) {
+    stopSessionTrace();
+    sessionDebugTrace = createSessionDebugTrace({
+        enabled: Boolean(settings.debugTraceEnabled),
+        appPath: app.getPath('userData'),
+        logger: log
+    });
+    if (sessionDebugTrace.enabled) {
+        log.info(`Clyde session debug trace: ${sessionDebugTrace.filePath}`);
+        sendAudioStatus({ state: 'capturing', message: `Debug trace: ${sessionDebugTrace.filePath}` });
+    }
+    writeSessionTrace('capture.start', {
+        appMode: settings.appMode,
+        transcriptionProvider: settings.transcriptionProvider,
+        transcriptionKeyType: settings.transcriptionProvider === 'clyde-cloud-whisper' ? 'managed' : (settings.transcriptionProvider === 'local' ? 'local' : 'custom-key'),
+        llmProvider: settings.llmProvider,
+        llmModel: settings.llmModel,
+        llmKeyType: settings.llmProvider === 'clyde-cloud' ? 'managed' : (settings.llmProvider === 'local' ? 'local' : 'custom-key'),
+        proAgentEnabled: settings.proAgentEnabled,
+        proRealtimeModel: settings.proRealtimeModel,
+        userTier: settings.userTier,
+        ragEnabled: settings.ragEnabled
+    });
+}
+
+function stopSessionTrace() {
+    if (sessionDebugTrace) {
+        writeSessionTrace('capture.stop', {});
+        sessionDebugTrace.close?.();
+        sessionDebugTrace = null;
+    }
 }
 
 function sendAudioLevelUpdate(update) {
@@ -1080,28 +1998,19 @@ function getMeetingAssistant() {
     meetingAssistant = createMeetingAssistant({
         settings,
         intervalMs: Number(process.env.LM_STUDIO_ASSISTANT_INTERVAL_MS || 30000),
-        utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 700),
+        utteranceSettleMs: Number(process.env.CLYDE_INTENT_UTTERANCE_SETTLE_MS || 650),
         maxTurns: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TURNS || 6),
-        maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 800),
+        maxTokens: Number(process.env.LM_STUDIO_ASSISTANT_MAX_TOKENS || 1500),
         timeout: Number(process.env.LM_STUDIO_ASSISTANT_TIMEOUT_MS || 60000),
         axiosClient: axios,
         logger: console,
         knowledgeManager,
         sendStatus: sendAudioStatus,
-        sendUpdate: sendAssistantUpdate
+        sendUpdate: sendAssistantUpdate,
+        debugTrace: writeSessionTrace
     });
     
-    const activeJd = (interviewManager && settings.currentCompany) ? interviewManager.getCompanyJobDescription(settings.currentCompany) : '';
-    meetingAssistant.setContext({ 
-        mode: settings.appMode || 'interview',
-        jobDescription: activeJd,
-        resumeText: settings.resumeText || '',
-        company: settings.currentCompany || '',
-        role: settings.currentRole || '',
-        meetingTitle: settings.meetingTitle || '',
-        attendees: Array.isArray(settings.meetingAttendees) ? settings.meetingAttendees : [],
-        memory: settings.meetingMemory || ''
-    });
+    meetingAssistant.setContext(buildAssistantContext(settings));
 
     return meetingAssistant;
 }
@@ -1143,6 +2052,10 @@ async function processAudioChunk(source, chunk, sampleRate) {
         : source;
     updateLiveAudioLevel(sourceWithRate, chunk);
     await getTranscriptionProcessor(sourceWithRate).processAudioChunk(chunk);
+
+    if (meetingAssistant && typeof meetingAssistant.appendAudioChunk === 'function') {
+        meetingAssistant.appendAudioChunk(chunk.toString('base64'));
+    }
 }
 
 function closeTranscriptionProcessors() {
@@ -1168,6 +2081,7 @@ function stopAudioCaptures() {
     stopRustAudioEngineCapture();
     closeTranscriptionProcessors();
     transcriptionProcessors = null;
+    meetingAssistant?.resetTranscript?.();
     meetingAssistant = null;
     stopLiveAudioLevels();
 }
@@ -1416,12 +2330,9 @@ function createWindow () {
 
   const settings = loadSettings();
   applyCaptureProtection(settings);
-
-  const rendererIndex = path.join(__dirname, 'src', 'renderer-dist', 'index.html');
-  const legacyRendererIndex = path.join(__dirname, 'src', 'index.html');
-  const filePath = fs.existsSync(rendererIndex) ? rendererIndex : legacyRendererIndex;
-  log.info(`📄 Loading renderer from: ${filePath}`);
-  mainWindow.loadFile(filePath);
+  if (mainWindow && typeof mainWindow.setSkipTaskbar === 'function') {
+      mainWindow.setSkipTaskbar(Boolean(settings.hideTaskbarEnabled));
+  }
 
   mainWindow.webContents.on('did-finish-load', () => {
       log.info(`🔄 did-finish-load event. Window visible: ${mainWindow.isVisible()}`);
@@ -1431,9 +2342,10 @@ function createWindow () {
           log.info(`✅ show() called. Now visible: ${mainWindow.isVisible()}`);
       }
       
-      // Enable DevTools for debugging
-      log.info('🔧 Opening DevTools for debugging...');
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
+      if (process.env.CLYDE_OPEN_DEVTOOLS === '1') {
+          log.info('Opening DevTools for debugging...');
+          mainWindow.webContents.openDevTools({ mode: 'detach' });
+      }
       
       sendAudioStatus({ state: 'idle', message: 'Ready. Press Start to begin.' });
       checkServiceHealth(loadSettings());
@@ -1456,19 +2368,69 @@ function createWindow () {
         logger: console
     });
 
+    questionBankManager = createQuestionBankManager({
+        appPath: app.getPath('userData'),
+        logger: console
+    });
+
+    mockInterviewManager = createMockInterviewManager({
+        appPath: app.getPath('userData'),
+        axiosClient: axios,
+        knowledgeManager,
+        logger: console
+    });
+
     calendarStore = createCalendarStore({
         appPath: app.getPath('userData')
     });
 
+    syncStore = createSyncStore({
+        appPath: app.getPath('userData')
+    });
+    if (!getGoogleTokens()) {
+        syncStore.clearState();
+    }
+
+    googleClient = createGoogleClient({
+        axiosClient: axios,
+        openExternal: (url) => shell.openExternal(url)
+    });
+
+    googleSyncService = createGoogleSyncService({
+        googleClient,
+        syncStore,
+        sessionManager,
+        calendarStore,
+        axiosClient: axios
+    });
+
+    startGoogleSyncTimer(settings);
+    startGoogleSyncOnLaunch(settings);
+
+    // Start the local API server for Jayobee extension integration
+    startExtensionServer({
+        interviewManager,
+        sessionManager,
+        knowledgeManager,
+        questionBankManager,
+        loadSettings,
+        saveSettings,
+        publicSettings
+    }, mainWindow).catch((err) => {
+        console.error('Failed to start extension server:', err.message);
+    });
+
     const Store = require('electron-store').default || require('electron-store');
-    const store = new Store();
+    const store = new Store({ projectName: 'clyde' });
     if (!store.get('knowledgeBackfillDone_v2')) {
         backfillKnowledgeFromSessions(settings).then(() => {
             store.set('knowledgeBackfillDone_v2', true);
+            refreshSystemKnowledgeFromState('knowledge-backfill');
         }).catch((error) => {
             console.warn('Knowledge base backfill failed:', error);
         });
     }
+    refreshSystemKnowledgeFromState('startup');
 
   // Setup IPC communication for start/stop transcription
   ipcMain.on('start-audio-capture', async (event) => {
@@ -1482,8 +2444,12 @@ function createWindow () {
 
       fullSessionTranscript = []; // Reset full session transcript on new start
       capturePaused = false;
-      getMeetingAssistant(); // ensure initialized
       const settings = loadSettings();
+      startSessionTrace(settings);
+      getMeetingAssistant().warmup?.().catch((error) => {
+          writeSessionTrace('pro.warmup.error', { message: error.message });
+          log.warn(`Clyde Pro warmup failed: ${error.message}`);
+      });
       startLiveAudioLevels();
       const failed = shouldUseRustAudioEngine(settings)
           ? await startRustAudioEngineCapture(settings).then((result) => result.ok ? null : result)
@@ -1505,10 +2471,18 @@ function createWindow () {
           sendAudioStatus({ state: 'capturing', message });
           enterActiveCaptureWindow();
           updateHealth('capture', { state: 'ready', detail: message });
+
+          registerAllGlobalShortcuts(settings);
       }
   });
 
   ipcMain.on('stop-audio-capture', () => {
+      writeSessionTrace('capture.stop.requested', {});
+      try {
+          globalShortcut.unregisterAll();
+      } catch (err) {
+          log.warn(`globalShortcut.unregisterAll failed: ${err.message}`);
+      }
       capturePaused = false;
       audioCaptureRunning = false;
       if (audioCaptures) {
@@ -1516,10 +2490,12 @@ function createWindow () {
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
           restoreNormalWindowBounds();
           updateHealth('capture', { state: 'idle', detail: 'Stopped.' });
+          stopSessionTrace();
       } else {
           stopLiveAudioLevels();
           sendAudioStatus({ state: 'idle', message: 'Audio capture stopped.' });
           restoreNormalWindowBounds();
+          stopSessionTrace();
       }
   });
 
@@ -1553,6 +2529,7 @@ function createWindow () {
 
   ipcMain.on('reset-session', () => {
       fullSessionTranscript = [];
+      writeSessionTrace('capture.reset');
       closeTranscriptionProcessors();
       transcriptionProcessors = null;
       if (meetingAssistant) {
@@ -1590,21 +2567,206 @@ function createWindow () {
           screenshotWarning,
           sources: payload && payload.sources,
           intent: payload && payload.intent,
-          mode: payload && payload.mode
+          mode: payload && payload.mode,
+          transcript: payload && payload.transcript,
+          draftSessionContext: payload && payload.draftSessionContext
       });
   });
 
   ipcMain.handle('save-settings', (event, settings) => {
       saveSettings(settings);
+      refreshSystemKnowledgeFromState('settings-saved');
+      if (mainWindow && typeof mainWindow.setSkipTaskbar === 'function') {
+          mainWindow.setSkipTaskbar(Boolean(settings.hideTaskbarEnabled));
+      }
+      if (audioCaptureRunning) {
+          registerAllGlobalShortcuts(settings);
+      }
       return true;
   });
 
   ipcMain.handle('load-settings', (event) => {
-      return loadSettings();
+      return publicSettings();
+  });
+
+  ipcMain.handle('get-app-version', () => {
+      return app.getVersion();
   });
 
   ipcMain.handle('get-tier-status', () => {
       return getTierStatus();
+  });
+
+  ipcMain.handle('get-auth-session', () => {
+      return authSessionFromSettings();
+  });
+
+  ipcMain.handle('sign-up', async (event, payload = {}) => {
+      const session = await signUp({
+          ...(payload || {}),
+          config: getSupabaseAuthConfig()
+      });
+      saveAuthSession(session);
+      await refreshEntitlements().catch(() => null);
+      return { session: authSessionFromSettings(), settings: publicSettings() };
+  });
+
+  ipcMain.handle('sign-in', async (event, payload = {}) => {
+      const session = await signIn({
+          ...(payload || {}),
+          config: getSupabaseAuthConfig()
+      });
+      saveAuthSession(session);
+      await refreshEntitlements().catch(() => null);
+      return { session: authSessionFromSettings(), settings: publicSettings() };
+  });
+
+  ipcMain.handle('sign-out', () => {
+      const session = clearAuthSession();
+      return { session, settings: publicSettings() };
+  });
+
+  ipcMain.handle('refresh-auth-session', async () => {
+      const session = await getFreshAuthSession();
+      return session ? authSessionFromSettings(loadSettings()) : { signedIn: false, userId: '', email: '' };
+  });
+
+  ipcMain.handle('refresh-entitlements', async () => {
+      return refreshEntitlements();
+  });
+
+  ipcMain.handle('open-upgrade-page', async () => {
+      await shell.openExternal(CLYDE_UPGRADE_URL);
+      return true;
+  });
+
+  ipcMain.handle('open-external-url', async (event, url) => {
+      if (url && typeof url === 'string') {
+          try {
+              await shell.openExternal(url);
+              return true;
+          } catch (e) {
+              console.error('Failed to open external url:', e);
+              return false;
+          }
+      }
+      return false;
+  });
+
+  ipcMain.handle('start-checkout-session', async () => {
+      const authSession = await getFreshAuthSession();
+      const checkout = await createCheckoutSession({
+          accessToken: authSession?.accessToken || '',
+          endpoint: CLYDE_CHECKOUT_URL
+      });
+      if (!checkout.url) {
+          throw new Error('Checkout URL was not returned.');
+      }
+      await shell.openExternal(checkout.url);
+      return true;
+  });
+
+  ipcMain.handle('start-pro-signup-checkout', async (event, payload = {}) => {
+      const checkout = await createProSignupCheckout({
+          email: payload.email,
+          password: payload.password,
+          forceCheckout: payload.forceCheckout,
+          creditsAmount: payload.creditsAmount,
+          billingPeriod: payload.billingPeriod,
+          endpoint: payload.byok ? CLYDE_BYOK_CHECKOUT_URL : (payload.credits ? CLYDE_CREDITS_CHECKOUT_URL : CLYDE_PRO_SIGNUP_CHECKOUT_URL)
+      });
+      if (!checkout.url) {
+          throw new Error('Checkout URL was not returned.');
+      }
+      await shell.openExternal(checkout.url);
+      return checkout;
+  });
+
+  ipcMain.handle('open-billing-portal', async () => {
+      const authSession = await getFreshAuthSession();
+      const portal = await createBillingPortalSession({
+          accessToken: authSession?.accessToken || '',
+          endpoint: CLYDE_BILLING_PORTAL_URL
+      });
+      if (!portal.url) {
+          throw new Error('Billing portal URL was not returned.');
+      }
+      await shell.openExternal(portal.url);
+      return true;
+  });
+
+  ipcMain.handle('get-license-token', async () => {
+      const authSession = await getFreshAuthSession();
+      if (!authSession || !authSession.accessToken) {
+          throw new Error('You must be signed in to retrieve a license token.');
+      }
+      try {
+          const response = await axios.post(`${CLYDE_API_BASE_URL}/license-token`, {}, {
+              headers: {
+                  'Authorization': `Bearer ${authSession.accessToken}`,
+                  'Content-Type': 'application/json'
+              },
+              timeout: 15000
+          });
+          return response.data;
+      } catch (error) {
+          if (error.response && error.response.data && error.response.data.error) {
+              throw new Error(error.response.data.error);
+          }
+          throw new Error(error.message || 'Failed to retrieve license token.');
+      }
+  });
+
+  ipcMain.handle('get-realtime-token', async () => {
+      assertFeature('pro_realtime_agent');
+      const settings = loadSettings();
+      const apiKey = settings.openAiApiKey || settings.transcriptionApiKey || (settings.llmProvider === 'openai' ? settings.llmApiKey : '') || '';
+      const realtimeModel = settings.proRealtimeModel || '';
+
+      if (!apiKey) {
+          throw new Error('OpenAI API key is missing. Please configure it in settings to use realtime voice agents.');
+      }
+      if (!realtimeModel) {
+          throw new Error('Realtime model is missing. Please configure it in settings to use realtime voice agents.');
+      }
+
+      const axios = require('axios');
+      const crypto = require('node:crypto');
+      const safetyIdentifier = crypto
+          .createHash('sha256')
+          .update(settings.googleAccountEmail || 'clyde-local-user')
+          .digest('hex');
+
+      try {
+          const response = await axios.post('https://api.openai.com/v1/realtime/client_secrets', {
+              session: {
+                  type: 'realtime',
+                  model: realtimeModel,
+                  output_modalities: ['audio'],
+                  audio: {
+                      input: {
+                          turn_detection: { type: 'semantic_vad' }
+                      },
+                      output: {
+                          voice: 'marin'
+                      }
+                  }
+              }
+          }, {
+              headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                  'Content-Type': 'application/json',
+                  'OpenAI-Safety-Identifier': safetyIdentifier
+              }
+          });
+          const clientSecret = response.data?.value || response.data?.client_secret?.value;
+          if (!clientSecret) {
+              throw new Error('Realtime client secret response did not include a token.');
+          }
+          return clientSecret;
+      } catch (error) {
+          throw new Error(`Failed to generate realtime token: ${error?.response?.data?.error?.message || error.message}`);
+      }
   });
 
   ipcMain.handle('start-agent-chat', (event, payload = {}) => {
@@ -1621,22 +2783,69 @@ function createWindow () {
   });
 
   ipcMain.handle('confirm-agent-action', async (event, payload = {}) => {
+      assertFeature('agent_actions');
       return getAgentChat().confirmAction(payload || {});
   });
 
-  ipcMain.handle('list-agent-sources', async (event, filters = {}) => {
-      return getAgentChat().listSources(filters || {});
+  ipcMain.handle('list-agent-sources', async (event, requestFilters = {}) => {
+      const sourceFilters = requestFilters && typeof requestFilters === 'object' ? requestFilters : {};
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listAgentSources(sourceFilters);
+      }
+      return getAgentChat().listSources(sourceFilters);
   });
+
+  ipcMain.handle('load-soul', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    
+    let soulPath = path.join(process.cwd(), 'soul.md');
+    try {
+      fs.accessSync(process.cwd(), fs.constants.W_OK);
+    } catch (e) {
+      soulPath = path.join(app.getPath('userData'), 'soul.md');
+    }
+
+    try {
+      if (fs.existsSync(soulPath)) {
+        return fs.readFileSync(soulPath, 'utf8');
+      }
+    } catch (err) {
+      console.warn('Failed to read soul.md:', err.message);
+    }
+    return '';
+  });
+
+  ipcMain.handle('save-soul', (event, soulMarkdown) => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    
+    let soulPath = path.join(process.cwd(), 'soul.md');
+    try {
+      fs.accessSync(process.cwd(), fs.constants.W_OK);
+    } catch (e) {
+      soulPath = path.join(app.getPath('userData'), 'soul.md');
+    }
+
+    try {
+      fs.writeFileSync(soulPath, soulMarkdown || '', 'utf8');
+      return { success: true };
+    } catch (err) {
+      console.error('Failed to write soul.md:', err.message);
+      throw new Error(`Failed to save soul.md: ${err.message}`);
+    }
+  });
+
 
   ipcMain.handle('load-floating-agent-prefs', () => {
       const Store = require('electron-store').default || require('electron-store');
-      const store = new Store();
+      const store = new Store({ projectName: 'clyde' });
       return store.get('floatingAgentPrefs', { enabled: true, x: 24, y: 120, panelOpen: false });
   });
 
   ipcMain.handle('save-floating-agent-prefs', (event, prefs = {}) => {
       const Store = require('electron-store').default || require('electron-store');
-      const store = new Store();
+      const store = new Store({ projectName: 'clyde' });
       const current = store.get('floatingAgentPrefs', { enabled: true, x: 24, y: 120, panelOpen: false });
       const next = {
           ...current,
@@ -1648,7 +2857,130 @@ function createWindow () {
       return next;
   });
 
+  ipcMain.handle('connect-google-sync', async () => {
+      assertFeature('google_sync');
+      if (!googleClient) {
+          throw new Error('Google sync is not ready.');
+      }
+      const settings = loadSettings();
+      const connectAuthSession = await getFreshAuthSession().catch(() => null);
+      const result = await googleClient.connect({
+          clientId: getGoogleOAuthClientId(),
+          clientSecret: getGoogleOAuthClientSecret(),
+          tokenEndpoint: CLYDE_GOOGLE_OAUTH_TOKEN_URL,
+          authToken: connectAuthSession?.accessToken || ''
+      });
+      saveGoogleTokens(result.tokens);
+      const nextSettings = {
+          ...settings,
+          googleAccountEmail: result.profile?.email || settings.googleAccountEmail || '',
+          googleSyncEnabled: true
+      };
+      saveSettings(nextSettings);
+      syncStore?.addAudit({
+          type: 'google-connect',
+          status: 'success',
+          message: `Connected Google account ${nextSettings.googleAccountEmail || ''}`.trim()
+      });
+      return getGoogleSyncStatus();
+  });
+
+  ipcMain.handle('disconnect-google-sync', () => {
+      const settings = loadSettings();
+      clearGoogleTokens();
+      saveSettings({
+          ...settings,
+          googleSyncEnabled: false,
+          googleAccountEmail: ''
+      });
+      syncStore?.addAudit({
+          type: 'google-disconnect',
+          status: 'success',
+          message: 'Disconnected Google sync.'
+      });
+      return getGoogleSyncStatus();
+  });
+
+  ipcMain.handle('get-google-sync-status', () => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getGoogleSyncStatus();
+      }
+      return getGoogleSyncStatus();
+  });
+
+  ipcMain.handle('get-extension-sync-status', () => {
+      return {
+          lastSync: typeof getLastExtensionSyncTime === 'function' ? getLastExtensionSyncTime() : null
+      };
+  });
+
+  ipcMain.handle('scan-google-sync', async () => {
+      assertFeature('google_sync');
+      await runGoogleSyncScan({ manual: true });
+      return {
+          status: getGoogleSyncStatus(),
+          proposals: syncStore ? syncStore.listProposals({ status: 'pending' }) : []
+      };
+  });
+
+  ipcMain.handle('list-sync-proposals', (event, filters = {}) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listSyncProposals(filters || {});
+      }
+      return syncStore ? syncStore.listProposals(filters || {}) : [];
+  });
+
+  ipcMain.handle('approve-sync-proposal', async (event, payload = {}) => {
+      assertFeature('google_sync');
+      return approveSyncProposal(payload || {});
+  });
+
+  ipcMain.handle('dismiss-sync-proposal', (event, proposalId) => {
+      return dismissSyncProposal(proposalId);
+  });
+
+  ipcMain.handle('list-sync-audit-log', (event, limit = 100) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listSyncAudit(limit);
+      }
+      return syncStore ? syncStore.listAudit(limit) : [];
+  });
+
+  ipcMain.handle('check-for-updates', async () => {
+      if (!app.isPackaged) {
+          return { status: 'error', message: 'Manual update checks are only supported in packaged production builds.' };
+      }
+      try {
+          const updater = global.activeAutoUpdater || require('electron-updater').autoUpdater;
+          log.info('Manual update check triggered.');
+          const result = await updater.checkForUpdatesAndNotify();
+          if (result && result.updateInfo) {
+              const info = result.updateInfo;
+              const hasUpdate = info.version !== app.getVersion();
+              if (hasUpdate) {
+                  return { status: 'ok', updateAvailable: true, version: info.version, message: `Update available: v${info.version}. Downloading in background...` };
+              }
+          }
+          return { status: 'ok', updateAvailable: false, message: 'You are running the latest version of Clyde.' };
+      } catch (error) {
+          log.warn(`Manual update check failed: ${error.message}`);
+          return { status: 'error', message: `Update check failed: ${error.message}` };
+      }
+  });
+
+  ipcMain.handle('mark-sync-audit-read', (event, ids = []) => {
+      if (syncStore) {
+          syncStore.markAuditRead(ids);
+          notifyDataChanged({ reason: 'google-sync-audit-read' });
+          return true;
+      }
+      return false;
+  });
+
   ipcMain.handle('list-calendar-events', () => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listCalendarEvents();
+      }
       return calendarStore ? calendarStore.listEvents() : [];
   });
 
@@ -1657,7 +2989,7 @@ function createWindow () {
           throw new Error('Calendar is not ready.');
       }
       const saved = calendarStore.saveEvent(calendarEvent || {});
-      sendSessionDataChanged({ reason: 'calendar-changed', eventId: saved.id });
+      notifyDataChanged({ reason: 'calendar-changed', eventId: saved.id });
       return saved;
   });
 
@@ -1666,7 +2998,7 @@ function createWindow () {
           return false;
       }
       const deleted = calendarStore.deleteEvent(id);
-      sendSessionDataChanged({ reason: 'calendar-changed', eventId: id });
+      notifyDataChanged({ reason: 'calendar-changed', eventId: id });
       return deleted;
   });
 
@@ -1675,12 +3007,118 @@ function createWindow () {
           return [];
       }
       const imported = calendarStore.importEvents(events);
-      sendSessionDataChanged({ reason: 'calendar-changed' });
+      notifyDataChanged({ reason: 'calendar-changed' });
       return imported;
   });
 
   ipcMain.handle('list-knowledge', (event, filters = {}) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.listKnowledge(filters || {});
+      }
       return knowledgeManager ? knowledgeManager.listKnowledge(filters || {}) : [];
+  });
+
+  ipcMain.handle('preview-meeting-session', async (event, payload = {}) => {
+      const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
+      if (!transcript.length) {
+          return buildMeetingPreviewFallback([], payload.cards || []);
+      }
+      const settings = loadSettings();
+      try {
+          const responseText = await generateChat({
+              provider: settings.llmProvider || 'local',
+              apiKey: settings.llmApiKey || '',
+              model: settings.llmModel || '',
+              temperature: 0,
+              maxTokens: 1600,
+              axiosClient: axios,
+              localUrl: settings.localLlmUrl,
+              messages: [{ role: 'user', content: buildMeetingPreviewPrompt(transcript, payload.attendees || settings.meetingAttendees || []) }],
+              jsonSchema: {
+                  name: 'meeting_session_preview',
+                  schema: {
+                      type: 'object',
+                      properties: {
+                          notes: {
+                              type: 'object',
+                              properties: {
+                                  agenda: { type: 'array', items: { type: 'string' } },
+                                  decisions: { type: 'array', items: { type: 'string' } },
+                                  actionItems: { type: 'array', items: { type: 'string' } },
+                                  blockers: { type: 'array', items: { type: 'string' } },
+                                  followUps: { type: 'array', items: { type: 'string' } },
+                                  openQuestions: { type: 'array', items: { type: 'string' } }
+                              },
+                              required: ['agenda', 'decisions', 'actionItems', 'blockers', 'followUps', 'openQuestions'],
+                              additionalProperties: false
+                          }
+                      },
+                      required: ['notes'],
+                      additionalProperties: false
+                  }
+              }
+          });
+          return normalizeMeetingPreviewResponse(responseText, transcript, payload.cards || []);
+      } catch (error) {
+          console.warn('Meeting preview failed:', error);
+          return buildMeetingPreviewFallback(transcript, payload.cards || []);
+      }
+  });
+
+  ipcMain.handle('list-question-bank', (event, filters = {}) => {
+      return questionBankManager ? questionBankManager.listEntries(filters || {}) : [];
+  });
+
+  ipcMain.handle('get-question-bank-dashboard', (event, filters = {}) => {
+      return questionBankManager ? questionBankManager.getDashboard(filters || {}) : {};
+  });
+
+  ipcMain.handle('save-question-bank-entry', async (event, entry = {}) => {
+      if (!questionBankManager) {
+          throw new Error('Question Bank is not ready.');
+      }
+      const saved = await questionBankManager.upsertEntry(entry || {}, loadSettings());
+      refreshSystemKnowledgeFromState('question-bank-saved');
+      return saved;
+  });
+
+  ipcMain.handle('delete-question-bank-entry', (event, id) => {
+      const deleted = questionBankManager ? questionBankManager.deleteEntry(id) : false;
+      refreshSystemKnowledgeFromState('question-bank-deleted');
+      return deleted;
+  });
+
+  ipcMain.handle('delete-question-bank-entries', (event, ids = []) => {
+      const deleted = questionBankManager ? questionBankManager.deleteEntries(ids) : 0;
+      refreshSystemKnowledgeFromState('question-bank-bulk-deleted');
+      return { deleted };
+  });
+
+  ipcMain.handle('bulk-update-question-bank-entries', async (event, payload = {}) => {
+      if (!questionBankManager) {
+          throw new Error('Question Bank is not ready.');
+      }
+      const saved = await questionBankManager.bulkUpdateEntries(payload || {}, loadSettings());
+      refreshSystemKnowledgeFromState('question-bank-bulk-updated');
+      return saved;
+  });
+
+  ipcMain.handle('open-question-bank-csv-dialog', async (event, filters = {}) => {
+      if (!questionBankManager) {
+          return [];
+      }
+      const result = await dialog.showOpenDialog(mainWindow, {
+          title: 'Import question bank CSV',
+          properties: ['openFile'],
+          filters: [{ name: 'CSV files', extensions: ['csv'] }]
+      });
+      if (result.canceled || !result.filePaths?.length) {
+          return [];
+      }
+      const csvText = fs.readFileSync(result.filePaths[0], 'utf8');
+      const saved = await questionBankManager.importCsvText(csvText, filters || {}, loadSettings());
+      refreshSystemKnowledgeFromState('question-bank-imported');
+      return saved;
   });
 
   ipcMain.handle('ingest-knowledge-file', async (event, filePath) => {
@@ -1691,12 +3129,137 @@ function createWindow () {
       return knowledgeManager.ingestFile(filePath, loadSettings());
   });
 
-    ipcMain.handle('upload-knowledge-to-pinecone', async (event, id) => {
+  ipcMain.handle('upload-knowledge-to-pinecone', async (event, id) => {
+        assertFeature('pinecone_sync');
         if (!knowledgeManager) {
             throw new Error('Knowledge base is not ready.');
         }
 
         return knowledgeManager.uploadToPinecone(id, loadSettings());
+    });
+
+    ipcMain.handle('generate-mock-interview-session-token', async (event, payload = {}) => {
+        assertFeature('liveavatar_mock_interviews');
+        const { opportunity } = payload;
+        const settings = loadSettings();
+        const authSession = await getFreshAuthSession();
+        if (!authSession?.accessToken) {
+            throw new Error('Sign in before starting a LiveAvatar mock interview.');
+        }
+        
+        const resumeText = settings.resumeText || '';
+        const pinnedKnowledge = knowledgeManager ? knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []) : [];
+        let opportunityKnowledge = [];
+        
+        if (knowledgeManager && opportunity?.id) {
+            opportunityKnowledge = knowledgeManager.listEntityKnowledge({ mode: 'interview', entityId: opportunity.id }) || [];
+        }
+
+        const allKnowledge = [...pinnedKnowledge, ...opportunityKnowledge];
+        const uniqueKnowledge = Array.from(new Map(allKnowledge.map(k => [k.id, k])).values());
+
+        let prompt = `Act as a senior hiring manager. Interview the candidate for the role of ${opportunity?.role || 'Software Engineer'} at ${opportunity?.name || 'the target company'}.\n\n`;
+        prompt += `Maintain a direct, professional, and analytical tone. Ask direct, probing questions about their experience, problem-solving, and domain knowledge. Do not make hiring guarantees.\n\n`;
+
+        if (resumeText) {
+            prompt += `Candidate Resume / Background:\n${resumeText}\n\n`;
+        }
+
+        if (uniqueKnowledge.length > 0) {
+            prompt += `Company & Role Information / Context:\n`;
+            for (const k of uniqueKnowledge) {
+                prompt += `--- ${k.filename || 'Document'} ---\n${k.content}\n\n`;
+            }
+        }
+
+        try {
+            const contextName = [
+                'Mock Interview',
+                opportunity?.name || 'General',
+                new Date().toISOString(),
+                Math.random().toString(16).slice(2, 8)
+            ].join(' - ');
+            const tokenRes = await axios.post(CLYDE_LIVEAVATAR_TOKEN_URL, {
+                contextName,
+                openingText: `Hello there! I'm ready to begin the interview.`,
+                prompt: [
+                    prompt,
+                    'Start with a short greeting only after the live audio and video stream is ready. Do not begin mid-sentence.'
+                ].join('\n\n').slice(0, 30000),
+                isSandbox: false
+            }, {
+                headers: {
+                    Authorization: `Bearer ${authSession.accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+
+            const sessionToken = tokenRes.data?.sessionToken;
+            if (!sessionToken) {
+                throw new Error('LiveAvatar token endpoint did not return a session token.');
+            }
+            return sessionToken;
+        } catch (error) {
+            const status = error?.response?.status || error?.status || '';
+            const message = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unknown error';
+            console.error('LiveAvatar session creation failed:', { status, message });
+            throw new Error(message === 'Unknown error' ? 'Failed to start LiveAvatar session' : message);
+        }
+    });
+
+    ipcMain.handle('generate-mock-interview-assessment', async (event, payload = {}) => {
+        assertFeature('mock_interviews');
+        if (!mockInterviewManager) {
+            throw new Error('Mock interview manager is not ready.');
+        }
+
+        console.log('Mock interview assessment requested:', {
+            turns: Array.isArray(payload?.transcript) ? payload.transcript.length : 0,
+            opportunity: payload?.opportunity?.name || 'General'
+        });
+        return mockInterviewManager.generateAssessment(payload || {}, loadSettings());
+    });
+
+    ipcMain.handle('save-mock-interview', async (event, payload = {}) => {
+        assertFeature('mock_interviews');
+        if (!mockInterviewManager) {
+            throw new Error('Mock interview manager is not ready.');
+        }
+
+        const saved = await mockInterviewManager.saveMockInterview(payload || {}, loadSettings());
+        console.log('Mock interview saved:', {
+            id: saved.id,
+            turns: Array.isArray(saved.transcript) ? saved.transcript.length : 0,
+            score: saved.assessment?.overallScore || 0
+        });
+        notifyDataChanged({
+            mode: 'interview',
+            entityId: saved.opportunity?.id,
+            reason: 'mock-interview-saved'
+        });
+        return saved;
+    });
+
+    ipcMain.handle('list-mock-interviews', () => {
+        assertFeature('mock_interviews');
+        if (demoData.isDemoMode(loadSettings())) {
+            return demoData.listMockInterviews();
+        }
+        return mockInterviewManager ? mockInterviewManager.listMockInterviews() : [];
+    });
+
+    ipcMain.handle('delete-mock-interview', async (event, id) => {
+        assertFeature('mock_interviews');
+        if (!mockInterviewManager) {
+            return false;
+        }
+
+        const deleted = await mockInterviewManager.deleteMockInterview(id, loadSettings());
+        if (deleted) {
+            notifyDataChanged({ mode: 'interview', reason: 'mock-interview-deleted' });
+        }
+        return deleted;
     });
 
     ipcMain.handle('delete-knowledge-item', async (event, id) => {
@@ -1715,12 +3278,54 @@ function createWindow () {
           pinnedKnowledgeIds
       };
       saveSettings(nextSettings);
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(nextSettings));
+      }
       return knowledgeManager ? knowledgeManager.getPinnedKnowledge(pinnedKnowledgeIds) : [];
   });
 
   ipcMain.handle('get-pinned-knowledge', () => {
       const ids = getPinnedKnowledgeIds();
       return knowledgeManager ? knowledgeManager.getPinnedKnowledge(ids) : [];
+  });
+
+  ipcMain.handle('get-call-preflight-context', async (event, context = {}) => {
+      const settings = loadSettings();
+      const nextSettings = context && context.mode
+          ? {
+              ...settings,
+              appMode: context.mode === 'meeting' ? 'meeting' : 'interview',
+              currentCompany: context.mode === 'interview' && context.entityId ? context.entityId : settings.currentCompany,
+              meetingTitle: context.mode === 'meeting' && (context.entityName || context.entityId) ? (context.entityName || context.entityId) : settings.meetingTitle,
+              includeGlobalQuestionBank: context.includeGlobalQuestionBank !== undefined ? Boolean(context.includeGlobalQuestionBank) : Boolean(settings.includeGlobalQuestionBank)
+          }
+          : settings;
+
+      await checkServiceHealth(nextSettings);
+      return buildCallPreflightContext(nextSettings);
+  });
+
+  ipcMain.handle('ingest-active-context-files', async (event, payload = {}) => {
+      if (!knowledgeManager) {
+          return [];
+      }
+
+      const settings = loadSettings();
+      const mode = payload.mode === 'meeting' ? 'meeting' : 'interview';
+      const entityId = String(payload.entityId || (mode === 'meeting' ? settings.meetingTitle : settings.currentCompany) || '').trim();
+      const entityName = String(payload.entityName || entityId || '').trim();
+      const filePaths = Array.isArray(payload.filePaths) ? payload.filePaths.filter(Boolean) : [];
+      const ingested = [];
+
+      for (const filePath of filePaths) {
+          ingested.push(await knowledgeManager.ingestFile(filePath, settings, { mode, entityId, entityName }));
+      }
+
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(settings));
+      }
+
+      return ingested;
   });
 
   ipcMain.handle('open-knowledge-file-dialog', async () => {
@@ -1746,6 +3351,94 @@ function createWindow () {
           ingested.push(await knowledgeManager.ingestFile(filePath, settings));
       }
       return ingested;
+  });
+
+  ipcMain.handle('open-resume-file-dialog', async () => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+          title: 'Import resume or background',
+          properties: ['openFile'],
+          filters: [
+              { name: 'Resume files', extensions: ['txt', 'md', 'pdf'] }
+          ]
+      });
+
+      if (result.canceled || !result.filePaths?.length) {
+          return null;
+      }
+
+      const filePath = result.filePaths[0];
+      const extension = path.extname(filePath).toLowerCase();
+      let text = '';
+      if (extension === '.pdf') {
+          const parsePdf = require('pdf-parse');
+          const parsed = await parsePdf(fs.readFileSync(filePath));
+          text = parsed.text || '';
+      } else {
+          text = fs.readFileSync(filePath, 'utf8');
+      }
+
+      return {
+          filename: path.basename(filePath),
+          text: String(text || '').trim()
+      };
+  });
+
+  ipcMain.handle('open-entity-file-dialog', async (event, context = {}) => {
+      if (!knowledgeManager) {
+          return [];
+      }
+      const mode = context.mode === 'meeting' ? 'meeting' : 'interview';
+      const entityId = String(context.entityId || '').trim();
+      if (!entityId) {
+          throw new Error('Entity is required for pinned files.');
+      }
+
+      const result = await dialog.showOpenDialog(mainWindow, {
+          title: mode === 'meeting' ? 'Add meeting files' : 'Add opportunity files',
+          properties: ['openFile', 'multiSelections'],
+          filters: [
+              { name: 'Knowledge files', extensions: ['txt', 'md', 'pdf'] }
+          ]
+      });
+
+      if (result.canceled || !result.filePaths?.length) {
+          return [];
+      }
+
+      const settings = loadSettings();
+      const ingested = [];
+      for (const filePath of result.filePaths) {
+          ingested.push(await knowledgeManager.ingestFile(filePath, settings, {
+              mode,
+              entityId,
+              entityName: context.entityName || entityId
+          }));
+      }
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(loadSettings()));
+      }
+      return ingested;
+  });
+
+  ipcMain.handle('list-entity-files', (event, context = {}) => {
+      if (!knowledgeManager?.listEntityKnowledge) {
+          return [];
+      }
+      return knowledgeManager.listEntityKnowledge({
+          mode: context.mode === 'meeting' ? 'meeting' : 'interview',
+          entityId: context.entityId || ''
+      });
+  });
+
+  ipcMain.handle('remove-entity-file', async (event, id) => {
+      if (!knowledgeManager) {
+          return false;
+      }
+      const deleted = await knowledgeManager.deleteKnowledgeItem(id, loadSettings());
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(loadSettings()));
+      }
+      return deleted;
   });
 
   ipcMain.handle('list-audio-devices', async () => {
@@ -1845,6 +3538,9 @@ function createWindow () {
   });
 
   ipcMain.handle('get-sessions', (event, filters) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getSessions(filters || {});
+      }
       return sessionManager.getSessions(filters || {});
   });
 
@@ -1865,6 +3561,9 @@ function createWindow () {
 
   ipcMain.handle('get-session-entities', (event, mode) => {
       const normalizedMode = mode || 'interview';
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getSessionEntities(normalizedMode);
+      }
       if (normalizedMode === 'interview') {
           refreshInterviewEntityConfidences();
       }
@@ -1872,6 +3571,9 @@ function createWindow () {
   });
 
   ipcMain.handle('get-outcome-calibration-summary', (event, entity = {}) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getOutcomeCalibrationSummary(entity || {});
+      }
       return buildOutcomeCalibrationSummary(entity);
   });
 
@@ -1892,6 +3594,7 @@ function createWindow () {
              entityId: record.entity.id,
              reason: 'session-saved'
          });
+         refreshSystemKnowledgeFromState('session-saved');
       }
 
       if (isInterviewSession && record.grading && record.grading.status === 'pending' && hasTranscript) {
@@ -1919,11 +3622,48 @@ function createWindow () {
               await archiveSessionKnowledge(nextRecord, settings);
           }
 
+          processQuestionBankExtractionInBackground(nextRecord, settings).catch(console.error);
           await processSessionGradingInBackground(sessionId, nextRecord, settings);
       } catch (error) {
           console.error("Transcript cleanup failed", error);
+          processQuestionBankExtractionInBackground(record, settings).catch(console.error);
           await processSessionGradingInBackground(sessionId, record, settings);
       }
+  }
+
+  async function processQuestionBankExtractionInBackground(record, settings) {
+      if (!questionBankManager || record?.mode !== 'interview' || !Array.isArray(record.transcript) || !record.transcript.length) {
+          return [];
+      }
+
+      const provider = settings.llmProvider || 'local';
+      const apiKey = settings.llmApiKey || '';
+      const model = settings.llmModel || '';
+      const localUrl = settings.localLlmUrl;
+      const jd = interviewManager?.getCompanyJobDescription?.(record.entity?.id)
+          || interviewManager?.getCompanyJobDescription?.(record.entity?.name)
+          || '';
+      const responseText = await generateChat({
+          provider,
+          apiKey,
+          model,
+          temperature: 0.1,
+          maxTokens: 3000,
+          axiosClient: axios,
+          localUrl,
+          jsonSchema: questionBankExtractionSchema(),
+          messages: [{ role: 'user', content: buildQuestionBankExtractionPrompt(record, jd) }]
+      });
+      const entries = normalizeQuestionBankExtractionResponse(responseText);
+      if (!entries.length) {
+          return [];
+      }
+      const saved = await questionBankManager.extractFromInterviewSession(record, entries, settings);
+      if (meetingAssistant) {
+          meetingAssistant.setContext(buildAssistantContext(loadSettings()));
+      }
+      notifyDataChanged({ mode: 'interview', entityId: record.entity?.id, reason: 'question-bank-updated' });
+      return saved;
   }
 
   async function processMeetingCleanupAndNotesInBackground(sessionId, record, settings) {
@@ -1995,7 +3735,7 @@ function createWindow () {
       }
 
       try {
-          console.error('Failed to parse cleaned transcript JSON:', responseText);
+          console.error('Cleaned transcript response was rejected:', responseText);
       } catch (_error) {}
 
       return null;
@@ -2098,6 +3838,14 @@ function createWindow () {
           Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
           Real outcome calibration examples are included below when Clyde has labeled local examples. Use them as local hiring-market context. Base this transcript rating on its own evidence.
 
+          You must return a valid JSON object matching this schema:
+          {
+            "transcript_rating": 4,
+            "reasoning": "**Overall assessment:** ... \\n**Evidence:** ... \\n**Risks:** ... \\n**Outlook:** ...",
+            "examples": ["example 1", "example 2"]
+          }
+          Do not wrap your output in markdown code blocks unless your provider does not support structured JSON.
+
           ${outcomeCalibrationSection}
           
           Transcript:
@@ -2108,7 +3856,7 @@ function createWindow () {
               apiKey,
               model,
               temperature: 0.2,
-              maxTokens: 1800,
+              maxTokens: 3000,
               axiosClient: axios,
               localUrl,
               jsonSchema: {
@@ -2137,7 +3885,35 @@ function createWindow () {
               }
               gradeData = JSON.parse(cleanedText);
           } catch (e) {
-              console.error("Failed to parse grading score JSON:", resultText);
+              console.error("Failed to parse grading score JSON, attempting regex recovery:", resultText);
+              
+              let cleanedText = resultText.trim();
+              
+              let rating = 3;
+              const ratingMatch = /"transcript_rating"\s*:\s*(\d+)/i.exec(cleanedText);
+              if (ratingMatch) rating = Number(ratingMatch[1]);
+
+              let reasoning = '';
+              const reasoningMatch = /"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)/i.exec(cleanedText);
+              if (reasoningMatch) {
+                  reasoning = reasoningMatch[1];
+                  if (reasoning.endsWith('\\')) reasoning = reasoning.slice(0, -1);
+                  reasoning = reasoning.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                  if (!reasoning.includes('**Outlook:**') && !reasoning.endsWith('...')) {
+                      reasoning += '... [Evaluation truncated due to length limits]';
+                  }
+              } else {
+                  reasoning = cleanedText.slice(0, 500) + '... [Raw output failed to parse as JSON]';
+              }
+
+              let examples = [];
+              const examplesMatch = /"examples"\s*:\s*\[([^\]]*)/i.exec(cleanedText);
+              if (examplesMatch) {
+                  const rawExamples = examplesMatch[1];
+                  examples = rawExamples.split(',').map(ex => ex.trim().replace(/^"|"$/g, '')).filter(Boolean);
+              }
+
+              gradeData = { transcript_rating: rating, reasoning, examples };
           }
 
           // Update record and save it
@@ -2202,6 +3978,7 @@ function createWindow () {
               entityId: nextPayload.entityId,
               reason: 'session-deleted'
           });
+          refreshSystemKnowledgeFromState('session-deleted');
           const remaining = sessionManager.getSessions({ mode: 'interview', entityId: nextPayload.entityId });
           if (remaining.length > 0) {
               processSessionConfidenceInBackground(remaining[0].entity, loadSettings()).catch(console.error);
@@ -2212,6 +3989,7 @@ function createWindow () {
                   entityId: nextPayload.entityId,
                   reason: 'confidence-reset'
               });
+              refreshSystemKnowledgeFromState('confidence-reset');
           }
       }
 
@@ -2223,14 +4001,37 @@ function createWindow () {
       if (payload && payload.mode === 'interview') {
           deleteTrendAnalysis(app.getPath('userData'), payload.entityId);
       }
+      notifyDataChanged({
+          mode: payload && payload.mode,
+          entityId: payload && payload.entityId,
+          reason: 'entity-deleted'
+      });
       return deleted;
   });
 
   ipcMain.handle('get-trend-analysis', (event, companyId) => {
+      assertFeature('trend_analysis');
+      if (demoData.isDemoMode(loadSettings())) {
+          return demoData.getTrendAnalysis(companyId);
+      }
       return loadTrendAnalysis(app.getPath('userData'), companyId);
   });
 
   ipcMain.handle('update-session-entity', (event, payload) => {
+      if (demoData.isDemoMode(loadSettings())) {
+          const nextEntity = demoData.updateEntity(
+              payload && payload.mode,
+              payload && payload.entityId,
+              payload && payload.patch
+          );
+          notifyDataChanged({
+              mode: payload && payload.mode,
+              entityId: payload && payload.entityId,
+              reason: 'entity-updated'
+          });
+          return nextEntity;
+      }
+
       const nextEntity = sessionManager.updateEntity(
           payload && payload.mode,
           payload && payload.entityId,
@@ -2249,6 +4050,11 @@ function createWindow () {
           }
       }
 
+      notifyDataChanged({
+          mode: payload && payload.mode,
+          entityId: payload && payload.entityId,
+          reason: 'entity-updated'
+      });
       return nextEntity;
   });
 
@@ -2266,16 +4072,7 @@ function createWindow () {
 
       saveSettings(nextSettings);
       if (meetingAssistant) {
-          meetingAssistant.setContext({
-              mode: nextSettings.appMode,
-              jobDescription: nextSettings.jobDescription || '',
-              resumeText: nextSettings.resumeText || '',
-              company: nextSettings.currentCompany || '',
-              role: nextSettings.currentRole || '',
-              meetingTitle: nextSettings.meetingTitle || '',
-              attendees: nextSettings.meetingAttendees || [],
-              memory: nextSettings.meetingMemory || ''
-          });
+          meetingAssistant.setContext(buildAssistantContext(nextSettings));
       }
 
       return nextSettings;
@@ -2292,47 +4089,167 @@ function createWindow () {
 
   ipcMain.handle('generate-trend-analysis', async (event, companyId, options = {}) => {
       const settings = loadSettings();
-      const allSessions = sessionManager.getSessions({ mode: 'interview', entityId: companyId });
-      if (!allSessions || allSessions.length < 2) {
-          return null;
+      requireFeature(entitlementsFromSettings(settings), 'trend_analysis');
+      if (demoData.isDemoMode(settings)) {
+          return demoData.generateTrendAnalysis(companyId, options || {});
       }
-
-      const sortedSessions = [...allSessions].reverse();
+      const allSessions = sessionManager.getSessions({ mode: 'interview', entityId: companyId });
+      const sortedSessions = Array.isArray(allSessions) ? [...allSessions].reverse() : [];
       
       const provider = settings.llmProvider || 'local';
       const apiKey = settings.llmApiKey || '';
       const model = settings.llmModel || '';
       const localUrl = settings.localLlmUrl;
 
-      const combinedTranscripts = sortedSessions.map((inv, idx) => `\n--- Interview ${idx + 1} (${inv.title || inv.phase || 'Phase ' + (idx+1)}) ---\n` + (inv.transcript || []).map(t => `${t.speaker}: ${t.text}`).join('\n')).join('\n');
-      const companyName = sortedSessions[0].entity.name || companyId;
-      const roleStr = sortedSessions[0].entity.role ? `\nRole/Job Title: ${sortedSessions[0].entity.role}` : '';
+      const activeEntity = sessionManager.getSessionEntities('interview')
+          .find((entity) => entity.id === companyId || entity.name === companyId);
+      const confidence = calculateEntityConfidence(sortedSessions, activeEntity);
+      const calculatedTrend = confidence.trend === 'neutral' ? 'sideways' : (confidence.trend || 'sideways');
+      const companyName = sortedSessions[0]?.entity?.name || activeEntity?.name || companyId;
+      const role = sortedSessions[0]?.entity?.role || activeEntity?.role || settings.currentRole || '';
+      const roleStr = role ? `\nRole/Job Title: ${role}` : '';
       const jd = interviewManager.getCompanyJobDescription(companyName) || interviewManager.getCompanyJobDescription(companyId);
       const jdStr = jd ? `\nJob Description Context:\n${jd}` : '';
+      const resumeStr = settings.resumeText ? `\nResume/Background Context:\n${settings.resumeText}` : '';
+      const opportunityFiles = knowledgeManager?.listEntityKnowledge
+          ? knowledgeManager.listEntityKnowledge({ mode: 'interview', entityId: activeEntity?.id || companyId }).slice(0, 6)
+          : [];
+      const pinnedFiles = knowledgeManager?.getPinnedKnowledge
+          ? knowledgeManager.getPinnedKnowledge(settings.pinnedKnowledgeIds || []).slice(0, 3)
+          : [];
+      const opportunityFilesStr = buildKnowledgeMaterialSection('Opportunity-specific files', opportunityFiles);
+      const pinnedFilesStr = buildKnowledgeMaterialSection('Pinned files', pinnedFiles);
+      const materialSignature = JSON.stringify({
+          companyName,
+          role,
+          jd,
+          resumeText: settings.resumeText || '',
+          opportunityFiles: opportunityFiles.map((item) => [item.id, item.updated_at, item.filename, String(item.content || '').length]),
+          pinnedFiles: pinnedFiles.map((item) => [item.id, item.updated_at, item.filename, String(item.content || '').length])
+      });
       const outcomeCalibrationSection = buildOutcomeCalibrationSection({
           id: companyId,
           name: companyName,
-          role: sortedSessions[0].entity.role || ''
+          role
       });
       const sessionsSignature = buildTrendAnalysisSessionSignature(sortedSessions);
       const persistedAnalysis = loadTrendAnalysis(app.getPath('userData'), companyId);
       const forceRegenerate = Boolean(options && options.force);
+
+      if (sortedSessions.length < 1) {
+          const prepSignature = `${sessionsSignature}::materials::${materialSignature}`;
+          if (
+              !forceRegenerate
+              && persistedAnalysis
+              && persistedAnalysis.sessionsSignature === prepSignature
+              && persistedAnalysis.sessionsCount === sortedSessions.length
+              && isMaterialPreCallPrepComplete(persistedAnalysis.analysis)
+          ) {
+              return persistedAnalysis.analysis;
+          }
+
+          const materialPrompt = `You are an expert technical recruiter preparing the user for an upcoming interview.
+Company: ${companyName}${roleStr}${jdStr}${resumeStr}${opportunityFilesStr}${pinnedFilesStr}
+
+Analyze the available job description, resume/background, and opportunity-specific files. If prior completed interviews are missing, do not invent prior interview patterns.
+
+Return prep_basis as "materials" and pre_call_prep with exactly 3 detailed bullets for each section:
+   - cumulative_phase_summary: other useful insights from the materials, including role priorities and likely evaluation criteria.
+   - probable_focus: probable interview questions or question themes to expect.
+   - interviewer_question_patterns: where your strengths align with the role requirements, using evidence from the materials.
+   - gaps_and_mitigation: where you may fall short and how to mitigate it before or during the call.
+   - questions_to_ask: useful questions you can ask the interviewer.
+Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.`;
+
+          try {
+              const response = await generateChat({
+                  provider,
+                  apiKey,
+                  model,
+                  temperature: 0.2,
+                  maxTokens: 1800,
+                  axiosClient: axios,
+                  localUrl,
+                  jsonSchema: {
+                      name: 'pre_call_material_prep',
+                      schema: {
+                          type: 'object',
+                          properties: {
+                              prep_basis: { type: 'string', enum: ['materials'] },
+                              pre_call_prep: {
+                                  type: 'object',
+                                  properties: {
+                                      cumulative_phase_summary: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      probable_focus: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      interviewer_question_patterns: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      gaps_and_mitigation: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+                                      questions_to_ask: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } }
+                                  },
+                                  required: ['cumulative_phase_summary', 'probable_focus', 'interviewer_question_patterns', 'gaps_and_mitigation', 'questions_to_ask'],
+                                  additionalProperties: false
+                              }
+                          },
+                          required: ['prep_basis', 'pre_call_prep'],
+                          additionalProperties: false
+                      }
+                  },
+                  messages: [{ role: 'user', content: materialPrompt }]
+              });
+
+              let parsed = { prep_basis: 'materials', pre_call_prep: {} };
+              try {
+                  let cleanedText = response.trim();
+                  if (cleanedText.startsWith('\`\`\`json')) cleanedText = cleanedText.replace(/^\`\`\`json/g, '').replace(/\`\`\`$/g, '').trim();
+                  else if (cleanedText.startsWith('\`\`\`')) cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
+                  parsed = JSON.parse(cleanedText);
+              } catch(e) {
+                  console.error("Failed to parse material pre-call prep:", response);
+              }
+
+              let normalized = {
+                  prep_basis: 'materials',
+                  pre_call_prep: normalizeTrendAnalysisResult({ pre_call_prep: parsed.pre_call_prep }, []).pre_call_prep
+              };
+              if (!isMaterialPreCallPrepComplete(normalized)) {
+                  normalized = buildMaterialFallbackPrep({ companyName, role, jd, resumeText: settings.resumeText || '', opportunityFiles, pinnedFiles });
+              }
+              saveTrendAnalysis(app.getPath('userData'), companyId, {
+                  sessionsCount: sortedSessions.length,
+                  sessionsSignature: prepSignature,
+                  analysis: normalized
+              });
+              return normalized;
+          } catch (err) {
+              console.error("Material pre-call prep error:", err);
+              const fallback = buildMaterialFallbackPrep({ companyName, role, jd, resumeText: settings.resumeText || '', opportunityFiles, pinnedFiles });
+              saveTrendAnalysis(app.getPath('userData'), companyId, {
+                  sessionsCount: sortedSessions.length,
+                  sessionsSignature: prepSignature,
+                  analysis: fallback
+              });
+              return fallback;
+          }
+      }
+
+      const combinedTranscripts = sortedSessions.map((inv, idx) => `\n--- Interview ${idx + 1} (${inv.title || inv.phase || 'Phase ' + (idx+1)}) ---\n` + (inv.transcript || []).map(t => `${t.speaker}: ${t.text}`).join('\n')).join('\n');
+      const hasMultipleSessions = sortedSessions.length > 1;
 
       if (
           !forceRegenerate
           && persistedAnalysis
           && persistedAnalysis.sessionsSignature === sessionsSignature
           && persistedAnalysis.sessionsCount === sortedSessions.length
-          && isTrendAnalysisComplete(persistedAnalysis.analysis, sortedSessions.length)
+          && persistedAnalysis.analysis
       ) {
           return persistedAnalysis.analysis;
       }
 
-      const prompt = `You are an expert technical recruiter analyzing a candidate's performance trend across multiple interview phases.
+      const prompt = hasMultipleSessions
+        ? `You are an expert technical recruiter analyzing a candidate's performance trend across multiple interview phases.
 Company: ${companyName}${roleStr}${jdStr}
 
 Review the transcripts of all their interviews in chronological order.
-1. Determine the overall trend direction ("up", "down", "sideways").
+1. The mathematical rating trend for these sessions is "${calculatedTrend}" (based on individual interview scores over time). Your qualitative trend direction in the "trend" key must be "${calculatedTrend}", and your executive summary and phase-by-phase observations should qualitatively explain and detail this direction.
 2. Provide a structured deep dive analysis explaining EXACTLY what caused the trend (up, down, or sideways) from phase to phase. Include an executive summary, key strengths, areas for improvement, and a phase-by-phase observation. Cite specific examples.
 3. Return exactly ${sortedSessions.length} phase breakdown entries, one for each interview below, in the same chronological order.
 4. Return pre_call_prep with exactly 3 detailed bullets for each prep section:
@@ -2343,9 +4260,64 @@ Review the transcripts of all their interviews in chronological order.
 Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
 Real outcome calibration examples are included below when Clyde has labeled local examples. Use them when judging whether the trend resembles prior rejected, advanced, or offer outcomes.
 
+You must return a valid JSON object matching this schema:
+{
+  "trend": "${calculatedTrend}",
+  "executive_summary": "Your detailed executive summary...",
+  "key_strengths": ["strength 1", "strength 2"],
+  "areas_for_improvement": ["area 1", "area 2"],
+  "phase_breakdown": [
+    { "phase": "Interview #1", "observation": "Your detailed phase 1 observation..." }
+  ],
+  "pre_call_prep": {
+    "cumulative_phase_summary": ["bullet 1", "bullet 2", "bullet 3"],
+    "probable_focus": ["bullet 1", "bullet 2", "bullet 3"],
+    "interviewer_question_patterns": ["bullet 1", "bullet 2", "bullet 3"],
+    "questions_to_ask": ["bullet 1", "bullet 2", "bullet 3"]
+  }
+}
+Do not wrap your output in markdown code blocks unless your provider does not support structured JSON.
+
 ${outcomeCalibrationSection}
 
 Transcripts:
+${combinedTranscripts}`
+        : `You are an expert technical recruiter analyzing a candidate's baseline interview performance from one saved interview session.
+Company: ${companyName}${roleStr}${jdStr}
+
+Review the transcript and grading evidence for this single interview.
+1. The mathematical baseline trend for this session is "${calculatedTrend}". You must output this exact trend ("${calculatedTrend}") under the "trend" key in your JSON, and your baseline analysis should qualitatively explain what this interview currently proves.
+2. Provide a structured baseline analysis explaining what the interview currently proves, what remains unproven, key strengths, and areas for improvement. Cite specific examples.
+3. Return exactly 1 phase breakdown entry for the interview below.
+4. Return pre_call_prep with exactly 3 detailed bullets for each prep section:
+   - cumulative_phase_summary: a baseline summary of the saved interview and where you currently stand.
+   - probable_focus: likely next-round focus areas based on this transcript and the job context.
+   - interviewer_question_patterns: actual patterns/themes from the interviewer questions in this transcript.
+   - questions_to_ask: useful questions you can ask in the next round.
+Address the user directly as "you". Do not call the user "the candidate" or use third-person pronouns like he, she, his, or her for the user.
+Real outcome calibration examples are included below when Clyde has labeled local examples. Use them when judging whether the baseline resembles prior rejected, advanced, or offer outcomes.
+
+You must return a valid JSON object matching this schema:
+{
+  "trend": "${calculatedTrend}",
+  "executive_summary": "Your detailed executive summary...",
+  "key_strengths": ["strength 1", "strength 2"],
+  "areas_for_improvement": ["area 1", "area 2"],
+  "phase_breakdown": [
+    { "phase": "Interview #1", "observation": "Your detailed phase 1 observation..." }
+  ],
+  "pre_call_prep": {
+    "cumulative_phase_summary": ["bullet 1", "bullet 2", "bullet 3"],
+    "probable_focus": ["bullet 1", "bullet 2", "bullet 3"],
+    "interviewer_question_patterns": ["bullet 1", "bullet 2", "bullet 3"],
+    "questions_to_ask": ["bullet 1", "bullet 2", "bullet 3"]
+  }
+}
+Do not wrap your output in markdown code blocks unless your provider does not support structured JSON.
+
+${outcomeCalibrationSection}
+
+Transcript:
 ${combinedTranscripts}`;
 
       try {
@@ -2354,7 +4326,7 @@ ${combinedTranscripts}`;
               apiKey,
               model,
               temperature: 0.2,
-              maxTokens: 2600,
+              maxTokens: 4000,
               axiosClient: axios,
               localUrl,
               jsonSchema: {
@@ -2423,7 +4395,63 @@ ${combinedTranscripts}`;
               else if (cleanedText.startsWith('\`\`\`')) cleanedText = cleanedText.replace(/^\`\`\`/g, '').replace(/\`\`\`$/g, '').trim();
               parsed = JSON.parse(cleanedText);
           } catch(e) {
-              console.error("Failed to parse trend analysis:", response);
+              console.error("Failed to parse trend analysis, attempting regex recovery:", response);
+              
+              let cleanedText = response.trim();
+              
+              let trend = 'sideways';
+              const trendMatch = /"trend"\s*:\s*"([^"]+)"/i.exec(cleanedText);
+              if (trendMatch) trend = trendMatch[1];
+
+              let execSummary = '';
+              const execMatch = /"executive_summary"\s*:\s*"((?:[^"\\]|\\.)*)/i.exec(cleanedText);
+              if (execMatch) {
+                  execSummary = execMatch[1];
+                  if (execSummary.endsWith('\\')) execSummary = execSummary.slice(0, -1);
+                  execSummary = execSummary.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                  if (!execSummary.endsWith('...')) execSummary += '... [Truncated]';
+              } else {
+                  execSummary = cleanedText.slice(0, 500) + '... [Raw output failed to parse as JSON]';
+              }
+
+              let keyStrengths = [];
+              const strengthsMatch = /"key_strengths"\s*:\s*\[([^\]]*)/i.exec(cleanedText);
+              if (strengthsMatch) {
+                  const rawStrengths = strengthsMatch[1];
+                  keyStrengths = rawStrengths.split(',').map(ex => ex.trim().replace(/^"|"$/g, '')).filter(Boolean);
+              }
+
+              let areasForImprovement = [];
+              const areasMatch = /"areas_for_improvement"\s*:\s*\[([^\]]*)/i.exec(cleanedText);
+              if (areasMatch) {
+                  const rawAreas = areasMatch[1];
+                  areasForImprovement = rawAreas.split(',').map(ex => ex.trim().replace(/^"|"$/g, '')).filter(Boolean);
+              }
+
+              let phaseBreakdown = [];
+              const matches = [...cleanedText.matchAll(/\{\s*"phase"\s*:\s*"([^"]+)"\s*,\s*"observation"\s*:\s*"([^"]+)"/gi)];
+              for (const match of matches) {
+                  phaseBreakdown.push({ phase: match[1], observation: match[2].replace(/\\n/g, '\n').replace(/\\"/g, '"') });
+              }
+
+              if (phaseBreakdown.length === 0) {
+                  const looseMatches = [...cleanedText.matchAll(/"observation"\s*:\s*"((?:[^"\\]|\\.)*)/gi)];
+                  looseMatches.forEach((match, idx) => {
+                      let obs = match[1];
+                      if (obs.endsWith('\\')) obs = obs.slice(0, -1);
+                      obs = obs.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                      phaseBreakdown.push({ phase: `Interview #${idx + 1}`, observation: obs });
+                  });
+              }
+
+              parsed = {
+                  trend,
+                  executive_summary: execSummary,
+                  key_strengths: keyStrengths.length > 0 ? keyStrengths : ['Demonstrates professional support engineering experience.'],
+                  areas_for_improvement: areasForImprovement.length > 0 ? areasForImprovement : ['Continue practicing technical depth on complex systems.'],
+                  phase_breakdown: phaseBreakdown,
+                  pre_call_prep: {}
+              };
           }
           const normalized = normalizeTrendAnalysisResult(parsed, sortedSessions);
           saveTrendAnalysis(app.getPath('userData'), companyId, {
@@ -2497,9 +4525,23 @@ ${jobDescription}`;
       }
   });
 
+  const rendererIndex = path.join(__dirname, 'src', 'renderer-dist', 'index.html');
+  const legacyRendererIndex = path.join(__dirname, 'src', 'index.html');
+  const filePath = fs.existsSync(rendererIndex) ? rendererIndex : legacyRendererIndex;
+  log.info(`📄 Loading renderer from: ${filePath}`);
+  mainWindow.loadFile(filePath);
+
+  // Initialize pre-maximized bounds
+  if (mainWindow) {
+      appWindowPreMaximizedBounds = mainWindow.getBounds();
+  }
+
   mainWindow.on('resized', () => {
       if (activeCaptureWindow && !activeCaptureMinimized && !suppressActiveBoundsSave && mainWindow) {
           saveActiveCaptureBounds(mainWindow.getBounds());
+      }
+      if (mainWindow && !mainWindow.isMaximized()) {
+          appWindowPreMaximizedBounds = mainWindow.getBounds();
       }
   });
 
@@ -2507,6 +4549,27 @@ ${jobDescription}`;
       if (activeCaptureWindow && !activeCaptureMinimized && !suppressActiveBoundsSave && mainWindow) {
           saveActiveCaptureBounds(mainWindow.getBounds());
       }
+      if (mainWindow && !mainWindow.isMaximized()) {
+          appWindowPreMaximizedBounds = mainWindow.getBounds();
+      }
+  });
+
+  mainWindow.on('maximize', () => {
+      isMaximizedState = true;
+      mainWindow.webContents.send('app-window-maximized-state-change', true);
+  });
+
+  mainWindow.on('unmaximize', () => {
+      isMaximizedState = false;
+      if (appWindowPreMaximizedBounds) {
+          suppressAppBoundsSave = true;
+          mainWindow.setBounds(appWindowPreMaximizedBounds);
+          appWindowPreMaximizedBounds = null;
+          setTimeout(() => {
+              suppressAppBoundsSave = false;
+          }, 250);
+      }
+      mainWindow.webContents.send('app-window-maximized-state-change', false);
   });
 
   mainWindow.on('closed', () => {
@@ -2522,24 +4585,84 @@ ${jobDescription}`;
 }
 
 function getAppIconPath() {
+  const isWin = process.platform === 'win32';
+  const iconName = isWin ? 'icon.ico' : 'icon.png';
   const candidates = app.isPackaged
     ? [
+        path.join(process.resourcesPath, iconName),
         path.join(process.resourcesPath, 'icon.png'),
+        path.join(__dirname, 'build', iconName),
         path.join(__dirname, 'build', 'icon.png')
       ]
     : [
+        path.join(__dirname, 'build', iconName),
         path.join(__dirname, 'build', 'icon.png'),
-        path.join(__dirname, 'clyde_ghost.svg')
+        path.join(__dirname, 'clyde-plus-ghost-pro.svg'),
+        path.join(__dirname, 'clydepro.svg'),
+        path.join(__dirname, 'clyde-plus-ghost-free.svg'),
+        path.join(__dirname, 'clydefree.svg')
       ];
 
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
 
+let wasZoomRunning = null;
+let processMonitorInterval = null;
+
+function startProcessMonitoring() {
+    if (processMonitorInterval) {
+        clearInterval(processMonitorInterval);
+    }
+    
+    const checkZoom = () => {
+        if (process.platform !== 'win32') {
+            return;
+        }
+
+        exec('tasklist /FI "IMAGENAME eq zoom.exe" /NH', (err, stdout) => {
+            if (err) return;
+            const isRunning = !!(stdout && stdout.toLowerCase().includes('zoom.exe'));
+            
+            if (wasZoomRunning === null) {
+                // Initial check on startup: establish baseline state
+                wasZoomRunning = isRunning;
+            } else if (isRunning && !wasZoomRunning) {
+                // Transition from not running to running
+                wasZoomRunning = true;
+                if (!audioCaptureRunning) {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('zoom-detected');
+                    }
+                }
+            } else {
+                wasZoomRunning = isRunning;
+            }
+        });
+    };
+
+    // Run immediately to establish baseline
+    checkZoom();
+
+    // Check every 5 seconds
+    processMonitorInterval = setInterval(checkZoom, 5000);
+}
+
 app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+        app.setAppUserModelId('com.clyde.app');
+    }
+    syncAndMigrateSecrets();
     configureElectronStorage();
     createWindow();
+    startProcessMonitoring();
+    
+    // Background re-verify entitlements on boot to prevent stale local cache degrade to Free
+    refreshEntitlements().catch(err => {
+        log.error('Failed to auto-refresh entitlements on boot:', err.message);
+    });
 
-    startAutoUpdater({
+    global.activeAutoUpdater = startAutoUpdater({
+        enabled: true,
         isPackaged: app.isPackaged,
         logger: log
     });
@@ -2550,6 +4673,15 @@ app.on('window-all-closed', () => {
     stopAudioLevelTest();
     stopLiveAudioLevels();
     stopAudioCaptures();
+    if (googleSyncTimer) {
+        clearInterval(googleSyncTimer);
+        googleSyncTimer = null;
+    }
+    if (processMonitorInterval) {
+        clearInterval(processMonitorInterval);
+        processMonitorInterval = null;
+    }
+    stopExtensionServer();
     app.quit();
   }
 });
@@ -2570,28 +4702,54 @@ ipcMain.handle('minimize-app-window', async () => {
     return minimizeAppWindow();
 });
 
-ipcMain.handle('maximize-app-window', async () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-        return false;
-    }
+  ipcMain.handle('is-app-window-maximized', async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+          return false;
+      }
+      return mainWindow.isMaximized();
+  });
 
-    if (appWindowMinimized) {
-        restoreAppWindowBounds();
-    }
-    if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-    }
-    if (!mainWindow.isVisible()) {
-        mainWindow.show();
-    }
-    if (typeof mainWindow.setMinimumSize === 'function') {
-        mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
-    }
-    mainWindow.setResizable(true);
-    mainWindow.maximize();
-    mainWindow.focus();
-    return true;
-});
+  ipcMain.handle('maximize-app-window', async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+          return false;
+      }
+
+      if (appWindowMinimized) {
+          restoreAppWindowBounds();
+      }
+      if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+      }
+      if (!mainWindow.isVisible()) {
+          mainWindow.show();
+      }
+      
+      if (mainWindow.isMaximized() || isMaximizedState) {
+          mainWindow.unmaximize();
+          isMaximizedState = false;
+          if (appWindowPreMaximizedBounds) {
+              suppressAppBoundsSave = true;
+              mainWindow.setBounds(appWindowPreMaximizedBounds);
+              appWindowPreMaximizedBounds = null;
+              setTimeout(() => {
+                  suppressAppBoundsSave = false;
+              }, 250);
+          }
+          mainWindow.webContents.send('app-window-maximized-state-change', false);
+          return false;
+      } else {
+          if (typeof mainWindow.setMinimumSize === 'function') {
+              mainWindow.setMinimumSize(ACTIVE_CAPTURE_MIN_WIDTH, ACTIVE_CAPTURE_MIN_HEIGHT);
+          }
+          mainWindow.setResizable(true);
+          appWindowPreMaximizedBounds = mainWindow.getBounds();
+          mainWindow.maximize();
+          isMaximizedState = true;
+          mainWindow.focus();
+          mainWindow.webContents.send('app-window-maximized-state-change', true);
+          return true;
+      }
+  });
 
 ipcMain.handle('hide-app', async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2675,3 +4833,87 @@ ipcMain.handle('move-active-capture-window', async (event, bounds = {}) => {
 
     return true;
 });
+
+function registerAllGlobalShortcuts(settings) {
+    try {
+        globalShortcut.unregisterAll();
+    } catch (err) {
+        log.warn(`globalShortcut.unregisterAll failed: ${err.message}`);
+    }
+
+    const shortcuts = [
+        { key: 'nudgeHotkey', channel: 'trigger-nudge' },
+        { key: 'toggleCaptureProtectionHotkey', action: () => {
+            const currentSettings = loadSettings();
+            const enabled = !currentSettings.captureProtectionEnabled;
+            currentSettings.captureProtectionEnabled = enabled;
+            saveSettings(currentSettings);
+            applyCaptureProtection(currentSettings);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('settings-updated', currentSettings);
+            }
+        }},
+        { key: 'toggleStealthTaskbarHotkey', action: () => {
+            const currentSettings = loadSettings();
+            const enabled = !currentSettings.hideTaskbarEnabled;
+            currentSettings.hideTaskbarEnabled = enabled;
+            saveSettings(currentSettings);
+            if (mainWindow && typeof mainWindow.setSkipTaskbar === 'function') {
+                mainWindow.setSkipTaskbar(enabled);
+            }
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('settings-updated', currentSettings);
+            }
+        }},
+        { key: 'toggleMinMaxHotkey', action: () => {
+            toggleMinMaxWindow();
+        }},
+        { key: 'screenshotAskHotkey', channel: 'trigger-screenshot-ask' },
+        { key: 'suggestedQuestionsHotkey', channel: 'trigger-suggested-questions' },
+        { key: 'endCallHotkey', channel: 'trigger-end-call' }
+    ];
+
+    for (const item of shortcuts) {
+        const val = settings[item.key];
+        if (val) {
+            try {
+                globalShortcut.register(val, () => {
+                    log.info(`Global hotkey triggered: ${item.key} (${val})`);
+                    if (item.action) {
+                        item.action();
+                    } else if (item.channel && mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send(item.channel);
+                    }
+                });
+            } catch (error) {
+                log.error(`Failed to register global hotkey for ${item.key} (${val}): ${error.message}`);
+            }
+        }
+    }
+}
+
+function toggleMinMaxWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    
+    if (activeCaptureWindow) {
+        const minimized = !activeCaptureMinimized;
+        activeCaptureMinimized = minimized;
+        mainWindow.webContents.send('app-window-minimized-state-change', minimized);
+        return;
+    }
+    
+    if (appWindowMinimized || mainWindow.isMinimized()) {
+        restoreAppWindowBounds();
+        appWindowMinimized = false;
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('app-window-minimized-state-change', false);
+    } else {
+        minimizeAppWindow();
+        mainWindow.webContents.send('app-window-minimized-state-change', true);
+    }
+}
+

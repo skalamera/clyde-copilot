@@ -1,5 +1,5 @@
 function transcriptToText(transcript = []) {
-  return transcript.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n');
+  return transcript.map((turn) => `${speakerName(turn)}: ${turn.text}`).join('\n');
 }
 
 function buildTranscriptCleanupPrompt(transcript = []) {
@@ -35,6 +35,10 @@ function normalizeCleanedTranscriptResponse(responseText, originalTranscript = [
   return cleaned;
 }
 
+function speakerName(turn = {}) {
+  return String(turn.speaker || turn.role || 'Unknown').trim();
+}
+
 function parseCleanupResponse(responseText) {
   try {
     let cleanedText = String(responseText || '').trim();
@@ -61,11 +65,27 @@ function hasEnoughTranscriptContent(originalTranscript = [], cleanedTranscript =
     return cleanedLength > 0;
   }
 
-  return cleanedLength >= Math.max(60, Math.floor(originalLength * 0.45));
+  // Lowered threshold from 0.45 to 0.30 to allow highly successful deep cleanups of noisy/repetitive transcripts.
+  if (cleanedLength >= Math.max(60, Math.floor(originalLength * 0.30))) {
+    return true;
+  }
+
+  const originalTurns = substantiveTurnCount(originalTranscript);
+  const cleanedTurns = substantiveTurnCount(cleanedTranscript);
+  // Lowered threshold from 0.35 to 0.25 to prevent false rejection of long cleaned-up transcripts.
+  if (originalTurns >= 8 && cleanedTurns >= Math.max(6, Math.floor(originalTurns * 0.25))) {
+    return true;
+  }
+
+  return false;
 }
 
 function transcriptContentLength(transcript = []) {
   return transcript.reduce((total, turn) => total + String(turn.text || '').trim().length, 0);
+}
+
+function substantiveTurnCount(transcript = []) {
+  return transcript.filter((turn) => String(turn.text || '').trim().length >= 20).length;
 }
 
 module.exports = {

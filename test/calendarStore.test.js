@@ -44,3 +44,18 @@ test('calendar store imports renderer localStorage events once', () => {
   assert.equal(importedAgain.length, 1);
   assert.equal(store.listEvents()[0].title, 'Imported');
 });
+
+test('calendar store derives meeting color immediately on save', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clyde-calendar-color-'));
+  const store = createCalendarStore({ appPath: tempDir });
+
+  const saved = store.saveEvent({
+    title: 'Weekly Sync',
+    date: '2026-05-22T15:00:00.000Z',
+    associationMode: 'meeting',
+    color: '#00e5ff'
+  });
+
+  assert.equal(saved.color, '#00ffaa');
+  assert.equal(store.listEvents()[0].color, '#00ffaa');
+});

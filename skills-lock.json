@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "skills": {
+    "liveavatar-debug": {
+      "source": "heygen-com/liveavatar-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/liveavatar-debug/SKILL.md",
+      "computedHash": "29f623cd44f5c1711e5e8b9e127443e78f803c1d3e24fd06e1d758266f69e2fd"
+    },
+    "liveavatar-integrate": {
+      "source": "heygen-com/liveavatar-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/liveavatar-integrate/SKILL.md",
+      "computedHash": "7cb21511dea88d456a71a5a5ccc839705d5a5b6321aa197eed16cd84c418d0f3"
+    },
+    "stripe-best-practices": {
+      "source": "docs.stripe.com",
+      "sourceType": "well-known",
+      "computedHash": "ebb2e9db3019ae01a8e5f77f7e71c05d3ecdfd9f72dc714542453ae31741aade"
+    },
+    "stripe-projects": {
+      "source": "docs.stripe.com",
+      "sourceType": "well-known",
+      "computedHash": "5f82f044d22f5d23b5ddd8cf0370d173e05d9d82345176e388eb49deeac3af0e"
+    },
+    "upgrade-stripe": {
+      "source": "docs.stripe.com",
+      "sourceType": "well-known",
+      "computedHash": "df1c52c17aff54490e81e98979f302564988fbddaaf59e74c2d1bd4b103a7d2e"
+    }
+  }
+}

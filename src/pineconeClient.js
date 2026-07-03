@@ -2,6 +2,54 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Pinecone } = require('@pinecone-database/pinecone');
 const axios = require('axios');
 
+async function retryWithBackoff(fn, retries = 3, delay = 1000) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries <= 0) {
+      throw error;
+    }
+    const isRateLimit = error.status === 429 || 
+                        (error.message && error.message.includes('429')) || 
+                        (error.response && error.response.status === 429);
+    
+    if (isRateLimit) {
+      console.warn(`[Embedding] Rate limit hit (429). Retrying in ${delay}ms... (${retries} retries left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return retryWithBackoff(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
+async function getCloudManagedFallback(text, options = {}) {
+  try {
+    const Store = require('electron-store').default || require('electron-store');
+    const store = new Store({ projectName: 'clyde' });
+    const accessToken = store.get('authAccessToken', '');
+    
+    if (accessToken) {
+      const client = options.axiosClient || axios;
+      const baseUrl = process.env.CLYDE_API_BASE_URL || 'https://clydeai.live/api';
+      const response = await client.post(`${baseUrl.replace(/\/$/, '')}/proxy?type=embed`, {
+        text
+      }, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      });
+      if (response.data && Array.isArray(response.data.embedding)) {
+        return response.data.embedding;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to retrieve cloud-managed embedding fallback:', e.message);
+  }
+  return null;
+}
+
 async function getEmbedding(text, options = {}) {
   const resolved = options.provider
     ? {
@@ -11,45 +59,72 @@ async function getEmbedding(text, options = {}) {
       }
     : resolveEmbeddingConfig(options);
   const provider = resolved.provider || 'gemini';
-  const apiKey = resolved.apiKey || process.env.GEMINI_API_KEY;
+  let apiKey = resolved.apiKey || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
+    const fallbackEmbedding = await getCloudManagedFallback(text, options);
+    if (fallbackEmbedding) {
+      return fallbackEmbedding;
+    }
+
     console.warn(`${provider.toUpperCase()} embedding API key is not set, skipping embedding generation`);
     return [];
   }
 
   if (provider === 'openai') {
     const client = options.axiosClient || axios;
-    const response = await client.post('https://api.openai.com/v1/embeddings', {
-      model: resolved.model || 'text-embedding-3-small',
-      input: text
-    }, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    try {
+      const response = await retryWithBackoff(async () => {
+        return await client.post('https://api.openai.com/v1/embeddings', {
+          model: resolved.model || 'text-embedding-3-small',
+          input: text
+        }, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }, 3, 1000);
 
-    return response.data?.data?.[0]?.embedding || [];
+      return response.data?.data?.[0]?.embedding || [];
+    } catch (err) {
+      console.error('[Embedding] OpenAI embedding failed, attempting Clyde Managed Cloud fallback...', err.message);
+      const fallbackEmbedding = await getCloudManagedFallback(text, options);
+      if (fallbackEmbedding) {
+        return fallbackEmbedding;
+      }
+      return [];
+    }
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const embeddingModel = genAI.getGenerativeModel({ model: resolved.model || "gemini-embedding-2" });
-  const result = await embeddingModel.embedContent(text);
-  return result.embedding.values;
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const embeddingModel = genAI.getGenerativeModel({ model: resolved.model || "gemini-embedding-2" });
+    
+    const result = await retryWithBackoff(async () => {
+      return await embeddingModel.embedContent(text);
+    }, 3, 1000);
+
+    return result.embedding.values;
+  } catch (err) {
+    console.error('[Embedding] Gemini embedding failed, attempting Clyde Managed Cloud fallback...', err.message);
+    const fallbackEmbedding = await getCloudManagedFallback(text, options);
+    if (fallbackEmbedding) {
+      return fallbackEmbedding;
+    }
+    return [];
+    }
 }
 
 function resolveEmbeddingConfig(settings = {}) {
-  const provider = settings.embeddingProvider === 'openai' ? 'openai' : 'gemini';
-  const defaultModel = provider === 'openai' ? 'text-embedding-3-small' : 'gemini-embedding-2';
   const apiKey = settings.embeddingApiKey
-    || (provider === 'openai'
-      ? (settings.llmApiKey || process.env.OPENAI_API_KEY || '')
-      : (settings.geminiApiKey || process.env.GEMINI_API_KEY || ''));
+    || settings.geminiApiKey
+    || process.env.GEMINI_API_KEY
+    || '';
 
   return {
-    provider,
-    model: settings.embeddingModel || defaultModel,
+    provider: 'gemini',
+    model: 'gemini-embedding-2',
     apiKey
   };
 }
@@ -77,6 +152,10 @@ async function searchResumeVectors(queryText, topK = 3) {
   // We'll use the native fetch directly against the host to ensure it hits your specific cluster.
 
   const vector = await getEmbedding(queryText);
+  if (!vector || vector.length === 0) {
+    console.warn("[RAG] Empty embedding vector returned (possibly offline). Skipping Pinecone query.");
+    return [];
+  }
 
   const response = await axios.post(`${pineconeHost}/query`, {
     vector,
@@ -124,6 +203,7 @@ async function upsertKnowledgeChunks({
 
   const embeddingConfig = resolveEmbeddingConfig(settings);
   const vectors = [];
+  const sharedMetadata = sanitizePineconeMetadata(knowledgeItem.metadata || {});
 
   for (let index = 0; index < cleanChunks.length; index += 1) {
     const text = cleanChunks[index];
@@ -139,7 +219,7 @@ async function upsertKnowledgeChunks({
       id: `${knowledgeItem.id}:chunk:${index}`,
       values: vector,
       metadata: {
-        ...(knowledgeItem.metadata || {}),
+        ...sharedMetadata,
         knowledgeId: knowledgeItem.id,
         filename: knowledgeItem.filename || '',
         source: knowledgeItem.filename || knowledgeItem.file_path || 'knowledge',
@@ -186,31 +266,61 @@ async function searchKnowledgeVectors(queryText, settings = {}, options = {}) {
   }
 
   const client = options.axiosClient || axios;
-  const response = await client.post(`${config.host}/query`, {
-    vector,
-    topK: options.topK || 5,
-    includeMetadata: true,
-    namespace: config.namespace,
-    ...(options.filter ? { filter: options.filter } : {})
-  }, {
-    headers: {
-      'Api-Key': config.apiKey,
-      'Content-Type': 'application/json'
-    }
-  });
+  try {
+    const response = await client.post(`${config.host}/query`, {
+      vector,
+      topK: options.topK || 5,
+      includeMetadata: true,
+      namespace: config.namespace,
+      ...(options.filter ? { filter: options.filter } : {})
+    }, {
+      headers: {
+        'Api-Key': config.apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
 
-  return (response.data?.matches || []).map((match) => ({
-    score: match.score,
-    text: match.metadata?.text || '',
-    source: match.metadata?.source || match.metadata?.filename || 'knowledge',
-    knowledgeId: match.metadata?.knowledgeId || '',
-    type: match.metadata?.type || '',
-    metadata: match.metadata || {}
-  }));
+    return (response.data?.matches || []).map((match) => ({
+      score: match.score,
+      text: match.metadata?.text || '',
+      source: match.metadata?.source || match.metadata?.filename || 'knowledge',
+      knowledgeId: match.metadata?.knowledgeId || '',
+      type: match.metadata?.type || '',
+      metadata: match.metadata || {}
+    }));
+  } catch (error) {
+    console.error('[Pinecone] Search query failed:', error.response?.data || error.message);
+    return [];
+  }
 }
 
 function normalizeHost(host) {
   return String(host || '').replace(/\/+$/, '');
+}
+
+function sanitizePineconeMetadata(metadata = {}) {
+  const result = {};
+  const entries = metadata && typeof metadata === 'object' ? Object.entries(metadata) : [];
+
+  for (const [key, value] of entries) {
+    if (!key) {
+      continue;
+    }
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      result[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      const values = value
+        .map((item) => (item == null ? '' : String(item).trim()))
+        .filter(Boolean);
+      if (values.length) {
+        result[key] = values;
+      }
+    }
+  }
+
+  return result;
 }
 
 async function detectResumeQuestion(transcript) {
@@ -278,7 +388,7 @@ function extractLikelyInterviewQuestion(transcript) {
   const candidates = getLatestInterviewQuestionCandidates(transcript);
 
   for (const candidate of candidates) {
-    if (isCompleteQuestion(candidate) && isLikelyInterviewQuestionText(candidate)) {
+    if ((isCompleteQuestion(candidate) || isLikelyCompleteAsrQuestion(candidate)) && isLikelyInterviewQuestionText(candidate)) {
       return candidate;
     }
   }
@@ -298,7 +408,7 @@ function getLatestInterviewQuestionCandidates(transcript) {
   for (let endIndex = recentNonUserTurns.length - 1; endIndex >= 0; endIndex -= 1) {
     const maxWindow = Math.min(5, endIndex + 1);
 
-    for (let size = 1; size <= maxWindow; size += 1) {
+    for (let size = maxWindow; size >= 1; size -= 1) {
       const fragments = recentNonUserTurns
         .slice(endIndex - size + 1, endIndex + 1)
         .map((turn) => turn.text);
@@ -372,11 +482,19 @@ function mergeFragmentBoundary(left, right) {
   const maxOverlap = Math.min(6, leftWords.length, rightWords.length);
 
   for (let size = maxOverlap; size > 0; size -= 1) {
-    const leftTail = leftWords.slice(-size).join(' ').toLowerCase();
-    const rightHead = rightWords.slice(0, size).join(' ').toLowerCase();
+    const leftTail = leftWords.slice(-size).join(' ').replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const rightHead = rightWords.slice(0, size).join(' ').replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 
-    if (leftTail === rightHead) {
-      return [...leftWords, ...rightWords.slice(size)].join(' ');
+    if (leftTail === rightHead && leftTail !== '') {
+      const leftPart = leftWords.slice(0, leftWords.length - size).join(' ');
+      const rightPart = rightWords.slice(size).join(' ');
+      const hasQMark = /\?\s*$/.test(left) || /\?\s*$/.test(right);
+      const hasPeriod = /[.!]\s*$/.test(left) || /[.!]\s*$/.test(right);
+      const cleanRightPart = rightPart.replace(/[?.!]\s*$/, '');
+      const separator = leftPart && cleanRightPart ? ' ' : '';
+      const combinedOverlap = leftWords.slice(-size).join(' ').replace(/\?/g, '');
+      const finalPunct = hasQMark ? '?' : hasPeriod ? '.' : '';
+      return `${leftPart}${separator}${combinedOverlap} ${cleanRightPart}${finalPunct}`.trim().replace(/\s+/g, ' ');
     }
   }
 
@@ -385,7 +503,7 @@ function mergeFragmentBoundary(left, right) {
 
 function splitQuestionishSegments(text) {
   return cleanQuestionText(text)
-    .split(/(?<=\?)\s+|(?<=\.)\s+(?=(?:can|could|would|what|why|how|tell|walk|if)\b)/i)
+    .split(/(?<=\?)\s+|(?<=\.)\s+(?=(?:can|could|would|what|why|how|if)\b)/i)
     .map(cleanQuestionText)
     .filter(Boolean);
 }
@@ -433,12 +551,55 @@ function isCompleteQuestion(text) {
     return true;
   }
 
+  if (hasCompleteInterviewPromptCue(clean) && /[.!]\s*$/.test(clean)) {
+    return true;
+  }
+
   return /^(can|could|would|what|why|how|tell|walk|if)\b/i.test(clean)
     && /[.!]\s*$/.test(clean);
 }
 
+function isLikelyCompleteAsrQuestion(text) {
+  const normalized = cleanQuestionText(text).toLowerCase();
+
+  if (/[?.!]\s*$/.test(normalized) || normalized.length < 45) {
+    return false;
+  }
+
+  return [
+    /\bhave you had\b.*\b(gen ai|generative ai|automation)\b.*\b(customer support|support workflows|workflows)\b/,
+    /\bwalk me through\b.*\bprocess\b.*\b(downstream|systems|teams|effects|impact)\b/,
+    /\btalk me through\b.*\bprocess\b.*\b(downstream|systems|teams|effects|impact)\b/
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function hasCompleteInterviewPromptCue(text) {
+  const normalized = cleanQuestionText(text).toLowerCase();
+
+  return [
+    /\bwalk me through\b/,
+    /\btalk me through\b/,
+    /\btell me about a time\b/,
+    /\bcan you tell me about a time\b/,
+    /\bcan you describe a time\b/,
+    /\bdescribe a time\b/,
+    /\bshare an example\b/,
+    /\bgive me an example\b/,
+    /\bhave you had (an )?experience\b/,
+    /\bhow do you evaluate\b/,
+    /\bwhat'?s your process\b/,
+    /\bwhat is your process\b/,
+    /\bhow did you navigate\b/
+  ].some((pattern) => pattern.test(normalized));
+}
+
 function isLikelyInterviewQuestionText(text) {
   const normalized = cleanQuestionText(text).toLowerCase();
+
+  if (/\b(i have|i've got|i will|i'll)\b.*\bquestions\b/.test(normalized)
+    || /\blooking for\b.*\b(specific )?examples\b/.test(normalized)) {
+    return false;
+  }
 
   return [
     /\bwhy do you think you would be (a )?good fit\b/,
@@ -453,9 +614,19 @@ function isLikelyInterviewQuestionText(text) {
     /\bwhat'?s the name of (our|the) company\b/,
     /\bwalk me through your (background|experience|resume|career)\b/,
     /\bcan you walk me through your (background|experience|resume|career)\b/,
+    /\bwalk me through\b.*\b(process|experience|time|project|crm|ticketing|workflow|system|systems|integration|efficiency)\b/,
+    /\btalk me through\b.*\b(process|experience|time|project|integration|system|systems|workflow)\b/,
     /\btell me about (a|one of your|your) (project|time|experience)\b/,
+    /\btell me about a time\b.*\b(align|aligned|stakeholder|stakeholders|conflict|conflicted|navigate|navigated|technical project)\b/,
+    /\bcan you describe a time\b.*\b(designed|maintained|built|implemented|integrated|integration|api|system|workflow|stakeholder|stakeholders)\b/,
     /\bcan you tell me about\b.*\b(project|experience|role|background|career)\b/,
+    /\bcan you tell me about a time\b.*\b(stakeholder|stakeholders|product|engineering|operations|priorities|conflicted|navigate|navigated)\b/,
     /\bcan you tell me how\b.*\b(architected|built|secured|securing|designed|implemented)\b/,
+    /\bhave you had (an )?experience\b.*\b(gen ai|generative ai|automation|tools|workflow|workflows|support|customer support)\b/,
+    /\bhow do you evaluate\b.*\b(downstream|systems|teams|impact|effects|process)\b/,
+    /\bwhat'?s your process\b.*\b(downstream|systems|teams|impact|effects)\b/,
+    /\b(api|crm|ticketing|customer experience|support)\b.*\b(integration|integrated|automation|workflow|workflows|optimized|efficiency)\b/,
+    /\b(product|engineering|operations|stakeholder|stakeholders)\b.*\b(align|alignment|conflict|conflicted|priorities|navigate|navigated)\b/,
     /\bcan you (give|share) (me )?an example\b/,
     /\bhow would you handle\b/,
     /\bwhat (are|is) your (strengths|weaknesses)\b/,
@@ -492,14 +663,15 @@ function isLikelyInterviewQuestionText(text) {
     }
   }
 
-  module.exports = {
-    deleteKnowledgeVectors,
-    getEmbedding,
-  searchResumeVectors,
+module.exports = {
+  deleteKnowledgeVectors,
   detectResumeQuestion,
   extractLikelyInterviewQuestion,
+  getEmbedding,
   resolveEmbeddingConfig,
   resolvePineconeConfig,
+  sanitizePineconeMetadata,
   searchKnowledgeVectors,
+  searchResumeVectors,
   upsertKnowledgeChunks
 };

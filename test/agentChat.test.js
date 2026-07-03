@@ -130,11 +130,111 @@ test('pro active context includes pinned files and pinecone matches', async () =
   assert.equal(result.message.content, 'Found Intercom context.');
 });
 
-test('pro all sources includes interview and meeting transcripts', async () => {
+test('pro active context scopes pinecone matches to the active Apollo entity', async () => {
+  const filters = [];
+  const agent = createAgentChat({
+    settings: {
+      userTier: 'pro',
+      llmProvider: 'local',
+      llmModel: 'model',
+      pineconeApiKey: 'pine',
+      pineconeHost: 'https://index.example'
+    },
+    knowledgeManager: { listKnowledge: () => [] },
+    sessionManager: {
+      getSessions: () => [{
+        id: 'apollo-1',
+        mode: 'interview',
+        entity: { id: 'apollo', name: 'Apollo' },
+        title: 'Apollo Support Operations Manager',
+        transcript: [{ speaker: 'Interviewer', text: 'Apollo onboarding question.' }]
+      }]
+    },
+    pineconeClient: {
+      searchKnowledgeVectors: async (_query, _settings, options) => {
+        filters.push(options.filter || null);
+        return [{
+          knowledgeId: 'apollo-1',
+          source: 'Apollo transcript',
+          text: 'Apollo onboarding context.'
+        }];
+      }
+    },
+    generateChat: async (request) => {
+      assert.match(request.messages[0].content, /Apollo onboarding context/);
+      assert.doesNotMatch(request.messages[0].content, /Sigma/);
+      return JSON.stringify({ message: { content: 'Apollo only.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-active-context',
+    message: 'What matters for Apollo?',
+    tier: 'pro',
+    mode: 'interview',
+    activeEntityId: 'apollo',
+    sourceMode: 'active-context'
+  });
+
+  assert.deepEqual(filters, [{
+    $or: [
+      {
+        mode: { $eq: 'interview' },
+        entityId: { $eq: 'apollo' }
+      },
+      {
+        entityId: { $in: ['', 'general'] }
+      }
+    ]
+  }]);
+  assert.equal(result.message.content, 'Apollo only.');
+});
+
+test('active context includes entity-scoped files', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'free', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: {
+      listEntityKnowledge: () => [{
+        id: 'upload:interview:acme:1',
+        filename: 'ACME brief.txt',
+        content: 'ACME uses Kafka for billing events.',
+        type: 'upload',
+        metadata: { mode: 'interview', entityId: 'acme' }
+      }]
+    },
+    sessionManager: { getSessions: () => [] },
+    generateChat: async (request) => {
+      assert.match(request.messages[0].content, /ACME brief\.txt/);
+      assert.match(request.messages[0].content, /Kafka for billing events/);
+      return JSON.stringify({ message: { content: 'Entity file included.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-entity-files',
+    message: 'What does ACME use?',
+    tier: 'free',
+    mode: 'interview',
+    activeEntityId: 'acme'
+  });
+
+  assert.equal(result.message.content, 'Entity file included.');
+});
+
+test('pro all sources includes interview, meeting, and uploaded knowledge files', async () => {
   const calls = [];
   const agent = createAgentChat({
     settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model', pinnedKnowledgeIds: ['pin-all'] },
     knowledgeManager: {
+      listKnowledge: (filters) => {
+        assert.deepEqual(filters, { type: 'upload' });
+        return [{
+          id: 'upload-zendesk',
+          filename: 'My Zendesk Number.txt',
+          content: 'Zendesk Number. 42',
+          type: 'upload'
+        }];
+      },
       getKnowledgeItem: (id) => (
         id === 'pin-all'
           ? { id, filename: 'Pinned all.txt', content: 'Pinned context should be included with all sources.' }
@@ -145,13 +245,13 @@ test('pro all sources includes interview and meeting transcripts', async () => {
       getSessions: (filters) => {
         calls.push(filters);
         if (filters.mode === 'interview') {
-          return [{
+          return Array.from({ length: 45 }, (_, index) => ({
             id: 'i1',
             mode: 'interview',
             entity: { id: 'apollo', name: 'Apollo' },
-            title: 'Recruiter Screen',
-            transcript: [{ speaker: 'Interviewer', text: 'Apollo interview transcript.' }]
-          }];
+            title: `Recruiter Screen ${index + 1}`,
+            transcript: [{ speaker: 'Interviewer', text: `Apollo interview transcript ${index + 1}.` }]
+          }));
         }
         return [{
           id: 'm1',
@@ -163,10 +263,10 @@ test('pro all sources includes interview and meeting transcripts', async () => {
       }
     },
     generateChat: async (request) => {
-      assert.match(request.messages[0].content, /Apollo interview transcript/);
-      assert.match(request.messages[0].content, /Meeting transcript/);
-      assert.match(request.messages[0].content, /Pinned context should be included/);
-      return JSON.stringify({ message: { content: 'Both transcript types included.', citations: [] }, pendingAction: null });
+      assert.match(request.messages[0].content, /Apollo interview transcript 1/);
+      assert.match(request.messages[0].content, /My Zendesk Number\.txt/);
+      assert.match(request.messages[0].content, /Zendesk Number\. 42/);
+      return JSON.stringify({ message: { content: 'All local sources included.', citations: [] }, pendingAction: null });
     }
   });
 
@@ -178,8 +278,37 @@ test('pro all sources includes interview and meeting transcripts', async () => {
   });
 
   assert.deepEqual(calls, [{ mode: 'interview' }, { mode: 'meeting' }]);
-  assert.equal(result.message.content, 'Both transcript types included.');
+  assert.equal(result.message.content, 'All local sources included.');
 });
+
+test('pro active and all sources include system knowledge documents', async () => {
+  const ids = [];
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: {
+      getKnowledgeItem: (id) => {
+        ids.push(id);
+        return { id, filename: `${id}.txt`, content: `${id} content` };
+      }
+    },
+    sessionManager: { getSessions: () => [] },
+    generateChat: async (request) => {
+      assert.match(request.messages[0].content, /system:opportunities-status content/);
+      assert.match(request.messages[0].content, /system:calendar-events content/);
+      return JSON.stringify({ message: { content: 'System docs included.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  const active = await agent.sendMessage({
+    sessionId: 'chat-pro-system-active',
+    message: 'How many rejections?',
+    tier: 'pro',
+    sourceMode: 'active-context'
+  });
+
+    assert.equal(active.message.content, 'System docs included.');
+    assert.deepEqual(ids, ['system:calendar-events', 'system:opportunities-status']);
+  });
 
 test('chat preserves short history for follow-up turns', async () => {
   const prompts = [];
@@ -199,6 +328,104 @@ test('chat preserves short history for follow-up turns', async () => {
   assert.match(prompts[1], /turn 1/);
 });
 
+test('pending action includes original user request for confirmation repair', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: { listKnowledge: () => [] },
+    generateChat: async () => JSON.stringify({
+      message: { content: 'I prepared the status update.', citations: [] },
+      pendingAction: {
+        id: 'action-1',
+        label: 'Update status',
+        summary: 'Update TeamViewer to rejected.',
+        actionType: 'updateOpportunity',
+        payload: { outcome: 'rejected' }
+      }
+    })
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-action-original-request',
+    message: 'change the status of the TeamViewer opportunity to Rejected',
+    tier: 'pro'
+  });
+
+  assert.equal(result.pendingAction.originalUserMessage, 'change the status of the TeamViewer opportunity to Rejected');
+  assert.equal(result.pendingAction.payload.originalUserMessage, 'change the status of the TeamViewer opportunity to Rejected');
+});
+
+test('pending action confirmation text uses the parsed calendar date instead of model text', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: { listKnowledge: () => [] },
+    generateChat: async () => JSON.stringify({
+      message: {
+        content: 'I have scheduled your interview with Etsy for tomorrow, May 27th, at 3:00 PM ET.',
+        citations: []
+      },
+      pendingAction: {
+        id: 'action-calendar',
+        label: 'Schedule interview',
+        summary: 'Schedule interview with Etsy for tomorrow, May 27th, at 3:00 PM ET.',
+        actionType: 'saveCalendarEvent',
+        payload: {
+          mode: 'interview',
+          entityName: 'Etsy',
+          title: 'Interview',
+          date: '2026-05-22T15:00:00.000'
+        }
+      }
+    })
+  });
+
+  const result = await agent.sendMessage({
+    sessionId: 'chat-calendar-date',
+    message: 'I have an interview tomorrow with Etsy at 3pm ET',
+    tier: 'pro'
+  });
+
+  assert.match(result.message.content, /May 22, 2026 at 3:00 PM/);
+  assert.doesNotMatch(result.message.content, /May 27th/);
+  assert.match(result.pendingAction.summary, /May 22, 2026 at 3:00 PM/);
+  assert.doesNotMatch(result.pendingAction.summary, /May 27th/);
+});
+
+test('confirmAction uses completed pending action payload from renderer form', async () => {
+  const agent = createAgentChat({
+    settings: { userTier: 'pro', llmProvider: 'local', llmModel: 'model' },
+    actionRegistry: {
+      confirmAction: async (action) => {
+        assert.equal(action.payload.date, '2026-05-22T15:00');
+        return { ok: true, changed: true, message: 'Saved.' };
+      }
+    },
+    generateChat: async () => JSON.stringify({
+      message: { content: 'Need a date.', citations: [] },
+      pendingAction: {
+        id: 'action-form',
+        label: 'Create event',
+        summary: 'Create event.',
+        actionType: 'saveCalendarEvent',
+        payload: { title: 'Weekly Sync' }
+      }
+    })
+  });
+
+  await agent.sendMessage({ sessionId: 'chat-form', message: 'Schedule Weekly Sync', tier: 'pro' });
+  const result = await agent.confirmAction({
+    actionId: 'action-form',
+    pendingAction: {
+      id: 'action-form',
+      label: 'Create event',
+      summary: 'Create event.',
+      actionType: 'saveCalendarEvent',
+      payload: { title: 'Weekly Sync', date: '2026-05-22T15:00' }
+    }
+  });
+
+  assert.equal(result.ok, true);
+});
+
 test('malformed chat JSON returns safe error response', async () => {
   const agent = createAgentChat({
     settings: { userTier: 'free', llmProvider: 'local', llmModel: 'model' },
@@ -211,4 +438,45 @@ test('malformed chat JSON returns safe error response', async () => {
   assert.equal(result.message.role, 'assistant');
   assert.match(result.message.content, /could not parse/i);
   assert.equal(result.pendingAction, null);
+});
+
+test('chat filters calendar events to include recent past and upcoming events relative to current time', async () => {
+  const now = new Date();
+  const pastEvents = Array.from({ length: 8 }, (_, idx) => {
+    const d = new Date(now.getTime() - (8 - idx) * 24 * 3600 * 1000); // 8 to 1 days ago
+    return { id: `past-${idx}`, title: `Past Event ${idx}`, date: d.toISOString(), entityName: idx % 2 === 0 ? 'Google' : '' };
+  });
+  const futureEvents = Array.from({ length: 12 }, (_, idx) => {
+    const d = new Date(now.getTime() + (idx + 1) * 24 * 3600 * 1000); // 1 to 12 days in the future
+    return { id: `future-${idx}`, title: `Future Event ${idx}`, date: d.toISOString(), entityName: idx % 2 === 0 ? 'Coda Search' : '' };
+  });
+  const calendarEvents = [...pastEvents, ...futureEvents];
+
+  const agent = createAgentChat({
+    settings: { userTier: 'free', llmProvider: 'local', llmModel: 'model' },
+    knowledgeManager: { listKnowledge: () => [] },
+    calendarStore: {
+      listEvents: () => calendarEvents
+    },
+    generateChat: async (request) => {
+      const systemPrompt = request.messages[0].content;
+      // Should contain the 5 most recent past events: past-3, past-4, past-5, past-6, past-7
+      assert.doesNotMatch(systemPrompt, /past-2/);
+      assert.match(systemPrompt, /past-3/);
+      assert.match(systemPrompt, /past-7/);
+      
+      // Should contain the 10 next upcoming events: future-0 to future-9
+      assert.match(systemPrompt, /future-0/);
+      assert.match(systemPrompt, /future-9/);
+      assert.doesNotMatch(systemPrompt, /future-10/);
+
+      // Verify company metadata formatting
+      assert.match(systemPrompt, /past-4: Past Event 4 at .* \(Company: Google\)/);
+      assert.match(systemPrompt, /future-0: Future Event 0 at .* \(Company: Coda Search\)/);
+      
+      return JSON.stringify({ message: { content: 'Checked.', citations: [] }, pendingAction: null });
+    }
+  });
+
+  await agent.sendMessage({ sessionId: 'chat-calendar-filter', message: 'Show schedule' });
 });

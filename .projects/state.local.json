@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "project": {
+    "merchantId": "acct_1OJLAaBmOXAq5RyD",
+    "merchantDisplayName": null,
+    "projectId": "project_61UuO1rgRCoWWiQGL16Pjd9T4eSQ5tbgnwMbPxPEWBNA",
+    "projectName": "clyde",
+    "initializedAt": "2026-06-22T05:07:01.119Z"
+  },
+  "providers": {},
+  "resources": {}
+}

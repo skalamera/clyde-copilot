@@ -9,6 +9,10 @@ test('preload exposes mode-aware session APIs', () => {
   for (const api of [
     'getSessions',
     'saveSession',
+    'generateMockInterviewAssessment',
+    'saveMockInterview',
+    'listMockInterviews',
+    'deleteMockInterview',
     'deleteSession',
     'deleteSessionEntity',
     'updateSessionEntity',
@@ -29,12 +33,22 @@ test('preload exposes mode-aware session APIs', () => {
     'setAudioDevices',
     'onSessionDataChanged',
     'getTierStatus',
+    'getAuthSession',
+    'signUp',
+    'signIn',
+    'startProSignupCheckout',
+    'signOut',
+    'refreshAuthSession',
+    'getLicenseToken',
     'listKnowledge',
     'ingestKnowledgeFile',
     'deleteKnowledgeItem',
     'setPinnedKnowledge',
     'getPinnedKnowledge',
     'openKnowledgeFileDialog'
+    ,'openEntityFileDialog'
+    ,'listEntityFiles'
+    ,'removeEntityFile'
     ,'startAgentChat'
     ,'sendAgentChatMessage'
     ,'confirmAgentAction'
@@ -45,6 +59,14 @@ test('preload exposes mode-aware session APIs', () => {
     ,'saveCalendarEvent'
     ,'deleteCalendarEvent'
     ,'importCalendarEvents'
+    ,'connectGoogleSync'
+    ,'disconnectGoogleSync'
+    ,'getGoogleSyncStatus'
+    ,'scanGoogleSync'
+    ,'listSyncProposals'
+    ,'approveSyncProposal'
+    ,'dismissSyncProposal'
+    ,'listSyncAuditLog'
   ]) {
     assert.match(source, new RegExp(`${api}:`));
   }
@@ -64,9 +86,18 @@ test('preload exposes mode-aware session APIs', () => {
   assert.match(source, /listAudioDevices:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-audio-devices'\)/);
   assert.match(source, /setAudioDevices:\s*\(devices\)\s*=>\s*ipcRenderer\.invoke\('set-audio-devices', devices\)/);
   assert.match(source, /getTierStatus:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-tier-status'\)/);
+  assert.match(source, /signIn:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('sign-in', payload\)/);
+  assert.match(source, /startProSignupCheckout:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('start-pro-signup-checkout', payload\)/);
+  assert.match(source, /startCheckoutSession:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('start-checkout-session'\)/);
+  assert.match(source, /openBillingPortal:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-billing-portal'\)/);
+  assert.match(source, /getLicenseToken:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('get-license-token'\)/);
+  assert.match(source, /openUpgradePage:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-upgrade-page'\)/);
   assert.match(source, /listKnowledge:\s*\(filters\)\s*=>\s*ipcRenderer\.invoke\('list-knowledge', filters\)/);
   assert.match(source, /ingestKnowledgeFile:\s*\(filePath\)\s*=>\s*ipcRenderer\.invoke\('ingest-knowledge-file', filePath\)/);
+  assert.match(source, /deleteMockInterview:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\('delete-mock-interview', id\)/);
   assert.match(source, /openKnowledgeFileDialog:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('open-knowledge-file-dialog'\)/);
+  assert.match(source, /openEntityFileDialog:\s*\(context\)\s*=>\s*ipcRenderer\.invoke\('open-entity-file-dialog', context\)/);
+  assert.match(source, /connectGoogleSync:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('connect-google-sync'\)/);
   assert.match(source, /sendAgentChatMessage:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('send-agent-chat-message', payload\)/);
   assert.match(source, /confirmAgentAction:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\('confirm-agent-action', payload\)/);
   assert.match(source, /listCalendarEvents:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('list-calendar-events'\)/);
