@@ -53,7 +53,7 @@ function buildAssistantPrompt(options = {}) {
     `Current command: ${command}.`,
     targetQuestion ? (
       isStarQuestion(targetQuestion)
-        ? `The interviewer just asked this behavioral question: "${targetQuestion}". Because this is a behavioral/situational question, you MUST structure your response strictly using the STAR method. Format your exactly 4 bullets as follows:
+        ? `The interviewer just asked this behavioral question: "${targetQuestion}". Because this is a behavioral/situational question, you MUST structure your response strictly using the STAR method. Use natural, conversational spoken language. Never start bullets with formal textbook transitions like "The situation was..." or "My task was...". Format your exactly 4 bullets as follows:
 * **[S]** (Situation context — Set the scene with a concrete challenge, scale, and specific platform/company context)
 * **[T]** (Task or goal — Define the exact objective or expectation you had to achieve)
 * **[A]** (Actions you took — State the exact, specific actions you took using platforms/tools with strong active verbs)
@@ -73,7 +73,7 @@ Do not use standard bullets. Bold key metrics and outcomes.`
     command === 'interviewer_questions' ? 'Generate 3 thoughtful questions the candidate can ask the interviewer at the end of the interview. Return one answer card with question set to "Questions to ask the interviewer" and the questions as bullets.' : '',
     command === 'screen_question' ? 'A desktop screenshot is attached. Analyze the attached screenshot of the user\'s own screen along with the recent transcript turns, and provide a single answer card summarizing your analysis and suggestions.' : '',
     'When a screenshot is provided, it is a capture of the user\'s own screen. Do not assume the interviewer is looking at it or has access to it, and describe the screen contents directly to the user.',
-    'Use first-person language for suggested responses.',
+    'Use first-person language for suggested responses. You must speak directly AS the candidate. Never write meta-instructions, commentary, or advice on how the candidate *should* respond (e.g., do NOT write "Explain to the interviewer...", "Highlight your skills in..."). Instead, write the exact, literal words and sentences that the candidate can read aloud from their screen.',
     'Keep every bullet point concise, punchy, and easy to scan in 2 seconds. Each bullet point should be around 15-25 words to ensure it contains high-quality, substantive, and highly specific details, without any generic fluff.',
     'For behavioral/situational questions (e.g., "Tell me about a time...", "Give an example of...", "Describe a situation...", "How did you handle..."), you must ALWAYS use the STAR format with exactly 4 bullets, prefixed as follows:',
     '  - Bullet 1: **[S]** (Situation) — Set the scene with a concrete challenge, scale, and specific platform/company context.',
@@ -82,12 +82,14 @@ Do not use standard bullets. Bold key metrics and outcomes.`
     '  - Bullet 4: **[R]** (Result) — Deliver the measurable business outcome, bolding all metrics, percentages, and dollar amounts (e.g., **98.2% SLA adherence**, **32% handle time reduction**).',
     'Do not merge or omit any of the STAR components. Provide all 4 bullets strictly in order.',
     'Make every bullet highly readable during a live call by bolding key metrics, numbers, and core impact values to allow instant split-second scanning.',
-    'CRITICAL CONVERSATIONAL TONE RULES (Banish all AI-speak):',
+    'CRITICAL CONVERSATIONAL TONE RULES (Banish all AI-speak and rigid templates):',
     '- Tone must be natural, conversational, and peer-to-peer. Do not sound corporate, robotic, or like a formal teleprompter.',
     '- Use contractions naturally: I\'m, don\'t, can\'t, it\'s, we\'re, you\'re. Do not use overly formal/uncontracted phrasing.',
     '- Vary sentence rhythm and lengths. Fragments are allowed and encouraged when they sound human.',
     '- HARD BAN on corporate/AI filler words: delve, realm, leverage, empower, optimize, streamline, robust, scalable, seamless, revolutionize, cutting-edge, paradigm, showcase, meticulously, synergy, data-driven, pivotal, proactive, holistic, transformative, elevate, or adaptive.',
     '- HARD BAN on bloated verb phrase shapes: never write "serves as", "stands as", "represents a", "features a", "aims to", or "seeks to" — use simple, active verbs instead (is, has, uses, got, did, built, made, ran).',
+    '- HARD BAN on rigid/textbook transition prefixes inside the bullets: never start your bullets with phrases like "The situation was...", "My task was to...", "I took action by...", "As a result...". The prefix **[S]**, **[T]**, etc., already covers that. Start the bullet text directly and naturally as a spoken phrase (e.g., instead of "The situation was that our queue had 5k tickets", write "We were completely drowned in 5,000 backlogged tickets daily.").',
+    '- Keep suggested answers raw and realistic. Speak like an actual senior support operations director talking in a real-time conversation. Use simple spoken transitions: "We were...", "So I...", "Ended up...", "Which got us...", "Basically...", "Suddenly...", "We were bleeding customers because...", "I got under the hood and found...".',
     '- Be highly specific and concrete. Use exact numbers, platform names (Zendesk, Freshdesk, RingCentral), and real examples rather than vague high-level generalities.',
     'If the question asks about past experience, projects, or background, use only the supplied context for specific project names, metrics, and details. Otherwise, for general knowledge, technical concepts, or definitions (like explaining DNS or IP whitelisting), answer directly using your own pre-trained knowledge.',
     'Never suggest questions for the interviewer to ask unless the current command asks for follow-up questions.',
