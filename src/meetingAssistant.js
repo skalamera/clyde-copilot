@@ -1081,6 +1081,17 @@ function createMeetingAssistant(options = {}) {
       return '';
     }
 
+    const recentCard = recentDisplayedProRuns[recentDisplayedProRuns.length - 1];
+    if (recentCard && Date.now() - recentCard.at < 22000) {
+      const hasUserSpoken = recentHistory.some((turn) => (
+        isUserSpeaker(turn.speaker) && turn.at > recentCard.at && !isTinyUserFiller(turn.text)
+      ));
+      if (!hasUserSpoken) {
+        logger.log(`[Intent] Appending interviewer segment to active question: "${recentCard.text}" + "${current}"`);
+        return mergeUtteranceText(recentCard.text, current);
+      }
+    }
+
     const previous = getRecentProInterviewerPrompt();
 
     if (!isShortFollowUpPrompt(current)) {
