@@ -125,10 +125,12 @@ function createMeetingAssistant(options = {}) {
 
     if (recentHistory.length > 0 && recentHistory[recentHistory.length - 1].speaker === speaker) {
       recentHistory[recentHistory.length - 1].text += ' ' + text;
+      recentHistory[recentHistory.length - 1].at = Date.now();
     } else {
       recentHistory.push({
         speaker: speaker,
-        text: text
+        text: text,
+        at: Date.now()
       });
     }
 
@@ -1180,6 +1182,25 @@ function createMeetingAssistant(options = {}) {
     }
 
     pruneRecentDisplayedProRuns();
+
+    // Check if there is an active, very recently displayed card (within 22 seconds)
+    // and the user has not spoken since that card was displayed. If so, we treat
+    // this new prompt as a continuation of the same interviewer question turn,
+    // which allows us to update the existing card in place instead of creating a second card!
+    const recentCard = recentDisplayedProRuns[recentDisplayedProRuns.length - 1];
+    if (recentCard && recentCard.groupId !== groupId && Date.now() - recentCard.at < 22000) {
+      const hasUserSpoken = recentHistory.some((turn) => (
+        isUserSpeaker(turn.speaker) && turn.at > recentCard.at && !isTinyUserFiller(turn.text)
+      ));
+      if (!hasUserSpoken) {
+        logger.log(`[Intent] Interviewer is still speaking. Directing new segment to update existing card in-place (groupId: ${recentCard.groupId})`);
+        return {
+          groupId: recentCard.groupId,
+          text: recentCard.text
+        };
+      }
+    }
+
     return recentDisplayedProRuns.find((run) => (
       run.groupId !== groupId
       && isDuplicateRecentDisplayedQuestion(run.text, targetQuestion)
