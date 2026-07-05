@@ -2100,15 +2100,6 @@ function isDuplicateRecentDisplayedQuestion(displayedQuestion, targetQuestion) {
     return true;
   }
 
-  const displayedTokens = tokenSet(displayed.toLowerCase());
-  const targetTokens = tokenSet(target.toLowerCase());
-
-  // If the target question has more non-stopword tokens than the displayed question,
-  // it is a continuation or adds detail. It should not be skipped as a duplicate.
-  if (targetTokens.size > displayedTokens.size) {
-    return false;
-  }
-
   const displayedWords = displayed.split(/\s+/).filter(Boolean);
   const targetWords = target.split(/\s+/).filter(Boolean);
   const wordDelta = Math.abs(displayedWords.length - targetWords.length);
