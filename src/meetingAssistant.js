@@ -1922,7 +1922,7 @@ function hasLikelyCompleteInterviewerPrompt(text) {
 }
 
 function hasInterviewPromptCue(text) {
-  return /\b(can|could|would|what|why|how|when|where|who|which|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there|describe a|tell me about|another example|go deeper|going deeper|elaborate|elaborate on|give another)\b/i.test(text);
+  return /\b(can|could|would|what|why|how|when|where|who|which|tell me|walk me|talk me|describe|explain|share|give me|have you|do you|did you|are you|is there|was there|were there|describe a|tell me about|another example|go deeper|going deeper|elaborate|elaborate on|give another|time you|collaborat|conflict|handle|mentor|manage|difficult|decision|situation|challenge|achieve)\b/i.test(text);
 }
 
 function isInterviewerSetupChatter(text) {
@@ -2224,11 +2224,15 @@ function isDanglingPromptFragment(text) {
     || /\b(a|an|the|this|that|those|these|your|their|our|its)\s*$/i.test(value);
 
   if (endsWithPronounOrDeterminer) {
-    if (/\b(that|it)\s*$/i.test(value)) {
-      const hasActionableQuestionWord = /\b(how|what|why|who|when|where|which|do|did|does|can|could|would|should|is|are|was|were|have|has|had)\b/i.test(value);
-      const words = value.split(/\s+/).filter(Boolean);
-      if (hasActionableQuestionWord && words.length >= 5) {
-        return false;
+    if (/\b(that|it|this|these|those)\s*$/i.test(value)) {
+      const sentences = value.split(/[.!?]+/).map(s => s.trim()).filter(Boolean);
+      const lastSentence = sentences[sentences.length - 1] || '';
+      const lastSentenceHasQuestionWord = /\b(how|what|why|who|when|where|which|do|did|does|can|could|would|should|is|are|was|were|have|has|had|might)\b/i.test(lastSentence);
+      if (lastSentenceHasQuestionWord) {
+        const words = value.split(/\s+/).filter(Boolean);
+        if (words.length >= 5) {
+          return false;
+        }
       }
     }
     return true;
