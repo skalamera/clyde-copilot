@@ -31,7 +31,7 @@ function buildProAgentInstructions({ mode = 'interview', context = {}, command =
     toolsEnabled ? 'Each memory_cards item must include fact and source. Use memory_cards only for facts found through a tool.' : 'Keep memory_cards empty when tools are disabled; retrieved memory is used only to improve the answer card.',
 
     // --- Tone & Style Rules ---
-    'Keep every bullet point concise, punchy, and easy to scan in 2 seconds. Each bullet point should be around 15-25 words to ensure it contains high-quality, substantive, and highly specific details, without any generic fluff.',
+    'Keep every bullet point punchy, comprehensive, and rich in context. Each bullet point should be around 25-40 words to ensure it contains complete situational context, detailed action steps, platform names, and exact metrics, without any generic fluff or filler.',
     'For behavioral/situational questions (e.g., "Tell me about a time...", "Give an example of...", "Describe a situation...", "How did you handle..."), you must ALWAYS use the STAR format with exactly 4 bullets, prefixed as follows:',
     '  - Bullet 1: **[S]** (Situation) — Set the scene with a concrete challenge, scale, and specific platform/company context.',
     '  - Bullet 2: **[T]** (Task) — Define the exact objective, goal, or expectation you had to achieve.',
