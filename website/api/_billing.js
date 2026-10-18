@@ -653,7 +653,7 @@ export function generateByokLicenseKey(email) {
 }
 
 export async function sendByokLicenseEmail(email, licenseKey) {
-  const resendKey = process.env.RESEND_API_KEY || 're_SyCNFkdE_J3JwCGiw7pSkQ4PHjqiRLH9T';
+  const resendKey = process.env.RESEND_API_KEY;
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {

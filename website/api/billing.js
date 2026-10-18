@@ -374,7 +374,7 @@ async function handleDeleteAccount(req, res) {
     return;
   }
 
-  const resendKey = process.env.RESEND_API_KEY || 're_SyCNFkdE_J3JwCGiw7pSkQ4PHjqiRLH9T';
+  const resendKey = process.env.RESEND_API_KEY;
 
   // Send the deletion notification to Stephen's email
   const resendResponse = await fetch('https://api.resend.com/emails', {

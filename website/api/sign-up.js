@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     }
 
     // 2. Dispatch a beautiful Welcome Email via Resend API
-    const resendKey = process.env.RESEND_API_KEY || 're_SyCNFkdE_J3JwCGiw7pSkQ4PHjqiRLH9T';
+    const resendKey = process.env.RESEND_API_KEY;
     
     try {
       await fetch('https://api.resend.com/emails', {

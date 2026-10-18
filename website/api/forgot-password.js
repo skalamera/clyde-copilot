@@ -17,7 +17,7 @@ export default async function handler(req, res) {
 
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const resendKey = process.env.RESEND_API_KEY || 're_SyCNFkdE_J3JwCGiw7pSkQ4PHjqiRLH9T';
+    const resendKey = process.env.RESEND_API_KEY;
 
     if (!url || !key) {
       throw new Error('Supabase configuration is missing on server.');
