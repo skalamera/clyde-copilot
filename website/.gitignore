@@ -4,3 +4,6 @@ dist/
 public/downloads/*.exe
 
 .env*.local
+
+.vercel
+.env*
